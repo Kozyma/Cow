@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}홈 · 영농형 태양광 관리{% endblock %}
+{% block content %}
+
+<section class="stat">
+  <div class="lab">{{ year }}년 {{ month }}월 순이익</div>
+  <div class="fig {{ 'neg' if m_profit < 0 else '' }}">{{ won(m_profit) }}<span class="won">원</span></div>
+  <div class="pair">
+    <div class="cell in"><div class="k">수입</div><div class="v num">{{ won(m_income) }}</div></div>
+    <div class="cell out"><div class="k">지출</div><div class="v num">{{ won(m_expense) }}</div></div>
+  </div>
+</section>
+
+<section class="sec">
+  <div class="sec-h"><h2>이번 달 태양광</h2></div>
+  <div class="list">
+    <div class="li"><span class="dot sun"></span>
+      <div class="m"><div class="t">발전량</div><div class="d">{{ year }}년 {{ month }}월 누계</div></div>
+      <div class="x num">{{ '{:,.0f}'.format(month_kwh) }}<span class="u">kWh</span></div>
+    </div>
+    <div class="li"><span class="dot sun"></span>
+      <div class="m"><div class="t">발전수익</div><div class="d">예상 정산금</div></div>
+      <div class="x num">{{ won(month_revenue) }}<span class="u">원</span></div>
+    </div>
+  </div>
+</section>
+
+<section class="sec">
+  <div class="sec-h"><h2>진행중 품목</h2><span class="count">{{ active }}건</span></div>
+  {% if by_cat %}
+  <div class="chips">
+    {% for r in by_cat %}<span class="chip"><b>{{ r['category'] }}</b> {{ r['c'] }}건 · {{ '%g'|format(r['q']) }}</span>{% endfor %}
+  </div>
+  {% else %}
+  <div class="empty">아직 등록된 품목이 없습니다. ‘농축산’ 탭에서 추가해 보세요.</div>
+  {% endif %}
+</section>
+
+<section class="sec">
+  <div class="sec-h"><h2>최근 발전량 추이</h2><span class="count">최근 30일 · kWh</span></div>
+  <div class="chart-box">{{ chart|safe }}</div>
+</section>
+
+<section class="sec">
+  <div class="sec-h"><h2>{{ year }}년 누계</h2></div>
+  <div class="list">
+    <div class="li kv"><div class="m"><div class="t">수입</div></div><div class="x in num">{{ won(y_income) }}</div></div>
+    <div class="li kv"><div class="m"><div class="t">지출</div></div><div class="x out num">{{ won(y_expense) }}</div></div>
+    <div class="li kv"><div class="m"><div class="t">순이익</div></div>
+      <div class="x num {{ 'pos' if y_profit >= 0 else 'neg' }}">{{ won(y_profit) }}원</div></div>
+  </div>
+</section>
+{% endblock %}

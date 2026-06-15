@@ -1,0 +1,12 @@
+# 데이터/빌드 산출물 — 배포 저장소에 올리지 않음
+farm_data.db
+farm_data.db.bak
+*.db
+build/
+dist/
+__pycache__/
+*.pyc
+.DS_Store
+
+# 이전 UI 로컬 백업(저장소에 불필요)
+_ui_backup_prev/

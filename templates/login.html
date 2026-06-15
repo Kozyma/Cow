@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#ffffff">
+  <title>로그인 · 영농형 태양광 관리</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <main class="auth">
+    <div class="auth-card">
+      <div class="auth-mk"></div>
+      <h1>영농형 태양광 관리</h1>
+      <p class="lead">접속하려면 비밀번호를 입력하세요.</p>
+      {% if error %}<div class="flash error" style="margin-top:16px">{{ error }}</div>{% endif %}
+      <form method="post">
+        <input type="password" name="password" placeholder="비밀번호" autofocus required>
+        <button type="submit" class="btn" style="width:100%">로그인</button>
+      </form>
+    </div>
+  </main>
+</body>
+</html>

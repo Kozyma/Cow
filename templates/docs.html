@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}서류 바로가기 · 영농형 태양광 관리{% endblock %}
+{% block content %}
+<h1 class="h1">서류 바로가기</h1>
+<p class="lead">자주 쓰는 정부·공공 민원 사이트로 바로 이동합니다. 새 창에서 열립니다.</p>
+
+{% for icon, title, links in groups %}
+<section class="sec">
+  <div class="sec-h"><h2>{{ icon }} {{ title }}</h2></div>
+  <div class="list">
+    {% for name, desc, url in links %}
+    <a class="li" href="{{ url }}" target="_blank" rel="noopener noreferrer">
+      <div class="m"><div class="t">{{ name }}</div><div class="d">{{ desc }}</div></div>
+      <span class="arr"><svg viewBox="0 0 24 24"><path d="M7 17 17 7M9 7h8v8"/></svg></span>
+    </a>
+    {% endfor %}
+  </div>
+</section>
+{% endfor %}
+
+<div class="note-box">자주 쓰시는 관할 시·군·구청 민원실이나 농협·지역 조합 사이트가 있으면 알려주세요 — 이 목록에 바로 추가해 드립니다.</div>
+{% endblock %}

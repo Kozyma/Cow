@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% block title %}통계 · 영농형 태양광 관리{% endblock %}
+{% block content %}
+<h1 class="h1">통계</h1>
+<p class="lead">연도별 수입·지출과 월별 발전량을 한눈에 봅니다.</p>
+
+<form method="get" action="{{ url_for('reports') }}" class="yr">
+  <span>연도</span>
+  <select name="year" onchange="this.form.submit()">
+    {% for y in years %}<option value="{{ y }}" {{ 'selected' if y|int == year }}>{{ y }}년</option>{% endfor %}
+  </select>
+  <noscript><button class="mini">보기</button></noscript>
+</form>
+
+<section class="sec">
+  <div class="sec-h"><h2>월별 수입·지출</h2></div>
+  <div class="chart-box">{{ fin_chart|safe }}</div>
+
+  <div class="tiles" style="margin-top:14px">
+    <div class="tile"><div class="k">연 수입</div>
+      <div class="v num" style="color:var(--in)">{{ won(fin_year.income) }}<span class="u">원</span></div></div>
+    <div class="tile"><div class="k">연 지출</div>
+      <div class="v num" style="color:var(--out)">{{ won(fin_year.expense) }}<span class="u">원</span></div></div>
+    <div class="tile full"><div class="k">연 순이익</div>
+      <div class="v num {{ 'neg' if fin_year.net < 0 else '' }}">{{ won(fin_year.net) }}<span class="u">원</span></div></div>
+  </div>
+
+  <table class="rtab">
+    <thead><tr><th>월</th><th>수입</th><th>지출</th><th>순이익</th></tr></thead>
+    <tbody>
+    {% for r in fin_rows %}
+      <tr>
+        <td>{{ r.month }}월</td>
+        <td class="num in">{{ won(r.income) }}</td>
+        <td class="num out">{{ won(r.expense) }}</td>
+        <td class="num {{ 'neg' if r.net < 0 else 'pos' }}">{{ won(r.net) }}</td>
+      </tr>
+    {% else %}
+      <tr><td colspan="4" class="rtab-empty">기록이 없습니다.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section class="sec">
+  <div class="sec-h"><h2>월별 발전량</h2></div>
+  <div class="chart-box">{{ solar_chart|safe }}</div>
+
+  <div class="tiles" style="margin-top:14px">
+    <div class="tile"><div class="k">연 발전량</div>
+      <div class="v num">{{ '%g'|format(solar_year.kwh|round(1)) }}<span class="u">kWh</span></div></div>
+    <div class="tile"><div class="k">연 추정수익</div>
+      <div class="v num">{{ won(solar_year.revenue) }}<span class="u">원</span></div></div>
+  </div>
+
+  <table class="rtab">
+    <thead><tr><th>월</th><th>발전량(kWh)</th><th>추정수익(원)</th></tr></thead>
+    <tbody>
+    {% for r in solar_rows %}
+      <tr>
+        <td>{{ r.month }}월</td>
+        <td class="num">{{ '%g'|format(r.kwh|round(1)) }}</td>
+        <td class="num">{{ won(r.revenue) }}</td>
+      </tr>
+    {% else %}
+      <tr><td colspan="3" class="rtab-empty">기록이 없습니다.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section class="sec">
+  <div class="sec-h"><h2>가축 성장·판매</h2>
+    <span class="count">판매 {{ growth.sold_count }}건</span></div>
+  {% if growth.sold_count %}
+  <div class="tiles">
+    <div class="tile full">
+      <div class="k">평균 성장 (입식 → 출하)</div>
+      <div class="v">+{{ '%.1f'|format(growth.avg_growth) }}<span class="u">kg</span></div>
+    </div>
+    <div class="tile">
+      <div class="k">평균 입식 체중</div>
+      <div class="v">{{ '%.0f'|format(growth.avg_start_weight) }}<span class="u">kg</span></div>
+    </div>
+    <div class="tile">
+      <div class="k">평균 출하 체중</div>
+      <div class="v">{{ '%.0f'|format(growth.avg_sold_weight) }}<span class="u">kg</span></div>
+    </div>
+    <div class="tile">
+      <div class="k">평균 단가</div>
+      <div class="v">{{ won(growth.avg_price_per_kg) }}<span class="u">원/kg</span></div>
+    </div>
+    <div class="tile">
+      <div class="k">총 판매 금액</div>
+      <div class="v">{{ won(growth.total_amount) }}<span class="u">원</span></div>
+    </div>
+  </div>
+  {% else %}
+  <div class="empty">판매(출하) 기록이 없습니다.<br>농축산 화면에서 품목의 <b>판매</b> 버튼을 눌러 기록하세요.</div>
+  {% endif %}
+</section>
+{% endblock %}

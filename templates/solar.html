@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block title %}태양광 · 영농형 태양광 관리{% endblock %}
+{% block content %}
+<h1 class="h1">태양광</h1>
+<p class="lead">설비 단가를 설정하고 일별 발전량을 기록하면 예상 수익이 자동 계산됩니다.</p>
+
+<section class="sec">
+  <div class="sec-h"><h2>발전 설비 설정</h2></div>
+  <form method="post" action="{{ url_for('solar_settings') }}" class="form">
+    <div class="grid">
+      <label class="fld full"><span>농장 이름</span><input name="farm_name" value="{{ settings['farm_name'] }}" placeholder="예) 서천 햇살농장"></label>
+      <label class="fld"><span>설비 용량 (kW)</span><input name="capacity_kw" type="number" step="any" inputmode="decimal" value="{{ settings['capacity_kw'] }}"></label>
+      <label class="fld"><span>REC 가중치</span><input name="rec_weight" type="number" step="any" inputmode="decimal" value="{{ settings['rec_weight'] }}"></label>
+      <label class="fld"><span>SMP 단가 (원)</span><input name="smp_price" type="number" step="any" inputmode="decimal" value="{{ settings['smp_price'] }}"></label>
+      <label class="fld"><span>REC 단가 (원)</span><input name="rec_price" type="number" step="any" inputmode="decimal" value="{{ settings['rec_price'] }}"></label>
+    </div>
+    <p class="help">1kWh당 정산단가 = SMP + REC단가 × REC가중치 = <b>{{ '%g'|format(unit_revenue) }} 원/kWh</b></p>
+    <div class="actions"><button class="btn">설정 저장</button></div>
+  </form>
+</section>
+
+<section class="sec">
+  <div class="sec-h"><h2>일별 발전량 입력</h2></div>
+  <form method="post" action="{{ url_for('solar_add') }}" class="form">
+    <div class="grid">
+      <label class="fld"><span>날짜</span><input name="log_date" type="date" value="{{ today }}"></label>
+      <label class="fld"><span>발전량 (kWh)</span><input name="generation_kwh" type="number" step="any" inputmode="decimal" required placeholder="0"></label>
+      <label class="fld full"><span>메모</span><input name="note" placeholder="선택 입력"></label>
+    </div>
+    <div class="actions">
+      <button class="btn">기록 (같은 날짜는 덮어쓰기)</button>
+    </div>
+  </form>
+  <form method="post" action="{{ url_for('solar_sync') }}" class="actions" style="margin-top:12px">
+    <button class="btn line">💰 발전수익 재무 반영</button>
+  </form>
+  <p class="help">월별 발전량 × 단가를 재무의 ‘발전 정산금(자동)’ 수입으로 반영합니다. (중복 없이 갱신)</p>
+</section>
+
+<section class="sec">
+  <div class="sec-h"><h2>발전 기록</h2></div>
+  <div class="list">
+    {% for r in rows %}
+    <div class="li"><span class="dot sun"></span>
+      <div class="m">
+        <div class="t num">{{ '%g'|format(r['generation_kwh']) }} <span class="d" style="display:inline">kWh</span></div>
+        <div class="d">{{ r['log_date'] }}{% if r['note'] %} · {{ r['note'] }}{% endif %}</div>
+      </div>
+      <div class="x num">{{ won(r['revenue']) }}<span class="u">원</span></div>
+      <div class="act">
+        <form method="post" action="{{ url_for('solar_delete', row_id=r['id']) }}"
+              onsubmit="return confirm('이 기록을 삭제할까요?');"><button class="mini del">삭제</button></form>
+      </div>
+    </div>
+    {% else %}
+    <div class="empty">발전 기록이 없습니다.</div>
+    {% endfor %}
+  </div>
+</section>
+{% endblock %}

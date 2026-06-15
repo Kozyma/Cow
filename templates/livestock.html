@@ -1,0 +1,170 @@
+{% extends "base.html" %}
+{% block title %}농축산 · 영농형 태양광 관리{% endblock %}
+{% block content %}
+<h1 class="h1">농축산</h1>
+<p class="lead">사육·재배 품목을 등록하고 영농 일지를 기록합니다.</p>
+
+<nav class="subtabs" data-default="items">
+  <button type="button" data-tab="items">품목</button>
+  <button type="button" data-tab="log">영농일지</button>
+</nav>
+
+{# ── 품목 탭 ──────────────────────────────────────────── #}
+<div class="tabpane" data-pane="items">
+<section class="sec">
+  <div class="sec-h"><h2>{{ '품목 수정' if edit_row else '품목 추가' }}</h2></div>
+  <form method="post" action="{{ url_for('livestock_save') }}" class="form">
+    {% if edit_row %}<input type="hidden" name="id" value="{{ edit_row['id'] }}">{% endif %}
+    <div class="grid">
+      <label class="fld"><span>구분</span>
+        <select name="category">{% for c in CATEGORIES %}<option value="{{ c }}" {{ 'selected' if edit_row and edit_row['category']==c }}>{{ c }}</option>{% endfor %}</select>
+      </label>
+      <label class="fld"><span>상태</span>
+        <select name="status">{% for s in ['진행중','종료'] %}<option value="{{ s }}" {{ 'selected' if edit_row and edit_row['status']==s }}>{{ s }}</option>{% endfor %}</select>
+      </label>
+      <label class="fld full"><span>품목명</span>
+        <input name="name" required value="{{ edit_row['name'] if edit_row else '' }}" placeholder="한우 / 벼 / 고추 …">
+      </label>
+      <label class="fld"><span>수량</span>
+        <input name="quantity" type="number" step="any" inputmode="decimal" value="{{ edit_row['quantity'] if edit_row else '' }}" placeholder="0">
+      </label>
+      <label class="fld"><span>단위</span>
+        <input name="unit" value="{{ edit_row['unit'] if edit_row else '' }}" placeholder="두 / ㎡ / 주">
+      </label>
+      <label class="fld full" id="weightFld" data-cat-only="가축"><span>입식 체중 (kg) · 가축</span>
+        <input name="weight_kg" type="number" step="any" inputmode="decimal"
+               value="{{ edit_row['weight_kg'] if edit_row and edit_row['weight_kg'] else '' }}"
+               placeholder="등록 시 체중 — 성장 통계의 기준이 됩니다">
+      </label>
+      <label class="fld full"><span>시작일</span>
+        <input name="start_date" type="date" value="{{ edit_row['start_date'] if edit_row else today }}">
+      </label>
+      <label class="fld full"><span>메모</span>
+        <input name="note" value="{{ edit_row['note'] if edit_row else '' }}" placeholder="선택 입력">
+      </label>
+    </div>
+    <div class="actions">
+      <button type="submit" class="btn">{{ '수정 저장' if edit_row else '품목 추가' }}</button>
+      {% if edit_row %}<a class="btn sec" href="{{ url_for('livestock') }}">취소</a>{% endif %}
+    </div>
+  </form>
+</section>
+
+<section class="sec">
+  <div class="sec-h"><h2>품목 목록</h2><span class="count">{{ items|length }}건</span></div>
+  <div class="list">
+    {% for r in items %}
+    <div class="li"><span class="dot {{ 'gray' if r['category']!='가축' else '' }}"></span>
+      <div class="m">
+        <div class="t">{{ r['name'] }}<span class="tag {{ 'on' if r['status']=='진행중' else 'off' }}">{{ r['status'] }}</span></div>
+        <div class="d">{{ r['category'] }} · {{ '%g'|format(r['quantity']) }}{{ r['unit'] or '' }}
+          {%- if r['weight_kg'] %} · 입식 {{ '%g'|format(r['weight_kg']) }}kg{% endif %}
+          {%- if r['start_date'] %} · {{ r['start_date'] }}{% endif %}{% if r['note'] %} · {{ r['note'] }}{% endif %}</div>
+        {% if r['sold_date'] %}
+        <div class="d">🏷 {{ r['sold_date'] }} 판매
+          {%- if r['sold_amount'] %} · {{ won(r['sold_amount']) }}원{% endif %}
+          {%- if r['sold_weight_kg'] %} · 출하 {{ '%g'|format(r['sold_weight_kg']) }}kg
+            {%- if r['weight_kg'] %} (성장 +{{ '%g'|format(r['sold_weight_kg'] - r['weight_kg']) }}kg){% endif %}
+          {%- endif %}</div>
+        {% endif %}
+      </div>
+      <div class="act">
+        <button type="button" class="mini sell-btn"
+                data-id="{{ r['id'] }}" data-name="{{ r['name'] }}"
+                data-amount="{{ r['sold_amount'] or '' }}"
+                data-weight="{{ r['sold_weight_kg'] or '' }}"
+                data-date="{{ r['sold_date'] or today }}">판매</button>
+        <a class="mini" href="{{ url_for('livestock', edit=r['id']) }}">수정</a>
+        <form method="post" action="{{ url_for('livestock_delete', row_id=r['id']) }}"
+              onsubmit="return confirm('이 품목을 삭제할까요?');"><button class="mini del">삭제</button></form>
+      </div>
+    </div>
+    {% else %}
+    <div class="empty">품목이 없습니다.</div>
+    {% endfor %}
+  </div>
+</section>
+</div>
+
+{# ── 영농일지 탭 ──────────────────────────────────────── #}
+<div class="tabpane" data-pane="log" hidden>
+<section class="sec">
+  <div class="sec-h"><h2>영농 일지 기록</h2></div>
+  <form method="post" action="{{ url_for('farmlog_add') }}" class="form">
+    <div class="grid">
+      <label class="fld"><span>날짜</span><input name="log_date" type="date" value="{{ today }}"></label>
+      <label class="fld"><span>품목</span>
+        <select name="livestock_id"><option value="">- 전체/미지정 -</option>
+          {% for id, label in choices %}<option value="{{ id }}">{{ label }}</option>{% endfor %}</select>
+      </label>
+      <label class="fld full"><span>활동</span>
+        <select name="activity">{% for a in ACTIVITIES %}<option value="{{ a }}">{{ a }}</option>{% endfor %}</select>
+      </label>
+      <label class="fld"><span>수량</span><input name="quantity" type="number" step="any" inputmode="decimal" placeholder="0"></label>
+      <label class="fld"><span>단위</span><input name="unit" placeholder="kg …"></label>
+      <label class="fld full"><span>메모</span><input name="note" placeholder="선택 입력"></label>
+    </div>
+    <div class="actions"><button class="btn">일지 추가</button></div>
+  </form>
+</section>
+
+<section class="sec">
+  <div class="sec-h"><h2>영농 일지</h2><span class="count">{{ total_logs }}건</span></div>
+  <div class="list">
+    {% for r in logs %}
+    <div class="li"><span class="dot gray"></span>
+      <div class="m">
+        <div class="t">{{ r['activity'] }}{% if r['quantity'] %} · {{ '%g'|format(r['quantity']) }}{{ r['unit'] or '' }}{% endif %}</div>
+        <div class="d">{{ r['log_date'] }} · {{ (r['livestock_category'] ~ ' ' ~ r['livestock_name']) if r['livestock_name'] else '미지정' }}{% if r['note'] %} · {{ r['note'] }}{% endif %}</div>
+      </div>
+      <div class="act">
+        <form method="post" action="{{ url_for('farmlog_delete', row_id=r['id']) }}"
+              onsubmit="return confirm('이 일지를 삭제할까요?');"><button class="mini del">삭제</button></form>
+      </div>
+    </div>
+    {% else %}
+    <div class="empty">기록이 없습니다.</div>
+    {% endfor %}
+  </div>
+
+  {% if log_pages > 1 %}
+  <div class="pager">
+    {% if logp > 1 %}<a class="pg" href="{{ url_for('livestock', logp=logp-1) }}#log">‹</a>
+    {% else %}<span class="pg off">‹</span>{% endif %}
+    <span class="pg-n">{{ logp }} / {{ log_pages }}</span>
+    {% if logp < log_pages %}<a class="pg" href="{{ url_for('livestock', logp=logp+1) }}#log">›</a>
+    {% else %}<span class="pg off">›</span>{% endif %}
+  </div>
+  {% endif %}
+</section>
+</div>
+
+{# ── 판매 입력 팝업 ──────────────────────────────────── #}
+<dialog id="sellDialog" class="modal">
+  <form method="post" id="sellForm" class="form">
+    <div class="modal-h">
+      <h3>품목 판매</h3>
+      <button type="button" class="ibtn" data-close aria-label="닫기">
+        <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg>
+      </button>
+    </div>
+    <p class="lead" id="sellName">품목</p>
+    <div class="grid">
+      <label class="fld"><span>판매일</span>
+        <input name="sold_date" id="sellDate" type="date" value="{{ today }}"></label>
+      <label class="fld"><span>판매 금액 (원)</span>
+        <input name="sold_amount" id="sellAmount" type="number" step="any" inputmode="numeric" placeholder="얼마에 팔았나요?"></label>
+      <label class="fld full"><span>출하 체중 (kg)</span>
+        <input name="sold_weight_kg" id="sellWeight" type="number" step="any" inputmode="decimal" placeholder="몇 kg까지 성장했나요?"></label>
+      <label class="fld full"><span>메모</span>
+        <input name="note" id="sellNote" placeholder="선택 입력 — 거래처 등"></label>
+    </div>
+    <label class="check"><input type="checkbox" name="add_to_finance" value="1" checked>
+      <span>재무에 수입으로 자동 반영</span></label>
+    <div class="actions">
+      <button type="submit" class="btn">판매 기록</button>
+      <button type="button" class="btn sec" data-close>취소</button>
+    </div>
+  </form>
+</dialog>
+{% endblock %}

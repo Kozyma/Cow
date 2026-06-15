@@ -1,0 +1,177 @@
+{% extends "base.html" %}
+{% block title %}재무 · 영농형 태양광 관리{% endblock %}
+{% block content %}
+{% set deftab = 'support' if support_edit else 'tx' %}
+
+<section class="stat">
+  <div class="lab">전체 순이익</div>
+  <div class="fig {{ 'neg' if profit < 0 else '' }}">{{ won(profit) }}<span class="won">원</span></div>
+  <div class="pair">
+    <div class="cell in"><div class="k">총수입</div><div class="v num">{{ won(income) }}</div></div>
+    <div class="cell out"><div class="k">총지출</div><div class="v num">{{ won(expense) }}</div></div>
+  </div>
+</section>
+
+<nav class="subtabs" data-default="{{ deftab }}">
+  <button type="button" data-tab="tx">거래</button>
+  <button type="button" data-tab="tax">세금</button>
+  <button type="button" data-tab="support">지원사업</button>
+</nav>
+
+{# ── 거래 탭 ──────────────────────────────────────────── #}
+<div class="tabpane" data-pane="tx" {{ 'hidden' if deftab != 'tx' }}>
+<section class="sec">
+  <div class="sec-h"><h2>{{ '거래 수정' if edit_row else '거래 추가' }}</h2></div>
+  <form method="post" action="{{ url_for('finance_save') }}" class="form">
+    {% if edit_row %}<input type="hidden" name="id" value="{{ edit_row['id'] }}">{% endif %}
+    <div class="grid">
+      <label class="fld"><span>날짜</span><input name="tx_date" type="date" value="{{ edit_row['tx_date'] if edit_row else today }}"></label>
+      <label class="fld"><span>구분</span>
+        <select name="tx_type">{% for t in FIN_TYPES %}<option value="{{ t }}" {{ 'selected' if edit_row and edit_row['tx_type']==t }}>{{ t }}</option>{% endfor %}</select>
+      </label>
+      <label class="fld"><span>부문</span>
+        <select name="sector">{% for s in FIN_SECTORS %}<option value="{{ s }}" {{ 'selected' if edit_row and edit_row['sector']==s }}>{{ s }}</option>{% endfor %}</select>
+      </label>
+      <label class="fld"><span>금액 (원)</span>
+        <input name="amount" type="number" step="1" inputmode="numeric" value="{{ edit_row['amount'] if edit_row else '' }}" placeholder="0">
+      </label>
+      <label class="fld full"><span>항목</span>
+        <input name="item" required value="{{ edit_row['item'] if edit_row else '' }}" placeholder="한우 출하, 사료 구입 …">
+      </label>
+      <label class="fld full"><span>메모</span>
+        <input name="note" value="{{ edit_row['note'] if edit_row else '' }}" placeholder="선택 입력">
+      </label>
+    </div>
+    <div class="actions">
+      <button class="btn">{{ '수정 저장' if edit_row else '거래 추가' }}</button>
+      {% if edit_row %}<a class="btn sec" href="{{ url_for('finance') }}">취소</a>{% endif %}
+    </div>
+  </form>
+</section>
+
+<section class="sec">
+  <div class="sec-h"><h2>거래 내역</h2></div>
+  {% for date, items, net in groups %}
+  <div class="dgrp">
+    <span class="dd">{{ date|md }}</span>
+    <span class="dw {{ {'토':'sat','일':'sun'}.get(date|wday,'') }}">{{ date|wday }}</span>
+    <span class="dn num">{{ won(net) }}원</span>
+  </div>
+  <div class="list">
+    {% for r in items %}
+    {% set is_in = r['tx_type'] == '수입' %}
+    <div class="li">
+      <span class="dot {{ 'sun' if r['sector']=='태양광' else ('gray' if r['sector']=='공통' else '') }}"></span>
+      <div class="m">
+        <div class="t">{{ r['item'] }}{% if r['auto_key'] %}<span class="auto">자동</span>{% endif %}</div>
+        <div class="d">{{ r['sector'] }}{% if r['note'] %} · {{ r['note'] }}{% endif %}</div>
+      </div>
+      <div class="x num {{ 'in' if is_in else 'out' }}">{{ '+' if is_in else '−' }}{{ won(r['amount']) }}</div>
+      <div class="act">
+        <a class="ibtn" href="{{ url_for('finance', edit=r['id']) }}" aria-label="수정">
+          <svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+        </a>
+        <form method="post" action="{{ url_for('finance_delete', row_id=r['id']) }}"
+              onsubmit="return confirm('이 거래를 삭제할까요?');">
+          <button class="ibtn del" aria-label="삭제">
+            <svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M6 7l1 13a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-13"/></svg>
+          </button>
+        </form>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty">아직 거래가 없습니다. 위에서 첫 거래를 추가해 보세요.</div>
+  {% endfor %}
+</section>
+</div>
+
+{# ── 세금 탭 ──────────────────────────────────────────── #}
+<div class="tabpane" data-pane="tax" {{ 'hidden' if deftab != 'tax' }}>
+<section class="sec">
+  <div class="sec-h"><h2>세금 자동계산</h2></div>
+  <form method="post" action="{{ url_for('tax_settings') }}" class="form">
+    <div class="grid">
+      <label class="fld"><span>부가가치세율 (%)</span>
+        <input name="vat_rate" type="number" step="any" inputmode="decimal" value="{{ tax_settings['vat_rate'] }}"></label>
+      <label class="fld"><span>종합소득세율 (%)</span>
+        <input name="income_tax_rate" type="number" step="any" inputmode="decimal" value="{{ tax_settings['income_tax_rate'] }}"></label>
+    </div>
+    <div class="actions"><button class="btn sec">세율 저장</button></div>
+  </form>
+
+  <div class="tiles" style="margin-top:16px">
+    <div class="tile">
+      <div class="k">부가세 추정 ({{ tax.year }})</div>
+      <div class="v">{{ won(tax.vat) }}<span class="u">원</span></div>
+    </div>
+    <div class="tile">
+      <div class="k">소득세 추정 ({{ tax.year }})</div>
+      <div class="v">{{ won(tax.income_tax) }}<span class="u">원</span></div>
+    </div>
+  </div>
+  <form method="post" action="{{ url_for('tax_sync') }}" class="actions" style="margin-top:12px">
+    <button class="btn line">🧾 추정 세금 재무 반영</button>
+  </form>
+  <p class="help">
+    부가세 = <b>태양광 매출 × {{ '%g'|format(tax.vat_rate) }}%</b>,
+    소득세 = <b>순이익 × {{ '%g'|format(tax.income_tax_rate) }}%</b> 로 추정합니다.
+    연도별 ‘부가가치세(추정)·종합소득세(추정)’ 지출로 반영됩니다(중복 없이 갱신, 세율 0이면 미반영).
+    실제 신고세액과 다를 수 있는 참고용 추정치입니다.
+  </p>
+</section>
+</div>
+
+{# ── 지원사업 탭 ──────────────────────────────────────── #}
+<div class="tabpane" data-pane="support" {{ 'hidden' if deftab != 'support' }}>
+<section class="sec">
+  <div class="sec-h"><h2>{{ '지원사업 수정' if support_edit else '지원사업 추가' }}</h2>
+    {% if support_sum.received or support_sum.pending %}
+    <span class="count">수령 {{ won(support_sum.received) }}원 · 진행 {{ won(support_sum.pending) }}원</span>
+    {% endif %}</div>
+  <form method="post" action="{{ url_for('support_save') }}" class="form">
+    {% if support_edit %}<input type="hidden" name="id" value="{{ support_edit['id'] }}">{% endif %}
+    <div class="grid">
+      <label class="fld full"><span>사업명</span>
+        <input name="name" required value="{{ support_edit['name'] if support_edit else '' }}" placeholder="예) 영농형 태양광 융자, 친환경농업 직불금 …"></label>
+      <label class="fld"><span>지원기관</span>
+        <input name="agency" value="{{ support_edit['agency'] if support_edit else '' }}" placeholder="서천군 / 에너지공단 …"></label>
+      <label class="fld"><span>신청일</span>
+        <input name="apply_date" type="date" value="{{ support_edit['apply_date'] if support_edit else today }}"></label>
+      <label class="fld"><span>지원금액 (원)</span>
+        <input name="amount" type="number" step="1" inputmode="numeric" value="{{ support_edit['amount'] if support_edit else '' }}" placeholder="0"></label>
+      <label class="fld"><span>상태</span>
+        <select name="status">{% for s in SUPPORT_STATUSES %}<option value="{{ s }}" {{ 'selected' if support_edit and support_edit['status']==s }}>{{ s }}</option>{% endfor %}</select>
+      </label>
+      <label class="fld full"><span>메모</span>
+        <input name="note" value="{{ support_edit['note'] if support_edit else '' }}" placeholder="선택 입력"></label>
+    </div>
+    <div class="actions">
+      <button class="btn">{{ '수정 저장' if support_edit else '지원사업 추가' }}</button>
+      {% if support_edit %}<a class="btn sec" href="{{ url_for('finance') }}">취소</a>{% endif %}
+    </div>
+  </form>
+  <p class="help">상태를 <b>‘수령’</b>으로 바꾸면 지원금액이 재무에 ‘공통’ 수입으로 자동 반영됩니다.</p>
+
+  <div class="list" style="margin-top:6px">
+    {% for s in supports %}
+    <div class="li"><span class="dot {{ 'gray' if s['status']!='수령' else '' }}"></span>
+      <div class="m">
+        <div class="t">{{ s['name'] }}<span class="tag {{ 'on' if s['status']=='수령' else 'off' }}">{{ s['status'] }}</span></div>
+        <div class="d">{% if s['agency'] %}{{ s['agency'] }} · {% endif %}{{ s['apply_date'] or '' }}{% if s['note'] %} · {{ s['note'] }}{% endif %}</div>
+      </div>
+      <div class="x num">{{ won(s['amount']) }}<span class="u">원</span></div>
+      <div class="act">
+        <a class="mini" href="{{ url_for('finance', support_edit=s['id']) }}#support">수정</a>
+        <form method="post" action="{{ url_for('support_delete', row_id=s['id']) }}"
+              onsubmit="return confirm('이 지원사업을 삭제할까요?');"><button class="mini del">삭제</button></form>
+      </div>
+    </div>
+    {% else %}
+    <div class="empty">등록된 지원사업이 없습니다.</div>
+    {% endfor %}
+  </div>
+</section>
+</div>
+{% endblock %}

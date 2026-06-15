@@ -1,0 +1,257 @@
+/* =========================================================
+   영농형 태양광 관리 — UI (모노크롬 · "Black & White")
+   클로드 디자인: 순백 배경 · 넓은 여백 · 헤어라인 · 타이포 중심.
+   장식 최소화, 색은 흑백 명도(블랙 강조 / 수입 블랙·지출 그레이).
+   ========================================================= */
+:root{
+  --bg:#ffffff; --sub:#fafafa;
+  --ink:#16181d; --ink-2:#646b73; --ink-3:#a0a6ad;
+  --line:#ededf0; --line-2:#f4f4f6;
+
+  --accent:#16181d; --accent-d:#000000; --accent-soft:#f0f0f2;
+  --in:#16181d; --out:#7a818a; --sun:#9aa0a6;
+
+  --r:14px; --r-sm:10px; --pill:999px;
+  --safe-b:env(safe-area-inset-bottom,0px);
+  --safe-t:env(safe-area-inset-top,0px);
+  --maxw:560px;
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{
+  margin:0; background:var(--bg); color:var(--ink);
+  font-family:-apple-system,BlinkMacSystemFont,"Pretendard","Pretendard Variable",
+              "Apple SD Gothic Neo","Noto Sans KR",system-ui,"Malgun Gothic",sans-serif;
+  font-size:16px; line-height:1.55; letter-spacing:-.015em;
+  padding-bottom:calc(66px + var(--safe-b));
+  -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility;
+}
+.num{font-variant-numeric:tabular-nums; font-feature-settings:"tnum"}
+a{color:var(--accent-d); text-decoration:none}
+.wrap{max-width:var(--maxw); margin:0 auto; width:100%; padding:0 20px}
+
+/* ── 상단 헤더 (순백 + 헤어라인) ───────────────────── */
+.top{position:sticky; top:0; z-index:20; background:rgba(255,255,255,.88);
+  backdrop-filter:saturate(180%) blur(14px); -webkit-backdrop-filter:saturate(180%) blur(14px);
+  border-bottom:1px solid var(--line); padding-top:var(--safe-t)}
+.top .wrap{display:flex; align-items:center; justify-content:space-between; height:54px}
+.word{display:flex; align-items:center; gap:9px; font-weight:700; font-size:1.02rem;
+  letter-spacing:-.02em; overflow:hidden; white-space:nowrap; text-overflow:ellipsis}
+.word .mk{width:20px; height:20px; border-radius:7px; flex:none;
+  background:var(--accent); position:relative}
+.word .mk::after{content:""; position:absolute; inset:6px; border-radius:50%;
+  background:#fff; opacity:.92}
+.menu details{position:relative}
+.menu summary{list-style:none; cursor:pointer; width:36px; height:36px; border-radius:9px;
+  display:flex; align-items:center; justify-content:center; color:var(--ink-2)}
+.menu summary:hover{background:var(--line-2)}
+.menu summary::-webkit-details-marker{display:none}
+.menu-pop{position:absolute; right:0; top:42px; background:#fff; color:var(--ink);
+  border:1px solid var(--line); border-radius:14px; box-shadow:0 18px 44px rgba(20,24,30,.14);
+  min-width:226px; padding:6px; display:flex; flex-direction:column; gap:1px; z-index:40}
+.menu-pop a,.menu-pop button{display:block; width:100%; text-align:left; padding:12px 12px;
+  border:0; background:none; font:inherit; font-size:.95rem; font-weight:500; color:var(--ink);
+  border-radius:9px; cursor:pointer}
+.menu-pop a:hover,.menu-pop button:hover{background:var(--line-2)}
+.menu-pop .danger{color:var(--out)}
+.menu-pop form{margin:0}
+
+/* ── 페이지 본문 ──────────────────────────────────── */
+.page{max-width:var(--maxw); margin:0 auto; padding:8px 20px 40px}
+.h1{font-size:1.9rem; font-weight:800; letter-spacing:-.04em; margin:18px 0 4px}
+.lead{color:var(--ink-2); font-size:.92rem; margin:0 0 6px; line-height:1.5}
+
+/* 플래시 */
+.flashes{margin:14px 0 0}
+.flash{padding:13px 15px; border-radius:12px; margin:8px 0; font-weight:600; font-size:.92rem;
+  display:flex; gap:9px; align-items:center; border:1px solid var(--line)}
+.flash.ok{background:var(--accent-soft); color:var(--accent-d); border-color:#d7d7da}
+.flash.error{background:#f4f4f6; color:#16181d; border-color:#d7d7da}
+.flash::before{content:""; width:7px; height:7px; border-radius:50%; background:currentColor; opacity:.6; flex:none}
+
+/* ── 요약(큰 숫자) ────────────────────────────────── */
+.stat{padding:24px 0 22px; border-bottom:1px solid var(--line)}
+.stat .lab{font-size:.84rem; color:var(--ink-2); font-weight:600}
+.stat .fig{font-size:2.7rem; font-weight:800; letter-spacing:-.05em; line-height:1.05; margin:6px 0 0}
+.stat .fig.neg{color:var(--out)}
+.stat .fig .won{font-size:1.05rem; font-weight:700; color:var(--ink-3); margin-left:5px; letter-spacing:-.02em}
+.stat .pair{display:flex; gap:28px; margin-top:18px}
+.stat .cell .k{font-size:.8rem; color:var(--ink-2); font-weight:600; display:flex; align-items:center; gap:6px}
+.stat .cell .k::before{content:""; width:7px; height:7px; border-radius:50%; background:var(--ink-3)}
+.stat .cell.in .k::before{background:var(--in)} .stat .cell.out .k::before{background:var(--out)}
+.stat .cell .v{font-size:1.2rem; font-weight:800; margin-top:4px; letter-spacing:-.02em}
+.stat .cell.in .v{color:var(--in)} .stat .cell.out .v{color:var(--out)}
+
+/* ── 섹션 ─────────────────────────────────────────── */
+.sec{padding:22px 0; border-bottom:1px solid var(--line)}
+.sec:last-child{border-bottom:0}
+.sec-h{display:flex; align-items:baseline; gap:8px; margin:0 0 6px}
+.sec-h h2{font-size:.82rem; font-weight:700; color:var(--ink-3); margin:0; letter-spacing:.02em; text-transform:uppercase}
+.sec-h .count{margin-left:auto; font-size:.82rem; font-weight:600; color:var(--ink-3); text-transform:none}
+
+/* ── 리스트(헤어라인 행, 카드 없음) ──────────────── */
+.list{margin-top:4px}
+.li{display:flex; align-items:center; gap:14px; padding:14px 0; border-bottom:1px solid var(--line-2)}
+.li:last-child{border-bottom:0}
+a.li{color:var(--ink)}
+.li .dot{width:9px; height:9px; border-radius:50%; flex:none; background:var(--accent); margin:0 1px}
+.li .dot.sun{background:var(--sun)} .li .dot.gray{background:var(--ink-3)}
+.li .m{min-width:0; flex:1}
+.li .t{font-weight:600; font-size:1rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  display:flex; align-items:center; gap:8px}
+.li .d{font-size:.82rem; color:var(--ink-3); margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+.li .x{flex:none; text-align:right; font-weight:800; font-size:1rem; letter-spacing:-.02em}
+.li .x .u{font-size:.76rem; color:var(--ink-3); font-weight:600; margin-left:3px}
+.li .act{display:flex; gap:7px; flex:none; align-items:center}
+.li .act form{margin:0}
+.li.kv .t{font-weight:500; color:var(--ink-2)}
+.empty{padding:30px 0; text-align:center; color:var(--ink-3); font-size:.92rem; line-height:1.6}
+
+.x.in{color:var(--in)} .x.out{color:var(--out)}
+.x.pos{color:var(--accent-d)} .x.neg{color:var(--out)}
+
+.tag{padding:2px 9px; border-radius:var(--pill); font-size:.72rem; font-weight:700; flex:none;
+  border:1px solid var(--line)}
+.tag.on{background:var(--accent-soft); color:var(--accent-d); border-color:#d7d7da}
+.tag.off{background:var(--sub); color:#868d94}
+.auto{padding:1px 7px; border-radius:6px; font-size:.67rem; font-weight:700; background:#ededf0; color:#454b50}
+.chips{display:flex; flex-wrap:wrap; gap:8px; margin-top:8px}
+.chip{border:1px solid var(--line); color:var(--ink); padding:7px 13px; border-radius:var(--pill);
+  font-size:.85rem; font-weight:600; background:#fff}
+.chip b{color:var(--accent-d); font-weight:700}
+
+/* 차트 */
+.chart-box{margin-top:8px}
+.chart{width:100%; height:auto; display:block}
+
+/* ── 폼 ───────────────────────────────────────────── */
+.form{margin-top:6px}
+.grid{display:grid; grid-template-columns:1fr 1fr; gap:14px 12px}
+.fld{display:flex; flex-direction:column; gap:7px}
+.fld.full{grid-column:1/-1}
+.fld > span{font-size:.79rem; font-weight:600; color:var(--ink-2); padding-left:1px}
+.fld input,.fld select{font:inherit; font-size:1rem; color:var(--ink); width:100%; min-height:50px;
+  padding:12px 13px; border:1px solid #dcdde1; border-radius:var(--r-sm); background:#fff;
+  -webkit-appearance:none; appearance:none}
+.fld input::placeholder{color:var(--ink-3)}
+.fld select{padding-right:38px;
+  background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='%23a0a6ad' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E") no-repeat right 12px center}
+.fld input:focus,.fld select:focus{outline:none; border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-soft)}
+.help{margin-top:14px; font-size:.84rem; color:var(--ink-2); line-height:1.5}
+.help b{color:var(--ink)}
+
+/* 버튼 */
+.actions{display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-top:18px}
+.btn{flex:1; min-width:130px; display:inline-flex; align-items:center; justify-content:center; gap:7px;
+  min-height:52px; padding:0 18px; border:1px solid var(--accent); border-radius:12px; font:inherit;
+  font-weight:700; font-size:1rem; cursor:pointer; background:var(--accent); color:#fff;
+  text-decoration:none; transition:filter .12s,background .12s; letter-spacing:-.01em}
+.btn:active{transform:translateY(.5px)}
+.btn:hover{filter:brightness(1.06)}
+.btn.sec{background:#fff; color:var(--ink); border-color:#dcdde1}
+.btn.line{background:#fff; color:var(--accent-d); border-color:#d7d7da}
+.btn.danger{background:#fff; color:var(--out); border-color:#d7d7da}
+.mini{min-height:36px; padding:7px 13px; border:1px solid var(--line); border-radius:9px; font:inherit;
+  font-weight:600; font-size:.82rem; cursor:pointer; background:#fff; color:var(--ink-2)}
+.mini.del{color:var(--out); border-color:#d7d7da}
+.ibtn{width:36px; height:36px; border:1px solid var(--line); border-radius:9px; cursor:pointer; padding:0;
+  display:inline-flex; align-items:center; justify-content:center; background:#fff; color:var(--ink-3)}
+.ibtn svg{width:17px; height:17px; stroke:currentColor; stroke-width:1.8; fill:none; stroke-linecap:round; stroke-linejoin:round}
+.ibtn.del:hover{color:var(--out); border-color:#d7d7da}
+
+/* 연도 선택 */
+.yr{display:flex; align-items:center; justify-content:space-between; gap:12px; padding:18px 0;
+  border-bottom:1px solid var(--line)}
+.yr span{font-size:.82rem; font-weight:700; color:var(--ink-3); text-transform:uppercase; letter-spacing:.02em}
+.yr select{font:inherit; font-size:1.05rem; font-weight:800; color:var(--ink); border:0; background:transparent;
+  -webkit-appearance:none; appearance:none; text-align:right; padding-right:22px; letter-spacing:-.02em;
+  background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='%2316181d' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E") no-repeat right center}
+
+/* 재무 날짜 그룹 */
+.dgrp{display:flex; align-items:baseline; gap:9px; margin:20px 0 2px; padding-top:6px}
+.dgrp .dd{font-size:1.02rem; font-weight:800; letter-spacing:-.02em}
+.dgrp .dw{font-size:.73rem; font-weight:700; color:#fff; background:var(--ink-3); border-radius:6px; padding:1px 7px}
+.dgrp .dw.sat{background:var(--in)} .dgrp .dw.sun{background:var(--out)}
+.dgrp .dn{margin-left:auto; font-size:.86rem; font-weight:700; color:var(--ink-2)}
+
+/* 서류 링크 */
+.arr{color:var(--ink-3); flex:none}
+.arr svg{width:18px; height:18px; stroke:currentColor; stroke-width:1.9; fill:none; stroke-linecap:round; stroke-linejoin:round}
+.note-box{border:1px solid var(--line); background:var(--sub); border-radius:var(--r); padding:15px 16px;
+  color:var(--ink-2); font-size:.88rem; margin-top:18px; line-height:1.55}
+
+/* ── 하단 탭 (순백 + 헤어라인) ─────────────────────── */
+.tabs{position:fixed; bottom:0; left:0; right:0; z-index:30; display:flex;
+  background:rgba(255,255,255,.92); backdrop-filter:saturate(180%) blur(14px);
+  -webkit-backdrop-filter:saturate(180%) blur(14px); border-top:1px solid var(--line);
+  padding:7px 6px calc(6px + var(--safe-b))}
+.tab{flex:1; display:flex; flex-direction:column; align-items:center; gap:3px; padding:4px 2px;
+  text-decoration:none; color:var(--ink-3); font-size:.66rem; font-weight:600}
+.tab svg{width:24px; height:24px; stroke:currentColor; stroke-width:1.7; fill:none; stroke-linecap:round; stroke-linejoin:round}
+.tab.on{color:var(--accent)}
+
+/* ── 로그인 ───────────────────────────────────────── */
+.auth{min-height:100svh; display:flex; align-items:center; justify-content:center; padding:22px; background:var(--bg)}
+.auth-card{width:100%; max-width:340px; text-align:center}
+.auth-mk{width:52px; height:52px; border-radius:15px; margin:0 auto 16px; background:var(--accent); position:relative}
+.auth-mk::after{content:""; position:absolute; inset:16px; border-radius:50%; background:#fff; opacity:.92}
+.auth-card h1{font-size:1.34rem; font-weight:800; letter-spacing:-.03em; margin:0 0 2px}
+.auth-card .lead{text-align:center; margin:6px 0 0}
+.auth-card form{display:flex; flex-direction:column; gap:11px; margin-top:20px}
+.auth-card input{padding:14px; border:1px solid #dcdde1; border-radius:12px; font:inherit; font-size:1rem;
+  min-height:52px; text-align:center}
+.auth-card input:focus{outline:none; border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-soft)}
+
+/* ── 모달(팝업) ───────────────────────────────────── */
+.modal{border:0; border-radius:18px; padding:0; width:calc(100% - 36px); max-width:440px;
+  background:#fff; color:var(--ink); box-shadow:0 24px 60px rgba(20,24,30,.22)}
+.modal::backdrop{background:rgba(20,24,30,.42); backdrop-filter:blur(2px)}
+.modal > form{margin:0; padding:20px}
+.modal-h{display:flex; align-items:center; justify-content:space-between; margin:0 0 2px}
+.modal-h h3{font-size:1.15rem; font-weight:800; letter-spacing:-.03em; margin:0}
+.modal .lead{margin:0 0 14px; font-weight:600; color:var(--ink)}
+.modal .actions{margin-top:18px}
+.check{display:flex; align-items:center; gap:9px; margin-top:14px; cursor:pointer;
+  font-size:.9rem; font-weight:600; color:var(--ink-2)}
+.check input{width:19px; height:19px; accent-color:var(--accent); flex:none}
+
+/* ── 하위 탭(세그먼트) ────────────────────────────── */
+.subtabs{display:flex; gap:4px; margin:18px 0 4px; padding:4px;
+  background:var(--line-2); border-radius:12px}
+.subtabs button{flex:1; min-height:40px; border:0; background:transparent; font:inherit;
+  font-weight:700; font-size:.92rem; color:var(--ink-2); border-radius:9px; cursor:pointer;
+  letter-spacing:-.01em; transition:background .12s,color .12s}
+.subtabs button.on{background:#fff; color:var(--ink); box-shadow:0 1px 3px rgba(20,24,30,.1)}
+.tabpane[hidden]{display:none}
+
+/* ── 통계: 요약 타일 ──────────────────────────────── */
+.tiles{display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:8px}
+.tile{border:1px solid var(--line); border-radius:var(--r); padding:14px 15px; background:var(--sub)}
+.tile.full{grid-column:1/-1}
+.tile .k{font-size:.78rem; font-weight:600; color:var(--ink-2)}
+.tile .v{font-size:1.5rem; font-weight:800; letter-spacing:-.03em; margin-top:3px}
+.tile .v .u{font-size:.86rem; font-weight:700; color:var(--ink-3); margin-left:3px}
+
+/* ── 페이지 넘김(< 1/2 >) ─────────────────────────── */
+.pager{display:flex; align-items:center; justify-content:center; gap:14px; padding:18px 0 2px}
+.pager .pg{display:inline-flex; align-items:center; justify-content:center; width:40px; height:40px;
+  border:1px solid var(--line); border-radius:10px; background:#fff; color:var(--ink);
+  font-size:1.15rem; font-weight:700; text-decoration:none}
+.pager .pg:hover{background:var(--line-2)}
+.pager .pg.off{color:var(--ink-3); border-color:var(--line-2); pointer-events:none}
+.pager .pg-n{font-size:.92rem; font-weight:700; color:var(--ink-2); min-width:58px; text-align:center;
+  font-variant-numeric:tabular-nums}
+
+/* ── 통계: 금액 표 ────────────────────────────────── */
+.rtab{width:100%; border-collapse:collapse; margin-top:16px; font-size:.9rem}
+.rtab th,.rtab td{padding:10px 6px; text-align:right; border-bottom:1px solid var(--line-2)}
+.rtab th:first-child,.rtab td:first-child{text-align:left; font-weight:700}
+.rtab thead th{font-size:.76rem; font-weight:700; color:var(--ink-3); text-transform:uppercase;
+  letter-spacing:.02em; border-bottom:1px solid var(--line)}
+.rtab td.in{color:var(--in)} .rtab td.out{color:var(--out)}
+.rtab td.pos{color:var(--accent-d)} .rtab td.neg{color:var(--out)}
+.rtab td.num{font-weight:700; font-variant-numeric:tabular-nums}
+.rtab-empty{text-align:center !important; color:var(--ink-3); font-weight:500; padding:20px 0}
+.v.neg{color:var(--out)}
+
+@media (min-width:641px){ :root{--maxw:620px} }
