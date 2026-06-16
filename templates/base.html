@@ -42,6 +42,12 @@
                       data-current="{{ farm_name or '영농형 태양광 관리' }}">이름(농장명) 변경</button>
             </form>
             <a href="{{ url_for('export_csv') }}">데이터 내보내기 (CSV·ZIP)</a>
+            <a href="{{ url_for('backup_db') }}">데이터 백업 (.db 내려받기)</a>
+            <form method="post" action="{{ url_for('restore_db') }}" enctype="multipart/form-data" id="restoreForm">
+              <input type="file" name="dbfile" id="restoreInput" accept=".db" hidden
+                     onchange="if(this.value){if(confirm('현재 데이터를 이 파일로 덮어씁니다. 계속할까요?')) this.form.submit(); else this.value='';}">
+              <button type="button" onclick="document.getElementById('restoreInput').click()">데이터 복원 (.db 올리기)</button>
+            </form>
             <form method="post" action="{{ url_for('seed_sample') }}">
               <button type="submit">예시 데이터 채우기</button>
             </form>

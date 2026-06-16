@@ -105,6 +105,48 @@ document.addEventListener('click', (e) => {
   });
 })();
 
+// 홈 날씨 위젯 (Open-Meteo, 키 불필요 · 브라우저에서 직접 호출)
+(() => {
+  const wx = document.getElementById('wx');
+  if (!wx) return;
+  const lat = wx.dataset.lat, lon = wx.dataset.lon;
+  const url = 'https://api.open-meteo.com/v1/forecast'
+    + `?latitude=${lat}&longitude=${lon}`
+    + '&daily=weather_code,temperature_2m_max,temperature_2m_min'
+    + '&timezone=Asia%2FSeoul&forecast_days=2';
+  const icon = (c) => {
+    if (c === 0) return ['☀', '맑음'];
+    if (c <= 2) return ['⛅', '구름조금'];
+    if (c === 3) return ['☁', '흐림'];
+    if (c <= 48) return ['🌫', '안개'];
+    if (c <= 57) return ['🌦', '이슬비'];
+    if (c <= 67) return ['🌧', '비'];
+    if (c <= 77) return ['🌨', '눈'];
+    if (c <= 82) return ['🌦', '소나기'];
+    if (c <= 86) return ['🌨', '눈'];
+    return ['⛈', '뇌우'];
+  };
+  const rows = wx.querySelectorAll('.wx-row');
+  fetch(url)
+    .then((r) => r.json())
+    .then((d) => {
+      const dd = d.daily;
+      [0, 1].forEach((i) => {
+        if (!rows[i] || dd.temperature_2m_max[i] == null) return;
+        const [ic, label] = icon(dd.weather_code[i]);
+        const hi = Math.round(dd.temperature_2m_max[i]);
+        const lo = Math.round(dd.temperature_2m_min[i]);
+        rows[i].querySelector('.wx-ic').textContent = ic;
+        rows[i].querySelector('.wx-ic').title = label;
+        rows[i].querySelector('.wx-t').textContent = `${hi}° / ${lo}°`;
+      });
+    })
+    .catch(() => {
+      wx.querySelectorAll('.wx-t').forEach((e) => { e.textContent = '—'; });
+      wx.title = '날씨 정보를 불러올 수 없습니다(오프라인)';
+    });
+})();
+
 // 서비스워커 등록 (휴대폰 홈 화면 설치 + 오프라인 캐시)
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {

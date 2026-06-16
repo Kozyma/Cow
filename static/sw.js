@@ -2,7 +2,7 @@
 // 정적 자산은 stale-while-revalidate(캐시 즉시 + 백그라운드 갱신),
 // 데이터(페이지/폼)는 네트워크 우선.
 // ※ 코드(css/js)를 고치면 이 버전 숫자를 올려야 옛 캐시가 정리됩니다.
-const CACHE = 'farm-solar-v3';
+const CACHE = 'farm-solar-v5';
 const ASSETS = [
   '/static/style.css',
   '/static/app.js',
@@ -27,6 +27,7 @@ self.addEventListener('fetch', (e) => {
   const req = e.request;
   if (req.method !== 'GET') return; // 폼 전송(POST)은 항상 네트워크로
   const url = new URL(req.url);
+  if (url.origin !== self.location.origin) return; // 외부 API(날씨 등)는 그대로 통과
 
   if (url.pathname.startsWith('/static/')) {
     // 정적 파일: stale-while-revalidate

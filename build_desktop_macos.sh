@@ -45,6 +45,18 @@ echo "==> 빌드 시작 (몇 분 걸릴 수 있습니다)..."
   desktop.py
 
 rm -f build_AppIcon.icns
+
+# Kozyma 자체서명(키체인에 "Kozyma" 인증서가 있을 때만). 없으면 ad-hoc 유지.
+echo "==> Kozyma 서명 시도..."
+if codesign --force --deep --sign "Kozyma" --identifier "com.kozyma.farmsolar" \
+     dist/FarmSolarManager.app 2>/dev/null; then
+  echo "   서명자: Kozyma ✅"
+else
+  echo "   (Kozyma 인증서 없음 → ad-hoc 서명 유지. 자체서명 생성법은 README 참고)"
+fi
+# 내 Mac에서 경고 없이 열리도록 quarantine 속성 제거
+xattr -dr com.apple.quarantine dist/FarmSolarManager.app 2>/dev/null || true
+
 echo ""
 echo "✅ 빌드 완료!  →  $(pwd)/dist/FarmSolarManager.app"
 echo "   • 더블클릭하면 브라우저가 열리고 바로 사용할 수 있습니다."

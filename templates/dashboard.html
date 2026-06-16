@@ -2,9 +2,24 @@
 {% block title %}홈 · 영농형 태양광 관리{% endblock %}
 {% block content %}
 
+<nav class="subtabs" data-default="money">
+  <button type="button" data-tab="money">수익</button>
+  <button type="button" data-tab="sched">일정</button>
+</nav>
+
+{# ── 수익 탭 ──────────────────────────────────────────── #}
+<div class="tabpane" data-pane="money">
 <section class="stat">
-  <div class="lab">{{ year }}년 {{ month }}월 순이익</div>
-  <div class="fig {{ 'neg' if m_profit < 0 else '' }}">{{ won(m_profit) }}<span class="won">원</span></div>
+  <div class="stat-top">
+    <div class="stat-main">
+      <div class="lab">{{ year }}년 {{ month }}월 순이익</div>
+      <div class="fig {{ 'neg' if m_profit < 0 else '' }}">{{ won(m_profit) }}<span class="won">원</span></div>
+    </div>
+    <div class="wx" id="wx" data-lat="36.0776" data-lon="126.6919" title="서천군 날씨">
+      <div class="wx-row"><span class="wx-day">오늘</span><span class="wx-ic">·</span><span class="wx-t">—</span></div>
+      <div class="wx-row"><span class="wx-day">내일</span><span class="wx-ic">·</span><span class="wx-t">—</span></div>
+    </div>
+  </div>
   <div class="pair">
     <div class="cell in"><div class="k">수입</div><div class="v num">{{ won(m_income) }}</div></div>
     <div class="cell out"><div class="k">지출</div><div class="v num">{{ won(m_expense) }}</div></div>
@@ -22,7 +37,14 @@
       <div class="m"><div class="t">발전수익</div><div class="d">예상 정산금</div></div>
       <div class="x num">{{ won(month_revenue) }}<span class="u">원</span></div>
     </div>
+    <div class="li"><span class="dot sun"></span>
+      <div class="m"><div class="t">목표 대비
+        <span class="tag {{ 'on' if solar_prog.status=='정상' else 'off' }}">{{ solar_prog.status }}</span></div>
+        <div class="d">오늘까지 예상 {{ '{:,.0f}'.format(solar_prog.expected) }}kWh</div></div>
+      <div class="x num">{{ '%.0f'|format(solar_prog.ratio) }}<span class="u">%</span></div>
+    </div>
   </div>
+  <div class="prog"><span style="width:{{ [solar_prog.ratio, 100]|min }}%"></span></div>
 </section>
 
 <section class="sec">
@@ -50,4 +72,74 @@
       <div class="x num {{ 'pos' if y_profit >= 0 else 'neg' }}">{{ won(y_profit) }}원</div></div>
   </div>
 </section>
+</div>
+
+{# ── 일정 탭 ──────────────────────────────────────────── #}
+<div class="tabpane" data-pane="sched" hidden>
+<section class="sec">
+  <div class="sec-h"><h2>다가오는 일정</h2><span class="count">60일 이내</span></div>
+  {% if upcoming %}
+  <div class="list">
+    {% for r in upcoming[:5] %}
+    {% set over = r.dday < 0 %}
+    <div class="li"><span class="dot {{ 'gray' if not over }}" {{ 'style=background:var(--out)' if over }}></span>
+      <div class="m">
+        <div class="t">{{ r['title'] }}<span class="tag off">{{ r['category'] }}</span>
+          {%- if r['repeat'] != '없음' %}<span class="auto">{{ r['repeat'] }}</span>{% endif %}</div>
+        <div class="d">{{ r['due_date'] }}{% if r['note'] %} · {{ r['note'] }}{% endif %}</div>
+      </div>
+      <div class="x num" style="{{ 'color:var(--out)' if over }}">
+        {% if r.dday < 0 %}{{ -r.dday }}일 지남{% elif r.dday == 0 %}오늘{% else %}D-{{ r.dday }}{% endif %}</div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty">예정된 일정이 없습니다. 아래에서 추가해 보세요.</div>
+  {% endif %}
+</section>
+
+<section class="sec">
+  <div class="sec-h"><h2>일정 추가</h2></div>
+  <form method="post" action="{{ url_for('reminder_save') }}" class="form">
+    <div class="grid">
+      <label class="fld full"><span>제목</span>
+        <input name="title" required placeholder="구제역 백신 / 부가세 신고 / 출하 …"></label>
+      <label class="fld"><span>날짜</span><input name="due_date" type="date" value="{{ today }}"></label>
+      <label class="fld"><span>구분</span>
+        <select name="category">{% for c in REMINDER_CATEGORIES %}<option value="{{ c }}">{{ c }}</option>{% endfor %}</select></label>
+      <label class="fld"><span>반복</span>
+        <select name="repeat">{% for r in REMINDER_REPEATS %}<option value="{{ r }}">{{ r }}</option>{% endfor %}</select></label>
+      <label class="fld"><span>메모</span><input name="note" placeholder="선택 입력"></label>
+    </div>
+    <div class="actions"><button class="btn">일정 추가</button></div>
+  </form>
+</section>
+
+<section class="sec">
+  <div class="sec-h"><h2>전체 일정</h2><span class="count">{{ reminders|length }}건</span></div>
+  <div class="list">
+    {% if reminders %}
+      {% for r in reminders %}
+      {% set over = r.dday is not none and r.dday < 0 %}
+      <div class="li"><span class="dot {{ 'gray' if not over }}" {{ 'style=background:var(--out)' if over }}></span>
+        <div class="m">
+          <div class="t">{{ r['title'] }}<span class="tag off">{{ r['category'] }}</span>
+            {%- if r['repeat'] != '없음' %}<span class="auto">{{ r['repeat'] }}</span>{% endif %}</div>
+          <div class="d">{{ r['due_date'] }}
+            {%- if r.dday is not none %} · {% if r.dday < 0 %}{{ -r.dday }}일 지남{% elif r.dday == 0 %}오늘{% else %}{{ r.dday }}일 남음{% endif %}{% endif %}
+            {%- if r['note'] %} · {{ r['note'] }}{% endif %}</div>
+        </div>
+        <div class="act">
+          <form method="post" action="{{ url_for('reminder_done', row_id=r['id']) }}"><button class="mini">완료</button></form>
+          <form method="post" action="{{ url_for('reminder_delete', row_id=r['id']) }}"
+                onsubmit="return confirm('이 일정을 삭제할까요?');"><button class="mini del">삭제</button></form>
+        </div>
+      </div>
+      {% endfor %}
+    {% else %}
+      <div class="empty">등록된 일정이 없습니다.</div>
+    {% endif %}
+  </div>
+</section>
+</div>
 {% endblock %}

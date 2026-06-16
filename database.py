@@ -26,6 +26,7 @@ DEFAULT_SETTINGS = {
     "farm_name": "우리 영농형 태양광 농장",
     "vat_rate": "10",         # 부가가치세율(%) — 태양광 매출 기준 추정
     "income_tax_rate": "0",   # 종합소득세 실효세율(%) — 순이익 기준 추정(0이면 미계산)
+    "daily_yield_hours": "3.5",  # 일일 예상 발전시간(h) — 예상 발전량=용량×이 값
 }
 
 # 분류 선택지 (UI 콤보박스에서 공통 사용)
@@ -34,6 +35,8 @@ FARM_ACTIVITIES = ["급여/관리", "방역/병해충", "생산/수확", "출하
 FINANCE_TYPES = ["수입", "지출"]
 FINANCE_SECTORS = ["농축산", "태양광", "공통"]
 SUPPORT_STATUSES = ["신청", "선정", "수령", "반려"]   # 지원사업 진행 상태
+REMINDER_CATEGORIES = ["방역/백신", "출하/판매", "세금신고", "지원사업", "농작업", "기타"]
+REMINDER_REPEATS = ["없음", "매주", "매월", "매년"]
 
 
 def today_str():
@@ -117,6 +120,17 @@ class Database:
                 note        TEXT
             );
 
+            -- 일정/알림 (백신·출하·세금신고·지원마감 등)
+            CREATE TABLE IF NOT EXISTS reminder (
+                id        INTEGER PRIMARY KEY AUTOINCREMENT,
+                title     TEXT NOT NULL,
+                due_date  TEXT NOT NULL,              -- YYYY-MM-DD
+                category  TEXT NOT NULL DEFAULT '기타',
+                repeat    TEXT NOT NULL DEFAULT '없음',-- 없음/매주/매월/매년
+                done      INTEGER NOT NULL DEFAULT 0,
+                note      TEXT
+            );
+
             -- 설정 (key-value): 태양광 단가, 농장명 등
             CREATE TABLE IF NOT EXISTS settings (
                 key   TEXT PRIMARY KEY,
@@ -174,6 +188,44 @@ class Database:
         )
         self.conn.commit()
 
+    # ── 일정/알림 (리마인더) ─────────────────────────────────────
+    def add_reminder(self, title, due_date, category, repeat, note):
+        cur = self.conn.execute(
+            "INSERT INTO reminder(title, due_date, category, repeat, note) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (title, due_date, category, repeat, note),
+        )
+        self.conn.commit()
+        return cur.lastrowid
+
+    def update_reminder(self, row_id, title, due_date, category, repeat, note):
+        self.conn.execute(
+            "UPDATE reminder SET title=?, due_date=?, category=?, repeat=?, note=? WHERE id=?",
+            (title, due_date, category, repeat, note, row_id),
+        )
+        self.conn.commit()
+
+    def set_reminder_date(self, row_id, due_date):
+        self.conn.execute(
+            "UPDATE reminder SET due_date=? WHERE id=?", (due_date, row_id)
+        )
+        self.conn.commit()
+
+    def delete_reminder(self, row_id):
+        self.conn.execute("DELETE FROM reminder WHERE id=?", (row_id,))
+        self.conn.commit()
+
+    def get_reminder(self, row_id):
+        return self.conn.execute(
+            "SELECT * FROM reminder WHERE id=?", (row_id,)
+        ).fetchone()
+
+    def list_reminders(self, only_active=True):
+        where = "WHERE done=0" if only_active else ""
+        return self.conn.execute(
+            f"SELECT * FROM reminder {where} ORDER BY due_date ASC, id ASC"
+        ).fetchall()
+
     # ── 태양광 수익 계산 ──────────────────────────────────────────
     def solar_unit_revenue(self):
         """1kWh당 예상 정산 단가(원). = SMP + REC단가 × REC가중치"""
@@ -185,6 +237,37 @@ class Database:
     def solar_revenue(self, kwh):
         """발전량(kWh)에 대한 예상 수익(원, 정수)."""
         return int(round(kwh * self.solar_unit_revenue()))
+
+    def solar_expected_daily(self):
+        """하루 예상 발전량(kWh) = 설비용량(kW) × 일일 예상 발전시간(h)."""
+        cap = self.get_setting_float("capacity_kw", 0)
+        hours = self.get_setting_float("daily_yield_hours", 3.5)
+        return cap * hours
+
+    def solar_month_progress(self, year, month, days_elapsed=None):
+        """이번(특정) 달 발전 목표 대비 실적.
+
+        days_elapsed 를 주면 '오늘까지'의 예상치와 비교(진행 중인 달용),
+        주지 않으면 그 달 전체(일수) 기준으로 비교한다.
+        반환 dict: expected, actual, ratio(%), status.
+        """
+        import calendar
+        actual = self.solar_month_total(year, month)
+        per_day = self.solar_expected_daily()
+        total_days = calendar.monthrange(year, month)[1]
+        days = total_days if days_elapsed is None else max(1, min(days_elapsed, total_days))
+        expected = per_day * days
+        ratio = (actual / expected * 100) if expected > 0 else 0
+        if expected <= 0:
+            status = "설정필요"
+        elif ratio >= 95:
+            status = "정상"
+        elif ratio >= 80:
+            status = "주의"
+        else:
+            status = "저조"
+        return dict(expected=expected, actual=actual, ratio=ratio,
+                    status=status, days=days, total_days=total_days)
 
     # ── 농축산: 품목 ─────────────────────────────────────────────
     def add_livestock(self, category, name, quantity, unit, start_date, status, note,
@@ -353,6 +436,38 @@ class Database:
         return self.conn.execute(
             "SELECT * FROM finance ORDER BY tx_date DESC, id DESC LIMIT ?", (limit,)
         ).fetchall()
+
+    @staticmethod
+    def _finance_filter(q, tx_type, sector, date_from, date_to):
+        """검색/필터 조건 → (WHERE 절, 파라미터 리스트)."""
+        where, params = [], []
+        if q:
+            where.append("(item LIKE ? OR note LIKE ?)")
+            params += [f"%{q}%", f"%{q}%"]
+        if tx_type:
+            where.append("tx_type=?"); params.append(tx_type)
+        if sector:
+            where.append("sector=?"); params.append(sector)
+        if date_from:
+            where.append("tx_date>=?"); params.append(date_from)
+        if date_to:
+            where.append("tx_date<=?"); params.append(date_to)
+        return (("WHERE " + " AND ".join(where)) if where else ""), params
+
+    def list_finance_filtered(self, q="", tx_type="", sector="",
+                              date_from="", date_to="", limit=10, offset=0):
+        w, params = self._finance_filter(q, tx_type, sector, date_from, date_to)
+        return self.conn.execute(
+            f"SELECT * FROM finance {w} ORDER BY tx_date DESC, id DESC LIMIT ? OFFSET ?",
+            (*params, limit, offset),
+        ).fetchall()
+
+    def count_finance_filtered(self, q="", tx_type="", sector="",
+                               date_from="", date_to=""):
+        w, params = self._finance_filter(q, tx_type, sector, date_from, date_to)
+        return self.conn.execute(
+            f"SELECT COUNT(*) AS c FROM finance {w}", params
+        ).fetchone()["c"]
 
     def _set_auto_finance(self, auto_key, tx_date, tx_type, sector, item, amount, note):
         """auto_key로 식별되는 '자동' 거래를 만들거나 갱신(중복 없이)한다.

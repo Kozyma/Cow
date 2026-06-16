@@ -232,6 +232,24 @@ a.li{color:var(--ink)}
 .tile .v{font-size:1.5rem; font-weight:800; letter-spacing:-.03em; margin-top:3px}
 .tile .v .u{font-size:.86rem; font-weight:700; color:var(--ink-3); margin-left:3px}
 
+/* ── 홈 날씨 위젯 ─────────────────────────────────── */
+.stat-top{display:flex; align-items:flex-start; justify-content:space-between; gap:14px}
+.stat-main{min-width:0}
+.wx{display:flex; flex-direction:column; gap:7px; flex:none; padding-top:6px}
+.wx-row{display:flex; align-items:center; gap:7px; justify-content:flex-end;
+  font-size:.86rem; font-weight:600; color:var(--ink-2); white-space:nowrap}
+.wx-day{color:var(--ink-3); font-size:.76rem; min-width:24px; text-align:left}
+.wx-ic{font-size:1.12rem; line-height:1}
+.wx-t{font-variant-numeric:tabular-nums; color:var(--ink); font-weight:700}
+
+/* ── 진행률 바 ────────────────────────────────────── */
+.prog{height:8px; background:var(--line); border-radius:999px; overflow:hidden; margin-top:12px}
+.prog span{display:block; height:100%; background:var(--ink); border-radius:999px}
+
+/* ── 검색·필터 바 ─────────────────────────────────── */
+.filterbar{margin:4px 0 14px; padding:14px; background:var(--sub); border:1px solid var(--line); border-radius:var(--r)}
+.filterbar .actions{margin-top:12px}
+
 /* ── 페이지 넘김(< 1/2 >) ─────────────────────────── */
 .pager{display:flex; align-items:center; justify-content:center; gap:14px; padding:18px 0 2px}
 .pager .pg{display:inline-flex; align-items:center; justify-content:center; width:40px; height:40px;

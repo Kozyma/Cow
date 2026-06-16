@@ -13,10 +13,31 @@
       <label class="fld"><span>REC 가중치</span><input name="rec_weight" type="number" step="any" inputmode="decimal" value="{{ settings['rec_weight'] }}"></label>
       <label class="fld"><span>SMP 단가 (원)</span><input name="smp_price" type="number" step="any" inputmode="decimal" value="{{ settings['smp_price'] }}"></label>
       <label class="fld"><span>REC 단가 (원)</span><input name="rec_price" type="number" step="any" inputmode="decimal" value="{{ settings['rec_price'] }}"></label>
+      <label class="fld"><span>일일 예상 발전시간 (h)</span><input name="daily_yield_hours" type="number" step="any" inputmode="decimal" value="{{ settings['daily_yield_hours'] }}"></label>
     </div>
-    <p class="help">1kWh당 정산단가 = SMP + REC단가 × REC가중치 = <b>{{ '%g'|format(unit_revenue) }} 원/kWh</b></p>
+    <p class="help">1kWh당 정산단가 = SMP + REC단가 × REC가중치 = <b>{{ '%g'|format(unit_revenue) }} 원/kWh</b><br>
+      하루 예상 발전량 = 용량 × 발전시간 = <b>{{ '{:,.0f}'.format(expected_daily) }} kWh/일</b> (목표 대비 분석 기준)</p>
     <div class="actions"><button class="btn">설정 저장</button></div>
   </form>
+</section>
+
+<section class="sec">
+  <div class="sec-h"><h2>{{ month }}월 발전량 목표 대비</h2>
+    <span class="tag {{ 'on' if prog.status=='정상' else 'off' }}">{{ prog.status }}</span></div>
+  <div class="tiles">
+    <div class="tile"><div class="k">오늘까지 실적</div>
+      <div class="v num">{{ '{:,.0f}'.format(prog.actual) }}<span class="u">kWh</span></div></div>
+    <div class="tile"><div class="k">오늘까지 목표</div>
+      <div class="v num">{{ '{:,.0f}'.format(prog.expected) }}<span class="u">kWh</span></div></div>
+    <div class="tile full"><div class="k">달성률 ({{ prog.days }}/{{ prog.total_days }}일)</div>
+      <div class="v num">{{ '%.0f'|format(prog.ratio) }}<span class="u">%</span></div></div>
+  </div>
+  <div class="prog"><span style="width:{{ [prog.ratio, 100]|min }}%"></span></div>
+  {% if prog.status == '저조' %}
+  <p class="help">⚠ 목표의 80% 미만입니다. 패널 오염·음영·인버터 상태를 점검해 보세요.</p>
+  {% elif prog.status == '설정필요' %}
+  <p class="help">설비 용량과 ‘일일 예상 발전시간’을 설정하면 목표 대비가 표시됩니다.</p>
+  {% endif %}
 </section>
 
 <section class="sec">

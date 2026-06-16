@@ -50,7 +50,27 @@
 </section>
 
 <section class="sec">
-  <div class="sec-h"><h2>거래 내역</h2></div>
+  <div class="sec-h"><h2>거래 내역</h2><span class="count">{{ total_tx }}건</span></div>
+
+  <form method="get" action="{{ url_for('finance') }}#tx" class="form filterbar">
+    <div class="grid">
+      <label class="fld full"><span>검색(항목·메모)</span>
+        <input name="q" value="{{ flt.q }}" placeholder="한우, 사료, 정산금 …"></label>
+      <label class="fld"><span>구분</span>
+        <select name="type"><option value="">전체</option>
+          {% for t in FIN_TYPES %}<option value="{{ t }}" {{ 'selected' if flt.tx_type==t }}>{{ t }}</option>{% endfor %}</select></label>
+      <label class="fld"><span>부문</span>
+        <select name="sector"><option value="">전체</option>
+          {% for s in FIN_SECTORS %}<option value="{{ s }}" {{ 'selected' if flt.sector==s }}>{{ s }}</option>{% endfor %}</select></label>
+      <label class="fld"><span>시작일</span><input name="from" type="date" value="{{ flt.date_from }}"></label>
+      <label class="fld"><span>종료일</span><input name="to" type="date" value="{{ flt.date_to }}"></label>
+    </div>
+    <div class="actions">
+      <button class="btn sec">검색</button>
+      {% if has_filter %}<a class="btn line" href="{{ url_for('finance') }}#tx">검색 초기화</a>{% endif %}
+    </div>
+  </form>
+
   {% for date, items, net in groups %}
   <div class="dgrp">
     <span class="dd">{{ date|md }}</span>
@@ -82,8 +102,19 @@
     {% endfor %}
   </div>
   {% else %}
-  <div class="empty">아직 거래가 없습니다. 위에서 첫 거래를 추가해 보세요.</div>
+  <div class="empty">{{ '조건에 맞는 거래가 없습니다.' if has_filter else '아직 거래가 없습니다. 위에서 첫 거래를 추가해 보세요.' }}</div>
   {% endfor %}
+
+  {% if fin_pages > 1 %}
+  {% set qs = '&q=' ~ flt.q ~ '&type=' ~ flt.tx_type ~ '&sector=' ~ flt.sector ~ '&from=' ~ flt.date_from ~ '&to=' ~ flt.date_to %}
+  <div class="pager">
+    {% if fp > 1 %}<a class="pg" href="{{ url_for('finance') }}?fp={{ fp-1 }}{{ qs }}#tx">‹</a>
+    {% else %}<span class="pg off">‹</span>{% endif %}
+    <span class="pg-n">{{ fp }} / {{ fin_pages }}</span>
+    {% if fp < fin_pages %}<a class="pg" href="{{ url_for('finance') }}?fp={{ fp+1 }}{{ qs }}#tx">›</a>
+    {% else %}<span class="pg off">›</span>{% endif %}
+  </div>
+  {% endif %}
 </section>
 </div>
 

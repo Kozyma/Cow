@@ -28,7 +28,7 @@ import exporter
 from database import (
     Database, today_str,
     LIVESTOCK_CATEGORIES, FARM_ACTIVITIES, FINANCE_TYPES, FINANCE_SECTORS,
-    SUPPORT_STATUSES,
+    SUPPORT_STATUSES, REMINDER_CATEGORIES, REMINDER_REPEATS,
 )
 from web_charts import (
     won, won_short, bar_chart, line_chart, INCOME, EXPENSE, SOLAR,
@@ -150,7 +150,7 @@ def _require_login():
     if session.get("authed"):
         return
     # 로그인 화면과 정적/PWA 자원은 인증 없이 허용
-    open_endpoints = {"login", "static", "manifest", "service_worker"}
+    open_endpoints = {"login", "static", "manifest", "service_worker", "assetlinks"}
     if request.endpoint in open_endpoints:
         return
     return redirect(url_for("login", next=request.path))
@@ -222,6 +222,7 @@ def inject_helpers():
         CATEGORIES=LIVESTOCK_CATEGORIES, ACTIVITIES=FARM_ACTIVITIES,
         FIN_TYPES=FINANCE_TYPES, FIN_SECTORS=FINANCE_SECTORS,
         SUPPORT_STATUSES=SUPPORT_STATUSES,
+        REMINDER_CATEGORIES=REMINDER_CATEGORIES, REMINDER_REPEATS=REMINDER_REPEATS,
         nav_active=request.endpoint or "",
         auth_on=bool(APP_PASSWORD),
     )
@@ -232,6 +233,11 @@ def _f(name, default=""):
     return (request.form.get(name) or default).strip()
 
 
+def _arg(name, default=""):
+    """쿼리스트링 값 가져오기(공백 제거)."""
+    return (request.args.get(name) or default).strip()
+
+
 def _num(name, default=0.0):
     """폼 숫자값 — 비거나 잘못되면 default."""
     raw = (request.form.get(name) or "").replace(",", "").strip()
@@ -239,6 +245,34 @@ def _num(name, default=0.0):
         return float(raw)
     except ValueError:
         return default
+
+
+def _days_until(date_str):
+    """오늘 기준 D-day(정수). 미래=양수, 지남=음수. 잘못된 값이면 None."""
+    from datetime import date
+    try:
+        y, m, d = (int(x) for x in str(date_str).split("-"))
+        return (date(y, m, d) - date.today()).days
+    except Exception:
+        return None
+
+
+def _advance_date(date_str, repeat):
+    """반복 주기에 맞춰 다음 날짜(YYYY-MM-DD)를 반환."""
+    import calendar
+    from datetime import date, timedelta
+    try:
+        y, m, d = (int(x) for x in date_str.split("-"))
+    except Exception:
+        return date_str
+    if repeat == "매주":
+        return (date(y, m, d) + timedelta(days=7)).isoformat()
+    if repeat == "매월":
+        m2, y2 = (1, y + 1) if m == 12 else (m + 1, y)
+        return date(y2, m2, min(d, calendar.monthrange(y2, m2)[1])).isoformat()
+    if repeat == "매년":
+        return date(y + 1, m, min(d, calendar.monthrange(y + 1, m)[1])).isoformat()
+    return date_str
 
 
 # ── 🏠 대시보드 ──────────────────────────────────────────────────────
@@ -266,13 +300,67 @@ def dashboard():
     values = [r["generation_kwh"] for r in solar_rows]
     chart = line_chart(labels, [("발전량(kWh)", values)], colors=[SOLAR])
 
+    # 일정: 전체(활성) + 다가오는 것(60일 이내/지난 것) — D-day 계산
+    reminders = []
+    for r in db.list_reminders(only_active=True):
+        item = dict(r)
+        item["dday"] = _days_until(r["due_date"])
+        reminders.append(item)
+    reminders.sort(key=lambda x: (x["dday"] is None, x["dday"]))
+    upcoming = [r for r in reminders if r["dday"] is not None and r["dday"] <= 60]
+
+    # 이번 달 발전 목표 대비(오늘까지)
+    solar_prog = db.solar_month_progress(year, month, days_elapsed=now.day)
+
     return render_template(
         "dashboard.html", by_cat=by_cat, active=active,
         year=year, month=month, chart=chart,
         month_kwh=month_kwh, month_revenue=month_revenue,
         m_income=m_income, m_expense=m_expense, m_profit=m_profit,
         y_income=y_income, y_expense=y_expense, y_profit=y_profit,
+        upcoming=upcoming, reminders=reminders, solar_prog=solar_prog,
     )
+
+
+# ── 🔔 일정/알림 (리마인더) ──────────────────────────────────────────
+@app.route("/reminder/save", methods=["POST"])
+def reminder_save():
+    row_id = request.form.get("id", type=int)
+    args = (
+        _f("title"), _f("due_date", today_str()),
+        _f("category", "기타"), _f("repeat", "없음"), _f("note"),
+    )
+    if not args[0]:
+        flash("일정 제목을 입력하세요.", "error")
+        return redirect(url_for("dashboard") + "#sched")
+    if row_id:
+        db.update_reminder(row_id, *args)
+        flash("일정을 수정했습니다.", "ok")
+    else:
+        db.add_reminder(*args)
+        flash("일정을 추가했습니다.", "ok")
+    return redirect(url_for("dashboard") + "#sched")
+
+
+@app.route("/reminder/<int:row_id>/done", methods=["POST"])
+def reminder_done(row_id):
+    r = db.get_reminder(row_id)
+    if not r:
+        abort(404)
+    if r["repeat"] and r["repeat"] != "없음":
+        db.set_reminder_date(row_id, _advance_date(r["due_date"], r["repeat"]))
+        flash(f"'{r['title']}' 완료 — 다음 일정으로 넘겼습니다.", "ok")
+    else:
+        db.delete_reminder(row_id)
+        flash(f"'{r['title']}' 일정을 완료(삭제)했습니다.", "ok")
+    return redirect(request.referrer or (url_for("dashboard") + "#sched"))
+
+
+@app.route("/reminder/<int:row_id>/delete", methods=["POST"])
+def reminder_delete(row_id):
+    db.delete_reminder(row_id)
+    flash("일정을 삭제했습니다.", "ok")
+    return redirect(request.referrer or (url_for("dashboard") + "#sched"))
 
 
 # ── 🐄 농축산 (품목 + 영농일지) ──────────────────────────────────────
@@ -390,10 +478,15 @@ def solar():
         rec_price=db.get_setting("rec_price", "70"),
         rec_weight=db.get_setting("rec_weight", "1.2"),
         farm_name=db.get_setting("farm_name", ""),
+        daily_yield_hours=db.get_setting("daily_yield_hours", "3.5"),
     )
+    now = datetime.now()
+    prog = db.solar_month_progress(now.year, now.month, days_elapsed=now.day)
     return render_template(
         "solar.html", rows=enriched, settings=settings,
         unit_revenue=db.solar_unit_revenue(),
+        prog=prog, expected_daily=db.solar_expected_daily(),
+        month=now.month,
     )
 
 
@@ -404,6 +497,7 @@ def solar_settings():
     db.set_setting("smp_price", _num("smp_price", 130))
     db.set_setting("rec_price", _num("rec_price", 70))
     db.set_setting("rec_weight", _num("rec_weight", 1.2))
+    db.set_setting("daily_yield_hours", _num("daily_yield_hours", 3.5))
     flash("발전 설비 설정을 저장했습니다.", "ok")
     return redirect(url_for("solar"))
 
@@ -430,17 +524,29 @@ def solar_sync():
 
 
 # ── 💰 재무 ──────────────────────────────────────────────────────────
+FIN_PER_PAGE = 10
+
+
 @app.route("/finance")
 def finance():
     edit_id = request.args.get("edit", type=int)
-    edit_row = None
-    rows = [dict(r) for r in db.list_finance(limit=1000)]   # groupby/렌더 편의
-    if edit_id:
-        for r in rows:
-            if r["id"] == edit_id:
-                edit_row = r
-                break
-    # 날짜별 그룹(최신순). rows 는 이미 날짜 DESC 정렬이라 연속 묶음이 곧 desc.
+    edit_row = db.conn.execute(
+        "SELECT * FROM finance WHERE id=?", (edit_id,)
+    ).fetchone() if edit_id else None
+
+    # 검색·필터 조건
+    flt = dict(
+        q=_arg("q"), tx_type=_arg("type"), sector=_arg("sector"),
+        date_from=_arg("from"), date_to=_arg("to"),
+    )
+    total = db.count_finance_filtered(**flt)
+    fin_pages = max(1, -(-total // FIN_PER_PAGE))
+    fp = request.args.get("fp", type=int) or 1
+    fp = min(max(fp, 1), fin_pages)
+    rows = [dict(r) for r in db.list_finance_filtered(
+        **flt, limit=FIN_PER_PAGE, offset=(fp - 1) * FIN_PER_PAGE)]
+
+    # 현재 페이지를 날짜별로 그룹(이미 날짜 DESC 정렬)
     from itertools import groupby
     groups = []
     for d, items in groupby(rows, key=lambda r: r["tx_date"]):
@@ -457,12 +563,15 @@ def finance():
     tax = db.tax_estimate(datetime.now().year)
     support_edit_id = request.args.get("support_edit", type=int)
     support_edit = db.get_support(support_edit_id) if support_edit_id else None
+    has_filter = any(flt.values())
     return render_template(
         "finance.html", groups=groups, edit_row=edit_row,
         income=income, expense=expense, profit=income - expense,
         supports=db.list_support(), support_sum=db.support_summary(),
         tax_settings=tax_settings, tax=tax,
         support_edit=support_edit,
+        flt=flt, has_filter=has_filter,
+        fp=fp, fin_pages=fin_pages, total_tx=total,
     )
 
 
@@ -606,6 +715,45 @@ def export_csv():
     )
 
 
+@app.route("/backup")
+def backup_db():
+    """데이터베이스 파일(.db) 전체를 통째로 내려받는다(완전 백업)."""
+    stamp = datetime.now().strftime("%Y%m%d_%H%M")
+    return send_file(
+        DB_PATH, as_attachment=True,
+        download_name=f"farm_data_backup_{stamp}.db",
+        mimetype="application/octet-stream",
+    )
+
+
+@app.route("/restore", methods=["POST"])
+def restore_db():
+    """백업한 .db 파일을 올려 현재 데이터를 통째로 교체(복원)한다."""
+    f = request.files.get("dbfile")
+    if not f or not f.filename:
+        flash("복원할 .db 파일을 선택하세요.", "error")
+        return redirect(url_for("dashboard"))
+    data = f.read()
+    if not data.startswith(b"SQLite format 3\x00"):
+        flash("올바른 SQLite(.db) 파일이 아닙니다. 백업으로 받은 파일인지 확인하세요.", "error")
+        return redirect(url_for("dashboard"))
+    global db
+    try:
+        db.close()
+    except Exception:
+        pass
+    import shutil
+    try:                                   # 만일을 위해 기존 DB 백업
+        shutil.copy(DB_PATH, DB_PATH + ".bak")
+    except Exception:
+        pass
+    with open(DB_PATH, "wb") as out:
+        out.write(data)
+    db = Database(DB_PATH)
+    flash("데이터를 복원했습니다. (직전 데이터는 farm_data.db.bak 로 보관)", "ok")
+    return redirect(url_for("dashboard"))
+
+
 @app.route("/seed", methods=["POST"])
 def seed_sample():
     _seed(db)
@@ -615,7 +763,8 @@ def seed_sample():
 
 @app.route("/reset", methods=["POST"])
 def reset_all():
-    for table in ("farm_log", "livestock", "solar_log", "finance"):
+    for table in ("farm_log", "livestock", "solar_log", "finance",
+                  "support_program", "reminder"):
         db.conn.execute(f"DELETE FROM {table}")
     db.conn.commit()
     flash("모든 데이터를 초기화했습니다. (설비 설정은 유지)", "ok")
@@ -626,6 +775,21 @@ def reset_all():
 @app.route("/manifest.webmanifest")
 def manifest():
     return app.send_static_file("manifest.webmanifest")
+
+
+@app.route("/.well-known/assetlinks.json")
+def assetlinks():
+    """안드로이드 TWA(APK) 검증용 Digital Asset Links.
+
+    PWABuilder/Bubblewrap로 APK를 만들면 assetlinks.json 을 줍니다.
+    그 내용을 static/.well-known/assetlinks.json 에 저장하면 이 주소
+    (https://<도메인>/.well-known/assetlinks.json)로 제공되어, 앱 상단의
+    주소창 없이 전체화면으로 실행됩니다.
+    """
+    path = os.path.join(RESOURCE_DIR, "static", ".well-known", "assetlinks.json")
+    if not os.path.exists(path):
+        abort(404)
+    return send_file(path, mimetype="application/json")
 
 
 @app.route("/sw.js")
@@ -640,6 +804,10 @@ def service_worker():
 # ── 예시 데이터 (app.py의 seed_sample 로직 이식) ─────────────────────
 def _days_ago(n):
     return (datetime.now() - timedelta(days=n)).strftime("%Y-%m-%d")
+
+
+def _days_ahead(n):
+    return (datetime.now() + timedelta(days=n)).strftime("%Y-%m-%d")
 
 
 def _seed(db):
@@ -670,6 +838,11 @@ def _seed(db):
     # 지원사업 예시 (수령 1건은 재무에 자동 반영됨)
     db.add_support("친환경농업 직불금", "서천군", _days_ago(60), 1_500_000, "수령", "")
     db.add_support("영농형 태양광 시설 융자", "에너지공단", _days_ago(30), 20_000_000, "선정", "이율 1.75%")
+
+    # 일정/알림 예시 (다가오는 일정 + 반복)
+    db.add_reminder("구제역 백신 접종", _days_ahead(5), "방역/백신", "매년", "전 두수")
+    db.add_reminder("부가가치세 신고", _days_ahead(20), "세금신고", "매년", "1기 확정")
+    db.add_reminder("태양광 패널 점검·청소", _days_ahead(12), "농작업", "매월", "")
 
 
 def main():
