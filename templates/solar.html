@@ -13,10 +13,12 @@
       <label class="fld"><span>REC 가중치</span><input name="rec_weight" type="number" step="any" inputmode="decimal" value="{{ settings['rec_weight'] }}"></label>
       <label class="fld"><span>SMP 단가 (원)</span><input name="smp_price" type="number" step="any" inputmode="decimal" value="{{ settings['smp_price'] }}"></label>
       <label class="fld"><span>REC 단가 (원)</span><input name="rec_price" type="number" step="any" inputmode="decimal" value="{{ settings['rec_price'] }}"></label>
-      <label class="fld"><span>일일 예상 발전시간 (h)</span><input name="daily_yield_hours" type="number" step="any" inputmode="decimal" value="{{ settings['daily_yield_hours'] }}"></label>
+      <label class="fld"><span>일일 일사시간 (h)</span><input name="daily_yield_hours" type="number" step="any" inputmode="decimal" value="{{ settings['daily_yield_hours'] }}"></label>
+      <label class="fld"><span>시스템 손실률 (%)</span><input name="loss_rate" type="number" step="any" inputmode="decimal" value="{{ settings['loss_rate'] }}"></label>
     </div>
     <p class="help">1kWh당 정산단가 = SMP + REC단가 × REC가중치 = <b>{{ '%g'|format(unit_revenue) }} 원/kWh</b><br>
-      하루 예상 발전량 = 용량 × 발전시간 = <b>{{ '{:,.0f}'.format(expected_daily) }} kWh/일</b> (목표 대비 분석 기준)</p>
+      하루 예상 발전량 = 용량 × 일사시간 × (1 − 손실률) = <b>{{ '{:,.0f}'.format(expected_daily) }} kWh/일</b><br>
+      <span style="color:var(--ink-3)">※ 손실률: 인버터·온도·음영·오염·선로 손실(보통 약 15%). 목표 대비 분석의 기준이 됩니다.</span></p>
     <div class="actions"><button class="btn">설정 저장</button></div>
   </form>
 </section>
@@ -29,48 +31,75 @@
       <div class="v num">{{ '{:,.0f}'.format(prog.actual) }}<span class="u">kWh</span></div></div>
     <div class="tile"><div class="k">오늘까지 목표</div>
       <div class="v num">{{ '{:,.0f}'.format(prog.expected) }}<span class="u">kWh</span></div></div>
-    <div class="tile full"><div class="k">달성률 ({{ prog.days }}/{{ prog.total_days }}일)</div>
+    <div class="tile"><div class="k">달성률 ({{ prog.days }}/{{ prog.total_days }}일)</div>
       <div class="v num">{{ '%.0f'|format(prog.ratio) }}<span class="u">%</span></div></div>
+    <div class="tile"><div class="k">목표 대비 손실</div>
+      <div class="v num" style="{{ 'color:var(--out)' if prog.shortfall > 20 }}">{{ '%.0f'|format(prog.shortfall) }}<span class="u">%</span></div></div>
+    <div class="tile"><div class="k">설비이용률</div>
+      <div class="v num">{{ '%.1f'|format(prog.capacity_factor) }}<span class="u">%</span></div></div>
+    <div class="tile"><div class="k">설정 손실률</div>
+      <div class="v num">{{ '%g'|format(prog.loss_rate) }}<span class="u">%</span></div></div>
   </div>
   <div class="prog"><span style="width:{{ [prog.ratio, 100]|min }}%"></span></div>
   {% if prog.status == '저조' %}
-  <p class="help">⚠ 목표의 80% 미만입니다. 패널 오염·음영·인버터 상태를 점검해 보세요.</p>
+  <p class="help">⚠ 목표의 80% 미만(손실 {{ '%.0f'|format(prog.shortfall) }}%)입니다. 패널 오염·음영·인버터 상태를 점검해 보세요.</p>
   {% elif prog.status == '설정필요' %}
-  <p class="help">설비 용량과 ‘일일 예상 발전시간’을 설정하면 목표 대비가 표시됩니다.</p>
+  <p class="help">설비 용량·일사시간·손실률을 설정하면 목표 대비가 표시됩니다.</p>
   {% endif %}
+  <p class="help" style="color:var(--ink-3)">
+    설비이용률 = 실제발전량 ÷ (용량×24h×경과일). 목표 대비 손실 = 100% − 달성률(목표보다 부족한 비율).
+  </p>
 </section>
 
 <section class="sec">
-  <div class="sec-h"><h2>일별 발전량 입력</h2></div>
+  <div class="sec-h"><h2>{{ '발전량 수정' if edit_row else '일별 발전량 입력' }}</h2></div>
   <form method="post" action="{{ url_for('solar_add') }}" class="form">
     <div class="grid">
-      <label class="fld"><span>날짜</span><input name="log_date" type="date" value="{{ today }}"></label>
-      <label class="fld"><span>발전량 (kWh)</span><input name="generation_kwh" type="number" step="any" inputmode="decimal" required placeholder="0"></label>
-      <label class="fld full"><span>메모</span><input name="note" placeholder="선택 입력"></label>
+      <label class="fld"><span>날짜</span>
+        <input name="log_date" type="date" value="{{ edit_row['log_date'] if edit_row else today }}"></label>
+      <label class="fld"><span>발전량 (kWh)</span>
+        <input name="generation_kwh" type="number" step="any" inputmode="decimal" required placeholder="0"
+               value="{{ '%g'|format(edit_row['generation_kwh']) if edit_row else '' }}"></label>
+      <label class="fld full"><span>메모</span>
+        <input name="note" placeholder="선택 입력" value="{{ edit_row['note'] if edit_row and edit_row['note'] else '' }}"></label>
     </div>
     <div class="actions">
-      <button class="btn">기록 (같은 날짜는 덮어쓰기)</button>
+      <button class="btn">{{ '수정 저장' if edit_row else '기록 (같은 날짜는 덮어쓰기)' }}</button>
+      {% if edit_row %}<a class="btn sec" href="{{ url_for('solar') }}">취소</a>{% endif %}
     </div>
   </form>
+  {% if loss_rate %}
+  <p class="help">입력 발전량에 <b>손실률 {{ '%g'|format(loss_rate) }}%</b>를 반영해 실발전량·수익을 계산합니다.
+    (계측값이 이미 손실 반영된 값이면 설정에서 손실률을 0으로 두세요.)</p>
+  {% endif %}
   <form method="post" action="{{ url_for('solar_sync') }}" class="actions" style="margin-top:12px">
     <button class="btn line">💰 발전수익 재무 반영</button>
   </form>
-  <p class="help">월별 발전량 × 단가를 재무의 ‘발전 정산금(자동)’ 수입으로 반영합니다. (중복 없이 갱신)</p>
+  <p class="help">월별 (발전량 × (1−손실률) × 단가)를 재무의 ‘발전 정산금(자동)’ 수입으로 반영합니다. (중복 없이 갱신)</p>
 </section>
 
 <section class="sec">
-  <div class="sec-h"><h2>발전 기록</h2></div>
+  <div class="sec-h"><h2>발전 기록</h2><span class="count">손실 {{ '%g'|format(loss_rate) }}% 반영</span></div>
   <div class="list">
     {% for r in rows %}
     <div class="li"><span class="dot sun"></span>
       <div class="m">
         <div class="t num">{{ '%g'|format(r['generation_kwh']) }} <span class="d" style="display:inline">kWh</span></div>
-        <div class="d">{{ r['log_date'] }}{% if r['note'] %} · {{ r['note'] }}{% endif %}</div>
+        <div class="d">{{ r['log_date'] }}
+          {%- if loss_rate %} · 실 {{ '%.1f'|format(r['net_kwh']) }}kWh{% endif %}
+          {%- if r['note'] %} · {{ r['note'] }}{% endif %}</div>
       </div>
       <div class="x num">{{ won(r['revenue']) }}<span class="u">원</span></div>
       <div class="act">
+        <a class="ibtn" href="{{ url_for('solar', edit=r['id']) }}#" aria-label="수정">
+          <svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+        </a>
         <form method="post" action="{{ url_for('solar_delete', row_id=r['id']) }}"
-              onsubmit="return confirm('이 기록을 삭제할까요?');"><button class="mini del">삭제</button></form>
+              onsubmit="return confirm('이 기록을 삭제할까요?');">
+          <button class="ibtn del" aria-label="삭제">
+            <svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M6 7l1 13a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-13"/></svg>
+          </button>
+        </form>
       </div>
     </div>
     {% else %}

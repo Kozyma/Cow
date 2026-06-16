@@ -505,10 +505,13 @@ def solar():
     enriched = [
         dict(id=r["id"], log_date=r["log_date"],
              generation_kwh=r["generation_kwh"],
+             net_kwh=db.solar_net_kwh(r["generation_kwh"]),
              revenue=db.solar_revenue(r["generation_kwh"]),
              note=r["note"] or "")
         for r in rows
     ]
+    edit_id = request.args.get("edit", type=int)
+    edit_row = db.get_solar(edit_id) if edit_id else None
     settings = dict(
         capacity_kw=db.get_setting("capacity_kw", "100"),
         smp_price=db.get_setting("smp_price", "130"),
@@ -516,6 +519,7 @@ def solar():
         rec_weight=db.get_setting("rec_weight", "1.2"),
         farm_name=db.get_setting("farm_name", ""),
         daily_yield_hours=db.get_setting("daily_yield_hours", "3.5"),
+        loss_rate=db.get_setting("loss_rate", "15"),
     )
     now = datetime.now()
     prog = db.solar_month_progress(now.year, now.month, days_elapsed=now.day)
@@ -523,7 +527,7 @@ def solar():
         "solar.html", rows=enriched, settings=settings,
         unit_revenue=db.solar_unit_revenue(),
         prog=prog, expected_daily=db.solar_expected_daily(),
-        month=now.month,
+        month=now.month, edit_row=edit_row, loss_rate=db.solar_loss_rate(),
     )
 
 
@@ -535,6 +539,7 @@ def solar_settings():
     db.set_setting("rec_price", _num("rec_price", 70))
     db.set_setting("rec_weight", _num("rec_weight", 1.2))
     db.set_setting("daily_yield_hours", _num("daily_yield_hours", 3.5))
+    db.set_setting("loss_rate", _num("loss_rate", 15))
     flash("발전 설비 설정을 저장했습니다.", "ok")
     return redirect(url_for("solar"))
 

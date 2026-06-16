@@ -29,7 +29,8 @@ DEFAULT_SETTINGS = {
     "vat_rate_farm": "0",        # 농축산 부가세율(%) — 미가공 농축산물 면세(0)
     "income_tax_rate": "0",      # 종합소득세 실효세율(%) — 순이익 기준(0이면 미계산)
     "farm_taxfree_limit": "30000000",  # 농가부업소득 비과세 한도(원) — 연 3천만원
-    "daily_yield_hours": "3.5",  # 일일 예상 발전시간(h) — 예상 발전량=용량×이 값
+    "daily_yield_hours": "3.5",  # 일일 일사시간(h) — 이론 발전 = 용량×이 값
+    "loss_rate": "15",           # 시스템 손실률(%) — 인버터·온도·음영·오염·선로 등
 }
 
 # 분류 선택지 (UI 콤보박스에서 공통 사용)
@@ -296,22 +297,35 @@ class Database:
         weight = self.get_setting_float("rec_weight")
         return smp + rec * weight
 
+    def solar_loss_rate(self):
+        """시스템 손실률(%) — 인버터·온도·음영·오염·선로 등."""
+        return self.get_setting_float("loss_rate", 0)
+
+    def solar_net_kwh(self, kwh):
+        """손실률을 반영한 실(정산) 발전량 = 입력 발전량 × (1 − 손실률)."""
+        return kwh * (1 - self.solar_loss_rate() / 100.0)
+
     def solar_revenue(self, kwh):
-        """발전량(kWh)에 대한 예상 수익(원, 정수)."""
-        return int(round(kwh * self.solar_unit_revenue()))
+        """발전량(kWh)에 대한 예상 수익(원, 정수). 손실률을 반영해 계산한다."""
+        return int(round(self.solar_net_kwh(kwh) * self.solar_unit_revenue()))
 
     def solar_expected_daily(self):
-        """하루 예상 발전량(kWh) = 설비용량(kW) × 일일 예상 발전시간(h)."""
+        """하루 예상 발전량(kWh) = 용량(kW) × 일사시간(h) × (1 − 손실률).
+
+        손실률은 인버터·온도·음영·오염·선로 등 시스템 손실(보통 약 15%).
+        """
         cap = self.get_setting_float("capacity_kw", 0)
         hours = self.get_setting_float("daily_yield_hours", 3.5)
-        return cap * hours
+        loss = self.get_setting_float("loss_rate", 0)
+        return cap * hours * (1 - loss / 100.0)
 
     def solar_month_progress(self, year, month, days_elapsed=None):
         """이번(특정) 달 발전 목표 대비 실적.
 
         days_elapsed 를 주면 '오늘까지'의 예상치와 비교(진행 중인 달용),
         주지 않으면 그 달 전체(일수) 기준으로 비교한다.
-        반환 dict: expected, actual, ratio(%), status.
+        반환 dict: expected, actual, ratio(%), status, shortfall(목표대비 부족%),
+                   capacity_factor(설비이용률%), loss_rate(설정 손실률%).
         """
         import calendar
         actual = self.solar_month_total(year, month)
@@ -320,6 +334,10 @@ class Database:
         days = total_days if days_elapsed is None else max(1, min(days_elapsed, total_days))
         expected = per_day * days
         ratio = (actual / expected * 100) if expected > 0 else 0
+        shortfall = max(0.0, 100 - ratio) if expected > 0 else 0
+        cap = self.get_setting_float("capacity_kw", 0)
+        theoretical = cap * 24 * days                      # 24h 풀가동 이론치
+        capacity_factor = (actual / theoretical * 100) if theoretical > 0 else 0
         if expected <= 0:
             status = "설정필요"
         elif ratio >= 95:
@@ -329,7 +347,9 @@ class Database:
         else:
             status = "저조"
         return dict(expected=expected, actual=actual, ratio=ratio,
-                    status=status, days=days, total_days=total_days)
+                    status=status, days=days, total_days=total_days,
+                    shortfall=shortfall, capacity_factor=capacity_factor,
+                    loss_rate=self.get_setting_float("loss_rate", 0))
 
     # ── 농축산: 품목 ─────────────────────────────────────────────
     def add_livestock(self, category, name, quantity, unit, start_date, status, note,
@@ -468,6 +488,11 @@ class Database:
     def delete_solar(self, row_id):
         self.conn.execute("DELETE FROM solar_log WHERE id=?", (row_id,))
         self.conn.commit()
+
+    def get_solar(self, row_id):
+        return self.conn.execute(
+            "SELECT * FROM solar_log WHERE id=?", (row_id,)
+        ).fetchone()
 
     def list_solar(self, limit=500):
         return self.conn.execute(
@@ -740,7 +765,11 @@ class Database:
             auto_key = f"solar-{ym}"
             tx_date = f"{ym}-01"
             item = f"발전 정산금(자동) {ym}"
-            note = f"{kwh:g}kWh × {unit:g}원/kWh"
+            loss = self.solar_loss_rate()
+            if loss > 0:
+                note = f"{kwh:g}kWh × (1−{loss:g}%손실) × {unit:g}원/kWh"
+            else:
+                note = f"{kwh:g}kWh × {unit:g}원/kWh"
 
             existing = self.conn.execute(
                 "SELECT id FROM finance WHERE auto_key = ?", (auto_key,)
