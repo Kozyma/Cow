@@ -80,7 +80,7 @@
     ] %}
     {% for ep, label in nav_items %}
       {% set on = nav_active == ep
-                  or (nav_active in ('livestock_save','farmlog_add','livestock_sell') and ep=='livestock')
+                  or (nav_active in ('livestock_save','farmlog_add','livestock_sell','facility_save') and ep=='livestock')
                   or (nav_active in ('finance_save','tax_settings','tax_sync','support_save') and ep=='finance')
                   or (nav_active in ('solar_settings','solar_add','solar_sync') and ep=='solar') %}
       <a href="{{ url_for(ep) }}" class="tab {{ 'on' if on }}">

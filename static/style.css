@@ -17,13 +17,13 @@
   --maxw:560px;
 }
 *{box-sizing:border-box}
-html{-webkit-text-size-adjust:100%}
+html{-webkit-text-size-adjust:100%; scroll-padding-bottom:96px}
 body{
   margin:0; background:var(--bg); color:var(--ink);
   font-family:-apple-system,BlinkMacSystemFont,"Pretendard","Pretendard Variable",
               "Apple SD Gothic Neo","Noto Sans KR",system-ui,"Malgun Gothic",sans-serif;
   font-size:16px; line-height:1.55; letter-spacing:-.015em;
-  padding-bottom:calc(66px + var(--safe-b));
+  padding-bottom:calc(92px + var(--safe-b));
   -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility;
 }
 .num{font-variant-numeric:tabular-nums; font-feature-settings:"tnum"}
@@ -266,7 +266,7 @@ a.li{color:var(--ink)}
 .rtab th:first-child,.rtab td:first-child{text-align:left; font-weight:700}
 .rtab thead th{font-size:.76rem; font-weight:700; color:var(--ink-3); text-transform:uppercase;
   letter-spacing:.02em; border-bottom:1px solid var(--line)}
-.rtab td.in{color:var(--in)} .rtab td.out{color:var(--out)}
+.rtab td.in{color:#dc2626} .rtab td.out{color:#2563eb}   /* 차트(수입 빨강/지출 파랑)와 통일 */
 .rtab td.pos{color:var(--accent-d)} .rtab td.neg{color:var(--out)}
 .rtab td.num{font-weight:700; font-variant-numeric:tabular-nums}
 .rtab-empty{text-align:center !important; color:var(--ink-3); font-weight:500; padding:20px 0}

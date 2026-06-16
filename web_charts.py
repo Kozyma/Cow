@@ -13,13 +13,13 @@ SVG 문자열을 그대로 HTML에 끼워 넣으므로 자바스크립트/CDN이
 import html
 import math
 
-# 화면(style.css)과 맞춘 모노크롬(흑백 명도) 팔레트
-#   수입=블랙 / 지출=그레이, 발전=블랙 — 색 대신 명도로 구분
-INCOME = "#16181d"
-EXPENSE = "#9aa0a6"
+# 흑백 테마지만, 통계 차트의 수입/지출은 한눈에 구분되도록 색을 준다.
+#   수입=빨강 / 지출=파랑, 발전=블랙
+INCOME = "#dc2626"
+EXPENSE = "#2563eb"
 SOLAR = "#16181d"
 GOLD = "#6b7280"
-PALETTE = [SOLAR, GOLD, "#9aa0a6", "#c4c8cc", "#454b50", "#b6bbbf"]
+PALETTE = [SOLAR, INCOME, EXPENSE, GOLD, "#7c5cd0", "#0f9b8e"]
 
 
 # ── 숫자/통화 포맷 헬퍼 (여러 화면에서 공용) ─────────────────────────

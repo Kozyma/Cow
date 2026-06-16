@@ -27,7 +27,7 @@ def export_all(db, folder):
     written.append(_write_csv(
         folder, "농축산_품목.csv",
         ["구분", "품목명", "수량", "단위", "입식체중(kg)", "시작일", "상태", "메모",
-         "판매일", "판매금액(원)", "출하체중(kg)", "성장(kg)"],
+         "판매일", "판매금액(원)", "출하체중(kg)", "성장(kg)", "등급"],
         [(r["category"], r["name"], r["quantity"], r["unit"] or "",
           r["weight_kg"] if r["weight_kg"] is not None else "",
           r["start_date"] or "", r["status"], r["note"] or "",
@@ -35,7 +35,8 @@ def export_all(db, folder):
           r["sold_amount"] if r["sold_amount"] is not None else "",
           r["sold_weight_kg"] if r["sold_weight_kg"] is not None else "",
           (r["sold_weight_kg"] - r["weight_kg"])
-          if (r["sold_weight_kg"] is not None and r["weight_kg"] is not None) else "")
+          if (r["sold_weight_kg"] is not None and r["weight_kg"] is not None) else "",
+          r["sold_grade"] or "")
          for r in db.list_livestock()],
     ))
 
@@ -66,6 +67,16 @@ def export_all(db, folder):
         [(r["tx_date"], r["tx_type"], r["sector"], r["item"], r["amount"],
           r["note"] or "", "자동" if r["auto_key"] else "")
          for r in db.list_finance(limit=1000000)],
+    ))
+
+    # 1-1) 시설 (축사 등)
+    written.append(_write_csv(
+        folder, "농축산_시설.csv",
+        ["시설명", "종류", "상태", "착공일", "완공일", "준공일", "규모", "공사비(원)", "시공업체", "메모"],
+        [(r["name"], r["ftype"], r["status"], r["start_date"] or "",
+          r["done_date"] or "", r["approval_date"] or "", r["size"] or "",
+          r["cost"] if r["cost"] is not None else "", r["contractor"] or "", r["note"] or "")
+         for r in db.list_facility()],
     ))
 
     # 4-1) 지원사업

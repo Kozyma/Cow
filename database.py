@@ -24,8 +24,11 @@ DEFAULT_SETTINGS = {
     "rec_price": "70",        # REC 단가(원/kWh)
     "rec_weight": "1.2",      # REC 가중치
     "farm_name": "우리 영농형 태양광 농장",
-    "vat_rate": "10",         # 부가가치세율(%) — 태양광 매출 기준 추정
-    "income_tax_rate": "0",   # 종합소득세 실효세율(%) — 순이익 기준 추정(0이면 미계산)
+    # ── 세금 설정 ──
+    "vat_rate_solar": "10",      # 태양광 부가세율(%) — 전력판매 10% 과세
+    "vat_rate_farm": "0",        # 농축산 부가세율(%) — 미가공 농축산물 면세(0)
+    "income_tax_rate": "0",      # 종합소득세 실효세율(%) — 순이익 기준(0이면 미계산)
+    "farm_taxfree_limit": "30000000",  # 농가부업소득 비과세 한도(원) — 연 3천만원
     "daily_yield_hours": "3.5",  # 일일 예상 발전시간(h) — 예상 발전량=용량×이 값
 }
 
@@ -37,6 +40,8 @@ FINANCE_SECTORS = ["농축산", "태양광", "공통"]
 SUPPORT_STATUSES = ["신청", "선정", "수령", "반려"]   # 지원사업 진행 상태
 REMINDER_CATEGORIES = ["방역/백신", "출하/판매", "세금신고", "지원사업", "농작업", "기타"]
 REMINDER_REPEATS = ["없음", "매주", "매월", "매년"]
+FACILITY_TYPES = ["축사", "퇴비사", "사료창고", "착유실", "창고", "기타"]
+FACILITY_STATUSES = ["계획", "인허가", "공사중", "완공", "준공"]
 
 
 def today_str():
@@ -73,7 +78,8 @@ class Database:
                 weight_kg      REAL,                    -- 입식(등록) 시 체중 kg (가축)
                 sold_date      TEXT,                    -- 판매(출하)일
                 sold_amount    INTEGER,                 -- 판매 금액(원)
-                sold_weight_kg REAL                     -- 판매(출하) 시 체중 kg
+                sold_weight_kg REAL,                    -- 판매(출하) 시 체중 kg
+                sold_grade     TEXT                     -- 판매(출하) 등급 (1++, 1+, ...)
             );
 
             -- 영농 일지 (사료 급여 / 수확 / 출하 등 일별 활동)
@@ -120,6 +126,21 @@ class Database:
                 note        TEXT
             );
 
+            -- 시설 (축사·퇴비사 등 공사/준공 관리)
+            CREATE TABLE IF NOT EXISTS facility (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                name          TEXT NOT NULL,              -- 시설명 (1동 축사 등)
+                ftype         TEXT NOT NULL DEFAULT '축사',-- 축사/퇴비사/창고 ...
+                status        TEXT NOT NULL DEFAULT '계획',-- 계획/인허가/공사중/완공/준공
+                start_date    TEXT,                       -- 착공일
+                done_date     TEXT,                       -- 완공일
+                approval_date TEXT,                       -- 준공(사용승인)일
+                size          TEXT,                       -- 규모(면적/수용두수 등)
+                cost          INTEGER,                    -- 공사비(원)
+                contractor    TEXT,                       -- 시공업체
+                note          TEXT
+            );
+
             -- 일정/알림 (백신·출하·세금신고·지원마감 등)
             CREATE TABLE IF NOT EXISTS reminder (
                 id        INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -162,6 +183,7 @@ class Database:
             ("sold_date", "ALTER TABLE livestock ADD COLUMN sold_date TEXT"),          # 판매일
             ("sold_amount", "ALTER TABLE livestock ADD COLUMN sold_amount INTEGER"),   # 판매 금액(원)
             ("sold_weight_kg", "ALTER TABLE livestock ADD COLUMN sold_weight_kg REAL"),# 판매(출하) 체중
+            ("sold_grade", "ALTER TABLE livestock ADD COLUMN sold_grade TEXT"),       # 판매 등급
         ):
             if col not in ls_cols:
                 self.conn.execute(ddl)
@@ -187,6 +209,46 @@ class Database:
             (key, str(value)),
         )
         self.conn.commit()
+
+    # ── 농축산: 시설 (축사 등 공사/준공 관리) ────────────────────
+    def add_facility(self, name, ftype, status, start_date, done_date,
+                     approval_date, size, cost, contractor, note):
+        cur = self.conn.execute(
+            "INSERT INTO facility(name, ftype, status, start_date, done_date, "
+            "approval_date, size, cost, contractor, note) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (name, ftype, status, start_date, done_date, approval_date,
+             size, cost, contractor, note),
+        )
+        self.conn.commit()
+        return cur.lastrowid
+
+    def update_facility(self, row_id, name, ftype, status, start_date, done_date,
+                        approval_date, size, cost, contractor, note):
+        self.conn.execute(
+            "UPDATE facility SET name=?, ftype=?, status=?, start_date=?, done_date=?, "
+            "approval_date=?, size=?, cost=?, contractor=?, note=? WHERE id=?",
+            (name, ftype, status, start_date, done_date, approval_date,
+             size, cost, contractor, note, row_id),
+        )
+        self.conn.commit()
+
+    def delete_facility(self, row_id):
+        self.conn.execute("DELETE FROM facility WHERE id=?", (row_id,))
+        self.conn.commit()
+
+    def get_facility(self, row_id):
+        return self.conn.execute(
+            "SELECT * FROM facility WHERE id=?", (row_id,)
+        ).fetchone()
+
+    def list_facility(self):
+        return self.conn.execute(
+            "SELECT * FROM facility "
+            "ORDER BY CASE status WHEN '공사중' THEN 0 WHEN '인허가' THEN 1 "
+            "WHEN '계획' THEN 2 WHEN '완공' THEN 3 ELSE 4 END, "
+            "COALESCE(start_date,'') DESC, id DESC"
+        ).fetchall()
 
     # ── 일정/알림 (리마인더) ─────────────────────────────────────
     def add_reminder(self, title, due_date, category, repeat, note):
@@ -299,7 +361,7 @@ class Database:
         ).fetchone()
 
     def sell_livestock(self, row_id, sold_date, sold_amount, sold_weight_kg,
-                       note="", add_to_finance=True):
+                       note="", add_to_finance=True, sold_grade=None):
         """품목 판매(출하) 처리: 판매 정보 기록 + 상태를 '종료'로.
 
         add_to_finance=True 면 판매 금액을 재무에 '수입'으로 자동 반영한다.
@@ -311,13 +373,15 @@ class Database:
         new_note = note if note else row["note"]
         self.conn.execute(
             "UPDATE livestock SET status='종료', sold_date=?, sold_amount=?, "
-            "sold_weight_kg=?, note=? WHERE id=?",
-            (sold_date, sold_amount, sold_weight_kg, new_note, row_id),
+            "sold_weight_kg=?, sold_grade=?, note=? WHERE id=?",
+            (sold_date, sold_amount, sold_weight_kg, sold_grade, new_note, row_id),
         )
         if add_to_finance and sold_amount and sold_amount > 0:
             auto_key = f"sale-{row_id}"
             item = f"{row['name']} 판매"
             parts = []
+            if sold_grade:
+                parts.append(f"{sold_grade}등급")
             if sold_weight_kg:
                 parts.append(f"{sold_weight_kg:g}kg")
             if note:
@@ -563,16 +627,23 @@ class Database:
     def tax_estimate(self, year):
         """해당 연도의 세금 추정(부가세·소득세)을 계산만 해서 dict 로 반환.
 
-        - 부가가치세 = (태양광 부문 연 수입) × vat_rate%
-        - 종합소득세 = max(연 순이익, 0) × income_tax_rate%
-          (순이익 = 연 수입 − 연 지출, 단 자동 세금 거래는 제외)
+        - 부가가치세 = 태양광 수입×태양광세율 + 농축산 수입×농축산세율
+          (농축산은 미가공 면세면 0%)
+        - 종합소득세 = max(순이익 − 농가부업 비과세, 0) × income_tax_rate%
+          (순이익 = 연 수입 − 연 지출, 자동 세금거래 제외)
+          (농가부업 비과세 = min(농축산 수입, 비과세 한도))
         """
         y = str(year)
-        solar_income = self.conn.execute(
-            "SELECT COALESCE(SUM(amount),0) AS s FROM finance "
-            "WHERE tx_type='수입' AND sector='태양광' AND strftime('%Y',tx_date)=?",
-            (y,),
-        ).fetchone()["s"]
+
+        def _income(sector):
+            return self.conn.execute(
+                "SELECT COALESCE(SUM(amount),0) AS s FROM finance "
+                "WHERE tx_type='수입' AND sector=? AND strftime('%Y',tx_date)=?",
+                (sector, y),
+            ).fetchone()["s"]
+
+        solar_income = _income("태양광")
+        farm_income = _income("농축산")
         income = self.conn.execute(
             "SELECT COALESCE(SUM(amount),0) AS s FROM finance "
             "WHERE tx_type='수입' AND strftime('%Y',tx_date)=?",
@@ -585,15 +656,26 @@ class Database:
             (y,),
         ).fetchone()["s"]
 
-        vat_rate = self.get_setting_float("vat_rate", 0)
+        vat_rate_solar = self.get_setting_float("vat_rate_solar", 10)
+        vat_rate_farm = self.get_setting_float("vat_rate_farm", 0)
         inc_rate = self.get_setting_float("income_tax_rate", 0)
+        farm_limit = self.get_setting_float("farm_taxfree_limit", 30000000)
+
+        vat_solar = int(round(solar_income * vat_rate_solar / 100))
+        vat_farm = int(round(farm_income * vat_rate_farm / 100))
+        vat = vat_solar + vat_farm
+
         profit = income - expense
-        vat = int(round(solar_income * vat_rate / 100))
-        income_tax = int(round(max(profit, 0) * inc_rate / 100))
+        farm_exempt = min(max(farm_income, 0), farm_limit)
+        taxable_profit = max(profit - farm_exempt, 0)
+        income_tax = int(round(taxable_profit * inc_rate / 100))
         return dict(
-            year=int(year), solar_income=solar_income, income=income,
-            expense=expense, profit=profit,
-            vat_rate=vat_rate, income_tax_rate=inc_rate,
+            year=int(year), solar_income=solar_income, farm_income=farm_income,
+            income=income, expense=expense, profit=profit,
+            vat_rate_solar=vat_rate_solar, vat_rate_farm=vat_rate_farm,
+            income_tax_rate=inc_rate, farm_limit=farm_limit,
+            farm_exempt=farm_exempt, taxable_profit=taxable_profit,
+            vat_solar=vat_solar, vat_farm=vat_farm,
             vat=vat, income_tax=income_tax, total=vat + income_tax,
         )
 
@@ -608,15 +690,17 @@ class Database:
         for y in self.finance_years():
             est = self.tax_estimate(y)
             ym_date = f"{y}-12-31"
+            vat_note = (f"태양광 {est['solar_income']:,}×{est['vat_rate_solar']:g}%"
+                        f" + 농축산 {est['farm_income']:,}×{est['vat_rate_farm']:g}%")
             self._set_auto_finance(
-                f"tax-vat-{y}", ym_date, "지출", "태양광",
-                f"부가가치세(추정) {y}", est["vat"],
-                f"태양광 매출 {est['solar_income']:,}원 × {est['vat_rate']:g}%",
+                f"tax-vat-{y}", ym_date, "지출", "공통",
+                f"부가가치세(추정) {y}", est["vat"], vat_note,
             )
+            inc_note = (f"과세소득 {est['taxable_profit']:,}원 × {est['income_tax_rate']:g}%"
+                        f" (순이익 {est['profit']:,} − 농가부업비과세 {est['farm_exempt']:,})")
             self._set_auto_finance(
                 f"tax-income-{y}", ym_date, "지출", "공통",
-                f"종합소득세(추정) {y}", est["income_tax"],
-                f"순이익 {est['profit']:,}원 × {est['income_tax_rate']:g}%",
+                f"종합소득세(추정) {y}", est["income_tax"], inc_note,
             )
             if est["vat"] > 0:
                 count += 1

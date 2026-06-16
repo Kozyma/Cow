@@ -18,6 +18,7 @@ document.addEventListener('click', (e) => {
       document.getElementById('sellName').textContent = d.name;
       document.getElementById('sellAmount').value = d.amount || '';
       document.getElementById('sellWeight').value = d.weight || '';
+      document.getElementById('sellGrade').value = d.grade || '';
       if (d.date) document.getElementById('sellDate').value = d.date;
       document.getElementById('sellNote').value = '';
       if (typeof dlg.showModal === 'function') dlg.showModal();

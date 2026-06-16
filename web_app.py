@@ -29,6 +29,7 @@ from database import (
     Database, today_str,
     LIVESTOCK_CATEGORIES, FARM_ACTIVITIES, FINANCE_TYPES, FINANCE_SECTORS,
     SUPPORT_STATUSES, REMINDER_CATEGORIES, REMINDER_REPEATS,
+    FACILITY_TYPES, FACILITY_STATUSES,
 )
 from web_charts import (
     won, won_short, bar_chart, line_chart, INCOME, EXPENSE, SOLAR,
@@ -223,6 +224,7 @@ def inject_helpers():
         FIN_TYPES=FINANCE_TYPES, FIN_SECTORS=FINANCE_SECTORS,
         SUPPORT_STATUSES=SUPPORT_STATUSES,
         REMINDER_CATEGORIES=REMINDER_CATEGORIES, REMINDER_REPEATS=REMINDER_REPEATS,
+        FACILITY_TYPES=FACILITY_TYPES, FACILITY_STATUSES=FACILITY_STATUSES,
         nav_active=request.endpoint or "",
         auth_on=bool(APP_PASSWORD),
     )
@@ -384,6 +386,9 @@ def livestock():
     logp = min(max(logp, 1), pages)
     logs = db.list_farm_log(limit=LOG_PER_PAGE, offset=(logp - 1) * LOG_PER_PAGE)
 
+    fac_edit_id = request.args.get("fedit", type=int)
+    facility_edit = db.get_facility(fac_edit_id) if fac_edit_id else None
+
     return render_template(
         "livestock.html",
         items=db.list_livestock(),
@@ -391,7 +396,38 @@ def livestock():
         choices=db.livestock_choices(),
         edit_row=edit_row,
         logp=logp, log_pages=pages, total_logs=total_logs,
+        facilities=db.list_facility(), facility_edit=facility_edit,
     )
+
+
+# ── 🏗 농축산: 시설 (축사 등 공사/준공) ──────────────────────────────
+@app.route("/facility/save", methods=["POST"])
+def facility_save():
+    row_id = request.form.get("id", type=int)
+    cost = int(round(_num("cost")))
+    args = (
+        _f("name"), _f("ftype", "축사"), _f("status", "계획"),
+        _f("start_date") or None, _f("done_date") or None,
+        _f("approval_date") or None, _f("size"),
+        cost if cost > 0 else None, _f("contractor"), _f("note"),
+    )
+    if not args[0]:
+        flash("시설명을 입력하세요.", "error")
+        return redirect(url_for("livestock") + "#facility")
+    if row_id:
+        db.update_facility(row_id, *args)
+        flash("시설 정보를 수정했습니다.", "ok")
+    else:
+        db.add_facility(*args)
+        flash("시설을 추가했습니다.", "ok")
+    return redirect(url_for("livestock") + "#facility")
+
+
+@app.route("/facility/<int:row_id>/delete", methods=["POST"])
+def facility_delete(row_id):
+    db.delete_facility(row_id)
+    flash("시설을 삭제했습니다.", "ok")
+    return redirect(url_for("livestock") + "#facility")
 
 
 @app.route("/livestock/save", methods=["POST"])
@@ -428,6 +464,7 @@ def livestock_sell(row_id):
         row_id, _f("sold_date", today_str()), sold_amount,
         sold_weight if sold_weight > 0 else None,
         _f("note"), add_to_finance=add_fin,
+        sold_grade=_f("sold_grade") or None,
     )
     msg = f"'{row['name']}' 판매를 기록했습니다."
     if add_fin and sold_amount > 0:
@@ -557,8 +594,10 @@ def finance():
 
     income, expense = db.finance_totals()
     tax_settings = dict(
-        vat_rate=db.get_setting("vat_rate", "10"),
+        vat_rate_solar=db.get_setting("vat_rate_solar", "10"),
+        vat_rate_farm=db.get_setting("vat_rate_farm", "0"),
         income_tax_rate=db.get_setting("income_tax_rate", "0"),
+        farm_taxfree_limit=db.get_setting("farm_taxfree_limit", "30000000"),
     )
     tax = db.tax_estimate(datetime.now().year)
     support_edit_id = request.args.get("support_edit", type=int)
@@ -605,8 +644,10 @@ def finance_delete(row_id):
 # ── 세금 자동계산 ────────────────────────────────────────────────────
 @app.route("/finance/tax/settings", methods=["POST"])
 def tax_settings():
-    db.set_setting("vat_rate", _num("vat_rate", 10))
+    db.set_setting("vat_rate_solar", _num("vat_rate_solar", 10))
+    db.set_setting("vat_rate_farm", _num("vat_rate_farm", 0))
     db.set_setting("income_tax_rate", _num("income_tax_rate", 0))
+    db.set_setting("farm_taxfree_limit", int(round(_num("farm_taxfree_limit", 30000000))))
     flash("세금 설정을 저장했습니다.", "ok")
     return redirect(url_for("finance") + "#tax")
 
@@ -764,7 +805,7 @@ def seed_sample():
 @app.route("/reset", methods=["POST"])
 def reset_all():
     for table in ("farm_log", "livestock", "solar_log", "finance",
-                  "support_program", "reminder"):
+                  "support_program", "reminder", "facility"):
         db.conn.execute(f"DELETE FROM {table}")
     db.conn.commit()
     flash("모든 데이터를 초기화했습니다. (설비 설정은 유지)", "ok")
@@ -817,7 +858,8 @@ def _seed(db):
 
     # 판매(출하) 완료된 가축 예시 — 성장 통계용 (입식 250kg → 출하 690kg)
     sold = db.add_livestock("가축", "한우(출하)", 1, "두", _days_ago(420), "진행중", "비육우", 250)
-    db.sell_livestock(sold, _days_ago(8), 9_200_000, 690, "도매 출하", add_to_finance=True)
+    db.sell_livestock(sold, _days_ago(8), 9_200_000, 690, "도매 출하",
+                      add_to_finance=True, sold_grade="1++")
 
     db.add_farm_log(_days_ago(2), cow, "급여/관리", 240, "kg", "배합사료")
     db.add_farm_log(_days_ago(1), cow, "방역/병해충", 0, "", "구제역 백신 접종")
@@ -838,6 +880,12 @@ def _seed(db):
     # 지원사업 예시 (수령 1건은 재무에 자동 반영됨)
     db.add_support("친환경농업 직불금", "서천군", _days_ago(60), 1_500_000, "수령", "")
     db.add_support("영농형 태양광 시설 융자", "에너지공단", _days_ago(30), 20_000_000, "선정", "이율 1.75%")
+
+    # 시설 예시 (공사중 1동 + 준공 1동)
+    db.add_facility("1동 우사", "축사", "공사중", _days_ago(40), None, None,
+                    "660㎡ · 50두 규모", 180_000_000, "대한축산건설", "지붕 태양광 연계")
+    db.add_facility("퇴비사", "퇴비사", "준공", _days_ago(400), _days_ago(330),
+                    _days_ago(300), "200㎡", 45_000_000, "서천종합건설", "")
 
     # 일정/알림 예시 (다가오는 일정 + 반복)
     db.add_reminder("구제역 백신 접종", _days_ahead(5), "방역/백신", "매년", "전 두수")

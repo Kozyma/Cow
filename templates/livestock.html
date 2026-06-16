@@ -4,13 +4,14 @@
 <h1 class="h1">농축산</h1>
 <p class="lead">사육·재배 품목을 등록하고 영농 일지를 기록합니다.</p>
 
-<nav class="subtabs" data-default="items">
+<nav class="subtabs" data-default="{{ 'facility' if facility_edit else 'items' }}">
   <button type="button" data-tab="items">품목</button>
   <button type="button" data-tab="log">영농일지</button>
+  <button type="button" data-tab="facility">시설</button>
 </nav>
 
 {# ── 품목 탭 ──────────────────────────────────────────── #}
-<div class="tabpane" data-pane="items">
+<div class="tabpane" data-pane="items" {{ 'hidden' if facility_edit }}>
 <section class="sec">
   <div class="sec-h"><h2>{{ '품목 수정' if edit_row else '품목 추가' }}</h2></div>
   <form method="post" action="{{ url_for('livestock_save') }}" class="form">
@@ -62,6 +63,7 @@
           {%- if r['start_date'] %} · {{ r['start_date'] }}{% endif %}{% if r['note'] %} · {{ r['note'] }}{% endif %}</div>
         {% if r['sold_date'] %}
         <div class="d">🏷 {{ r['sold_date'] }} 판매
+          {%- if r['sold_grade'] %} · <b>{{ r['sold_grade'] }}등급</b>{% endif %}
           {%- if r['sold_amount'] %} · {{ won(r['sold_amount']) }}원{% endif %}
           {%- if r['sold_weight_kg'] %} · 출하 {{ '%g'|format(r['sold_weight_kg']) }}kg
             {%- if r['weight_kg'] %} (성장 +{{ '%g'|format(r['sold_weight_kg'] - r['weight_kg']) }}kg){% endif %}
@@ -73,6 +75,7 @@
                 data-id="{{ r['id'] }}" data-name="{{ r['name'] }}"
                 data-amount="{{ r['sold_amount'] or '' }}"
                 data-weight="{{ r['sold_weight_kg'] or '' }}"
+                data-grade="{{ r['sold_grade'] or '' }}"
                 data-date="{{ r['sold_date'] or today }}">판매</button>
         <a class="mini" href="{{ url_for('livestock', edit=r['id']) }}">수정</a>
         <form method="post" action="{{ url_for('livestock_delete', row_id=r['id']) }}"
@@ -139,6 +142,72 @@
 </section>
 </div>
 
+{# ── 시설 탭 ──────────────────────────────────────────── #}
+<div class="tabpane" data-pane="facility" {{ 'hidden' if not facility_edit }}>
+<section class="sec">
+  <div class="sec-h"><h2>{{ '시설 수정' if facility_edit else '시설 추가' }}</h2></div>
+  <form method="post" action="{{ url_for('facility_save') }}" class="form">
+    {% if facility_edit %}<input type="hidden" name="id" value="{{ facility_edit['id'] }}">{% endif %}
+    <div class="grid">
+      <label class="fld full"><span>시설명</span>
+        <input name="name" required value="{{ facility_edit['name'] if facility_edit else '' }}" placeholder="예) 1동 우사 / 퇴비사 / 사료창고"></label>
+      <label class="fld"><span>종류</span>
+        <select name="ftype">{% for t in FACILITY_TYPES %}<option value="{{ t }}" {{ 'selected' if facility_edit and facility_edit['ftype']==t }}>{{ t }}</option>{% endfor %}</select></label>
+      <label class="fld"><span>상태</span>
+        <select name="status">{% for s in FACILITY_STATUSES %}<option value="{{ s }}" {{ 'selected' if facility_edit and facility_edit['status']==s }}>{{ s }}</option>{% endfor %}</select></label>
+      <label class="fld"><span>착공일</span>
+        <input name="start_date" type="date" value="{{ facility_edit['start_date'] if facility_edit and facility_edit['start_date'] else '' }}"></label>
+      <label class="fld"><span>완공일</span>
+        <input name="done_date" type="date" value="{{ facility_edit['done_date'] if facility_edit and facility_edit['done_date'] else '' }}"></label>
+      <label class="fld"><span>준공일</span>
+        <input name="approval_date" type="date" value="{{ facility_edit['approval_date'] if facility_edit and facility_edit['approval_date'] else '' }}"></label>
+      <label class="fld"><span>공사비 (원)</span>
+        <input name="cost" type="number" step="1" inputmode="numeric" value="{{ facility_edit['cost'] if facility_edit and facility_edit['cost'] else '' }}" placeholder="0"></label>
+      <label class="fld full"><span>규모</span>
+        <input name="size" value="{{ facility_edit['size'] if facility_edit else '' }}" placeholder="예) 660㎡ · 50두 규모"></label>
+      <label class="fld full"><span>시공업체</span>
+        <input name="contractor" value="{{ facility_edit['contractor'] if facility_edit else '' }}" placeholder="선택 입력"></label>
+      <label class="fld full"><span>메모</span>
+        <input name="note" value="{{ facility_edit['note'] if facility_edit else '' }}" placeholder="선택 입력 — 인허가 번호, 특이사항 등"></label>
+    </div>
+    <div class="actions">
+      <button class="btn">{{ '수정 저장' if facility_edit else '시설 추가' }}</button>
+      {% if facility_edit %}<a class="btn sec" href="{{ url_for('livestock') }}#facility">취소</a>{% endif %}
+    </div>
+  </form>
+</section>
+
+<section class="sec">
+  <div class="sec-h"><h2>시설 목록</h2><span class="count">{{ facilities|length }}건</span></div>
+  <div class="list">
+    {% for f in facilities %}
+    <div class="li"><span class="dot {{ 'gray' if f['status']!='공사중' else '' }}"></span>
+      <div class="m">
+        <div class="t">{{ f['name'] }}<span class="tag off">{{ f['ftype'] }}</span>
+          <span class="tag {{ 'on' if f['status'] in ['완공','준공'] else 'off' }}">{{ f['status'] }}</span></div>
+        <div class="d">
+          {%- if f['size'] %}{{ f['size'] }}{% endif %}
+          {%- if f['cost'] %} · 공사비 {{ won(f['cost']) }}원{% endif %}
+          {%- if f['contractor'] %} · {{ f['contractor'] }}{% endif %}</div>
+        <div class="d">
+          {%- if f['start_date'] %}착공 {{ f['start_date'] }}{% endif %}
+          {%- if f['done_date'] %} · 완공 {{ f['done_date'] }}{% endif %}
+          {%- if f['approval_date'] %} · 준공 {{ f['approval_date'] }}{% endif %}
+          {%- if f['note'] %} · {{ f['note'] }}{% endif %}</div>
+      </div>
+      <div class="act">
+        <a class="mini" href="{{ url_for('livestock', fedit=f['id']) }}#facility">수정</a>
+        <form method="post" action="{{ url_for('facility_delete', row_id=f['id']) }}"
+              onsubmit="return confirm('이 시설을 삭제할까요?');"><button class="mini del">삭제</button></form>
+      </div>
+    </div>
+    {% else %}
+    <div class="empty">등록된 시설이 없습니다. 축사·퇴비사 등 공사·준공 정보를 기록해 보세요.</div>
+    {% endfor %}
+  </div>
+</section>
+</div>
+
 {# ── 판매 입력 팝업 ──────────────────────────────────── #}
 <dialog id="sellDialog" class="modal">
   <form method="post" id="sellForm" class="form">
@@ -154,8 +223,14 @@
         <input name="sold_date" id="sellDate" type="date" value="{{ today }}"></label>
       <label class="fld"><span>판매 금액 (원)</span>
         <input name="sold_amount" id="sellAmount" type="number" step="any" inputmode="numeric" placeholder="얼마에 팔았나요?"></label>
-      <label class="fld full"><span>출하 체중 (kg)</span>
-        <input name="sold_weight_kg" id="sellWeight" type="number" step="any" inputmode="decimal" placeholder="몇 kg까지 성장했나요?"></label>
+      <label class="fld"><span>출하 체중 (kg)</span>
+        <input name="sold_weight_kg" id="sellWeight" type="number" step="any" inputmode="decimal" placeholder="몇 kg"></label>
+      <label class="fld"><span>등급</span>
+        <input name="sold_grade" id="sellGrade" list="gradeList" placeholder="예) 1++, 1+, 1, 2">
+        <datalist id="gradeList">
+          <option value="1++"><option value="1+"><option value="1">
+          <option value="2"><option value="3"><option value="등외">
+        </datalist></label>
       <label class="fld full"><span>메모</span>
         <input name="note" id="sellNote" placeholder="선택 입력 — 거래처 등"></label>
     </div>
