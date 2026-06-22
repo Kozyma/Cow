@@ -32,6 +32,41 @@ document.addEventListener('click', (e) => {
   dlg.addEventListener('click', (e) => { if (e.target === dlg) dlg.close(); });
 })();
 
+// 공통 팝업(모달): 추가/수정 폼을 다이얼로그로 띄운다.
+//  - [data-open="dlgId"]            : 클릭 시 해당 다이얼로그 열기
+//  - [data-open=..][data-fresh]     : 열기 전에 폼을 비워서 '추가' 모드로
+//  - dialog[data-autoopen]          : 페이지 로드시 자동으로 열기(서버가 수정모드일 때)
+//  - dialog 안의 [data-close]·바깥클릭 : 닫기
+(() => {
+  const open = (dlg) => { if (dlg.showModal) dlg.showModal(); else dlg.setAttribute('open', ''); };
+  const freshen = (dlg) => {
+    dlg.querySelectorAll('input, select, textarea').forEach((el) => {
+      if (el.type === 'hidden') { if (el.name === 'id') el.value = ''; return; }
+      if (el.type === 'checkbox' || el.type === 'radio') el.checked = el.defaultChecked;
+      else if (el.type === 'date' || el.type === 'month') { /* 기본 날짜 유지 */ }
+      else if (el.tagName === 'SELECT') el.selectedIndex = 0;
+      else el.value = '';
+    });
+  };
+  document.querySelectorAll('[data-open]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const dlg = document.getElementById(btn.dataset.open);
+      if (!dlg) return;
+      if (btn.hasAttribute('data-fresh')) freshen(dlg);
+      open(dlg);
+    });
+  });
+  document.querySelectorAll('dialog.modal').forEach((dlg) => {
+    dlg.querySelectorAll('[data-close]').forEach((b) =>
+      b.addEventListener('click', () => dlg.close()));
+    dlg.addEventListener('click', (e) => { if (e.target === dlg) dlg.close(); });
+  });
+  // 서버가 수정모드로 내려준 다이얼로그는 자동으로 연다.
+  // (하위탭 표시 스크립트가 먼저 패널을 보이게 한 뒤 열리도록 다음 프레임에 실행)
+  requestAnimationFrame(() =>
+    document.querySelectorAll('dialog[data-autoopen]').forEach(open));
+})();
+
 // 품목 폼: '가축'일 때만 입식 체중(kg) 입력칸 표시
 (() => {
   const flds = document.querySelectorAll('[data-cat-only]');
@@ -72,6 +107,53 @@ document.addEventListener('click', (e) => {
   }
   qty.addEventListener('input', sync);
   price.addEventListener('input', sync);
+})();
+
+// 비밀번호 변경 — 헤더 메뉴
+(() => {
+  const btn = document.getElementById('pwBtn');
+  if (!btn) return;
+  btn.addEventListener('click', () => {
+    const cur = window.prompt('현재 비밀번호를 입력하세요.');
+    if (cur === null) return;
+    const nw = window.prompt('새 비밀번호를 입력하세요. (4자 이상)');
+    if (nw === null) return;
+    document.getElementById('pwCur').value = cur;
+    document.getElementById('pwNew').value = nw;
+    document.getElementById('pwForm').submit();
+  });
+})();
+
+// 관리자: 작업 완료 알림 — 주기적으로 확인해 브라우저 푸시 알림을 띄운다.
+(() => {
+  const el = document.getElementById('notifApi');
+  if (!el || !document.body.dataset.admin) return;
+  const url = el.dataset.url;
+  // 알림 권한 요청(가능하면)
+  if ('Notification' in window && Notification.permission === 'default') {
+    try { Notification.requestPermission(); } catch (e) { /* ignore */ }
+  }
+  const seenKey = 'workNotifSeen';
+  const seen = new Set(JSON.parse(sessionStorage.getItem(seenKey) || '[]'));
+  let first = true;
+  const poll = async () => {
+    try {
+      const res = await fetch(url, { headers: { 'X-Requested-With': 'fetch' } });
+      if (!res.ok) return;
+      const data = await res.json();
+      (data.items || []).forEach((it) => {
+        if (seen.has(it.id)) return;
+        seen.add(it.id);
+        if (!first && 'Notification' in window && Notification.permission === 'granted') {
+          new Notification('작업 완료', { body: `${it.who} — ${it.title}` });
+        }
+      });
+      sessionStorage.setItem(seenKey, JSON.stringify([...seen]));
+      first = false;
+    } catch (e) { /* offline 등 무시 */ }
+  };
+  poll();
+  setInterval(poll, 20000);
 })();
 
 // 농장(앱) 이름 변경 — 헤더 메뉴

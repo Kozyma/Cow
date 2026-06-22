@@ -14,9 +14,10 @@
 
 {# ── 품목 탭 ──────────────────────────────────────────── #}
 <div class="tabpane" data-pane="items" {{ 'hidden' if facility_edit }}>
-<section class="sec">
-  <div class="sec-h"><h2>{{ '품목 수정' if edit_row else '품목 추가' }}</h2></div>
+<dialog class="modal" id="itemDialog" {{ 'data-autoopen' if edit_row }}>
   <form method="post" action="{{ url_for('livestock_save') }}" class="form">
+    <div class="modal-h"><h3>{{ '품목 수정' if edit_row else '품목 추가' }}</h3>
+      <button type="button" class="modal-x" data-close aria-label="닫기">&times;</button></div>
     {% if edit_row %}<input type="hidden" name="id" value="{{ edit_row['id'] }}">{% endif %}
     <div class="grid">
       <label class="fld"><span>구분</span>
@@ -60,13 +61,16 @@
     </div>
     <div class="actions">
       <button type="submit" class="btn">{{ '수정 저장' if edit_row else '품목 추가' }}</button>
-      {% if edit_row %}<a class="btn sec" href="{{ url_for('livestock') }}">취소</a>{% endif %}
+      {% if edit_row %}<a class="btn sec" href="{{ url_for('livestock') }}">취소</a>
+      {% else %}<button type="button" class="btn sec" data-close>닫기</button>{% endif %}
     </div>
   </form>
-</section>
+</dialog>
 
 <section class="sec">
-  <div class="sec-h"><h2>품목 목록</h2><span class="count">{{ items|length }}건</span></div>
+  <div class="sec-h"><h2>품목 목록</h2>
+    <div class="sec-h-r"><span class="count">{{ items|length }}건</span>
+      <button class="add-btn" data-open="itemDialog" data-fresh>+ 품목 추가</button></div></div>
   <div class="list">
     {% for r in items %}
     <div class="li"><span class="dot {{ 'gray' if r['category']!='가축' else '' }}"></span>
@@ -113,12 +117,13 @@
   <form method="post" action="{{ url_for('farmlog_add') }}" class="form">
     <div class="grid">
       <label class="fld"><span>날짜</span><input name="log_date" type="date" value="{{ today }}"></label>
-      <label class="fld"><span>품목</span>
-        <select name="livestock_id"><option value="">- 전체/미지정 -</option>
-          {% for id, label in choices %}<option value="{{ id }}">{{ label }}</option>{% endfor %}</select>
+      <label class="fld"><span>품목 <small>(자유 입력)</small></span>
+        <input name="item_label" list="logItemList" placeholder="한우 / 벼 / 퇴비 / 시설 …">
+        <datalist id="logItemList">{% for it in log_items %}<option value="{{ it }}">{% endfor %}</datalist>
       </label>
-      <label class="fld full"><span>활동</span>
-        <select name="activity">{% for a in ACTIVITIES %}<option value="{{ a }}">{{ a }}</option>{% endfor %}</select>
+      <label class="fld full"><span>활동 <small>(자유 입력)</small></span>
+        <input name="activity" list="logActList" placeholder="급여/관리 · 방역 · 수확 · 청소 …">
+        <datalist id="logActList">{% for a in log_activities %}<option value="{{ a }}">{% endfor %}</datalist>
       </label>
       <label class="fld"><span>수량</span><input name="quantity" type="number" step="any" inputmode="decimal" placeholder="0"></label>
       <label class="fld"><span>단위</span><input name="unit" placeholder="kg …"></label>
@@ -135,7 +140,7 @@
     <div class="li"><span class="dot gray"></span>
       <div class="m">
         <div class="t">{{ r['activity'] }}{% if r['quantity'] %} · {{ '%g'|format(r['quantity']) }}{{ r['unit'] or '' }}{% endif %}</div>
-        <div class="d">{{ r['log_date'] }} · {{ (r['livestock_category'] ~ ' ' ~ r['livestock_name']) if r['livestock_name'] else '미지정' }}{% if r['note'] %} · {{ r['note'] }}{% endif %}</div>
+        <div class="d">{{ r['log_date'] }} · {{ r['item_label'] or (r['livestock_category'] ~ ' ' ~ r['livestock_name']) if (r['item_label'] or r['livestock_name']) else '미지정' }}{% if r['note'] %} · {{ r['note'] }}{% endif %}</div>
       </div>
       <div class="act">
         <form method="post" action="{{ url_for('farmlog_delete', row_id=r['id']) }}"
@@ -161,9 +166,10 @@
 
 {# ── 사료구매 탭 ──────────────────────────────────────── #}
 <div class="tabpane" data-pane="feed" hidden>
-<section class="sec">
-  <div class="sec-h"><h2>{{ '사료 구매 수정' if feed_edit else '사료 구매 등록' }}</h2></div>
+<dialog class="modal" id="feedDialog" {{ 'data-autoopen' if feed_edit }}>
   <form method="post" action="{{ url_for('feed_save') }}" class="form">
+    <div class="modal-h"><h3>{{ '사료 구매 수정' if feed_edit else '사료 구매 등록' }}</h3>
+      <button type="button" class="modal-x" data-close aria-label="닫기">&times;</button></div>
     {% if feed_edit %}<input type="hidden" name="id" value="{{ feed_edit['id'] }}">{% endif %}
     <div class="grid">
       <label class="fld"><span>구매일</span>
@@ -211,11 +217,19 @@
       재무에 <b>지출(농축산)</b>으로 반영</label>
     <div class="actions">
       <button type="submit" class="btn">{{ '수정 저장' if feed_edit else '구매 등록' }}</button>
-      {% if feed_edit %}<a class="btn sec" href="{{ url_for('livestock') }}#feed">취소</a>{% endif %}
-      <a class="btn sec" href="{{ url_for('feed_statement') }}" target="_blank">🧾 간이 구매내역서</a>
-      <a class="btn sec" href="{{ url_for('feed_report') }}" target="_blank">📄 상세 구매내역서</a>
+      {% if feed_edit %}<a class="btn sec" href="{{ url_for('livestock') }}#feed">취소</a>
+      {% else %}<button type="button" class="btn sec" data-close>닫기</button>{% endif %}
     </div>
   </form>
+</dialog>
+
+<section class="sec">
+  <div class="sec-h"><h2>사료 구매</h2>
+    <div class="sec-h-r"><button class="add-btn" data-open="feedDialog" data-fresh>+ 구매 등록</button></div></div>
+  <div class="actions" style="margin-top:0">
+    <a class="btn sec" href="{{ url_for('feed_statement') }}" target="_blank">🧾 간이 구매내역서</a>
+    <a class="btn sec" href="{{ url_for('feed_report') }}" target="_blank">📄 상세 구매내역서</a>
+  </div>
 </section>
 
 {% if feed_summary %}
@@ -297,9 +311,10 @@
 
 {# ── 시설 탭 ──────────────────────────────────────────── #}
 <div class="tabpane" data-pane="facility" {{ 'hidden' if not facility_edit }}>
-<section class="sec">
-  <div class="sec-h"><h2>{{ '시설 수정' if facility_edit else '시설 추가' }}</h2></div>
+<dialog class="modal" id="facilityDialog" {{ 'data-autoopen' if facility_edit }}>
   <form method="post" action="{{ url_for('facility_save') }}" class="form">
+    <div class="modal-h"><h3>{{ '시설 수정' if facility_edit else '시설 추가' }}</h3>
+      <button type="button" class="modal-x" data-close aria-label="닫기">&times;</button></div>
     {% if facility_edit %}<input type="hidden" name="id" value="{{ facility_edit['id'] }}">{% endif %}
     <div class="grid">
       <label class="fld full"><span>시설명</span>
@@ -325,13 +340,16 @@
     </div>
     <div class="actions">
       <button class="btn">{{ '수정 저장' if facility_edit else '시설 추가' }}</button>
-      {% if facility_edit %}<a class="btn sec" href="{{ url_for('livestock') }}#facility">취소</a>{% endif %}
+      {% if facility_edit %}<a class="btn sec" href="{{ url_for('livestock') }}#facility">취소</a>
+      {% else %}<button type="button" class="btn sec" data-close>닫기</button>{% endif %}
     </div>
   </form>
-</section>
+</dialog>
 
 <section class="sec">
-  <div class="sec-h"><h2>시설 목록</h2><span class="count">{{ facilities|length }}건</span></div>
+  <div class="sec-h"><h2>시설 목록</h2>
+    <div class="sec-h-r"><span class="count">{{ facilities|length }}건</span>
+      <button class="add-btn" data-open="facilityDialog" data-fresh>+ 시설 추가</button></div></div>
   <div class="list">
     {% for f in facilities %}
     <div class="li"><span class="dot {{ 'gray' if f['status']!='공사중' else '' }}"></span>

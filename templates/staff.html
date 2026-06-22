@@ -1,0 +1,226 @@
+{% extends "base.html" %}
+{% block title %}직원 · 영농형 태양광 관리{% endblock %}
+{% block content %}
+<h1 class="h1">직원</h1>
+<p class="lead">직원 계정·급여·작업지시를 관리합니다.</p>
+
+<nav class="subtabs" data-default="{{ 'pay' if pay_edit else ('work' if work_edit else 'staff') }}">
+  <button type="button" data-tab="staff">직원 계정</button>
+  <button type="button" data-tab="pay">급여</button>
+  <button type="button" data-tab="work">작업지시</button>
+</nav>
+
+{# ── 완료 알림 (모든 하위탭 위에 표시) ─────────────────────── #}
+{% set alerts = orders | selectattr('status','eq','완료') | selectattr('ack','eq',0) | list %}
+{% if alerts %}
+<section class="sec alert-sec">
+  <div class="sec-h"><h2>🔔 완료 알림</h2>
+    <form method="post" action="{{ url_for('work_ack') }}"><button class="mini">모두 확인</button></form>
+  </div>
+  <div class="list">
+    {% for w in alerts %}
+    <div class="li"><span class="dot red"></span>
+      <div class="m">
+        <div class="t">{{ w['assignee_name'] }} — {{ w['title'] }} 완료</div>
+        <div class="d">완료 {{ w['completed_at'] }}</div>
+      </div>
+      <div class="act">
+        <form method="post" action="{{ url_for('work_ack') }}">
+          <input type="hidden" name="id" value="{{ w['id'] }}"><button class="mini">확인</button>
+        </form>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+
+{# ── 직원 계정 탭 ─────────────────────────────────────── #}
+<div class="tabpane" data-pane="staff" {{ 'hidden' if pay_edit or work_edit }}>
+<dialog class="modal" id="staffDialog" {{ 'data-autoopen' if staff_edit }}>
+  <form method="post" action="{{ url_for('staff_save') }}" class="form">
+    <div class="modal-h"><h3>{{ '직원 수정' if staff_edit else '직원 추가' }}</h3>
+      <button type="button" class="modal-x" data-close aria-label="닫기">&times;</button></div>
+    {% if staff_edit %}<input type="hidden" name="id" value="{{ staff_edit['id'] }}">{% endif %}
+    <div class="grid">
+      <label class="fld"><span>이름</span>
+        <input name="name" required value="{{ staff_edit['name'] if staff_edit else '' }}" placeholder="직원 이름"></label>
+      <label class="fld"><span>역할</span>
+        <select name="role">
+          {% for r in [('staff','직원'),('admin','관리자')] %}
+          <option value="{{ r[0] }}" {{ 'selected' if staff_edit and staff_edit['role']==r[0] }}>{{ r[1] }}</option>
+          {% endfor %}
+        </select></label>
+      <label class="fld"><span>아이디 {% if staff_edit %}<small>(변경 불가)</small>{% endif %}</span>
+        <input name="username" value="{{ staff_edit['username'] if staff_edit else '' }}"
+               {{ 'readonly' if staff_edit }} placeholder="로그인 아이디"></label>
+      <label class="fld"><span>연락처</span>
+        <input name="phone" value="{{ staff_edit['phone'] if staff_edit and staff_edit['phone'] else '' }}" placeholder="010-…"></label>
+      <label class="fld"><span>비밀번호 {% if staff_edit %}<small>(변경 시에만)</small>{% endif %}</span>
+        <input name="password" type="text" placeholder="{{ '새 비밀번호(선택)' if staff_edit else '초기 비밀번호' }}"></label>
+      <label class="fld"><span>상태</span>
+        <select name="active">
+          <option value="1" {{ 'selected' if not staff_edit or staff_edit['active'] }}>활성</option>
+          <option value="" {{ 'selected' if staff_edit and not staff_edit['active'] }}>비활성</option>
+        </select></label>
+    </div>
+    <div class="actions">
+      <button type="submit" class="btn">{{ '수정 저장' if staff_edit else '직원 추가' }}</button>
+      {% if staff_edit %}<a class="btn sec" href="{{ url_for('staff') }}">취소</a>
+      {% else %}<button type="button" class="btn sec" data-close>닫기</button>{% endif %}
+    </div>
+  </form>
+</dialog>
+
+<section class="sec">
+  <div class="sec-h"><h2>직원 목록</h2>
+    <div class="sec-h-r"><span class="count">{{ users|length }}명</span>
+      <button class="add-btn" data-open="staffDialog" data-fresh>+ 직원 추가</button></div></div>
+  <div class="list">
+    {% for u in users %}
+    <div class="li"><span class="dot {{ '' if u['active'] else 'gray' }}"></span>
+      <div class="m">
+        <div class="t">{{ u['name'] }}
+          <span class="tag {{ 'on' if u['role']=='admin' else 'off' }}">{{ '관리자' if u['role']=='admin' else '직원' }}</span>
+          {% if not u['active'] %}<span class="tag off">비활성</span>{% endif %}</div>
+        <div class="d">아이디 {{ u['username'] }}{% if u['phone'] %} · {{ u['phone'] }}{% endif %}</div>
+      </div>
+      <div class="act">
+        <a class="mini" href="{{ url_for('staff', uedit=u['id']) }}">수정</a>
+        <form method="post" action="{{ url_for('staff_delete', row_id=u['id']) }}"
+              onsubmit="return confirm('이 계정을 삭제할까요? 관련 급여·작업도 함께 삭제됩니다.');"><button class="mini del">삭제</button></form>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</section>
+</div>
+
+{# ── 급여 탭 ──────────────────────────────────────────── #}
+<div class="tabpane" data-pane="pay" {{ 'hidden' if not pay_edit }}>
+<dialog class="modal" id="payDialog" {{ 'data-autoopen' if pay_edit }}>
+  <form method="post" action="{{ url_for('payroll_save') }}" class="form">
+    <div class="modal-h"><h3>{{ '급여 수정' if pay_edit else '급여 등록' }}</h3>
+      <button type="button" class="modal-x" data-close aria-label="닫기">&times;</button></div>
+    {% if pay_edit %}<input type="hidden" name="id" value="{{ pay_edit['id'] }}">{% endif %}
+    <div class="grid">
+      <label class="fld"><span>직원</span>
+        <select name="user_id" required>
+          <option value="">- 선택 -</option>
+          {% for u in staff_list %}<option value="{{ u['id'] }}" {{ 'selected' if pay_edit and pay_edit['user_id']==u['id'] }}>{{ u['name'] }}</option>{% endfor %}
+        </select></label>
+      <label class="fld"><span>귀속 월</span>
+        <input name="pay_month" type="month" value="{{ pay_edit['pay_month'] if pay_edit else this_month }}"></label>
+      <label class="fld"><span>기본급 (원)</span>
+        <input name="base_pay" id="payBase" type="number" step="1" inputmode="numeric" value="{{ pay_edit['base_pay'] if pay_edit else '' }}" placeholder="0"></label>
+      <label class="fld"><span>수당 합계 (원)</span>
+        <input name="allowance" id="payAllow" type="number" step="1" inputmode="numeric" value="{{ pay_edit['allowance'] if pay_edit and pay_edit['allowance'] else '' }}" placeholder="0 — 상세 입력 시"></label>
+      <label class="fld"><span>공제 합계 (원)</span>
+        <input name="deduction" id="payDeduct" type="number" step="1" inputmode="numeric" value="{{ pay_edit['deduction'] if pay_edit and pay_edit['deduction'] else '' }}" placeholder="0 — 4대보험·세금 등"></label>
+      <label class="fld"><span>지급일</span>
+        <input name="paid_date" type="date" value="{{ pay_edit['paid_date'] if pay_edit and pay_edit['paid_date'] else '' }}"></label>
+    </div>
+    <div class="netline">실수령액(자동): <b id="payNet">0</b> 원</div>
+    <label class="check"><input type="checkbox" name="paid" value="1" {{ 'checked' if pay_edit and pay_edit['paid'] else '' }}>
+      <b>지급 완료</b> — 체크 시 재무에 지출(농축산)으로 자동 반영</label>
+    <label class="fld full"><span>메모</span>
+      <input name="note" value="{{ pay_edit['note'] if pay_edit and pay_edit['note'] else '' }}" placeholder="선택 입력"></label>
+    <p class="lead" style="margin:10px 0 0">간단히 쓰려면 <b>기본급</b>만 입력하세요. 상세하게는 수당·공제까지 입력하면 실수령액이 계산됩니다.</p>
+    <div class="actions">
+      <button type="submit" class="btn">{{ '수정 저장' if pay_edit else '급여 등록' }}</button>
+      {% if pay_edit %}<a class="btn sec" href="{{ url_for('staff') }}#pay">취소</a>
+      {% else %}<button type="button" class="btn sec" data-close>닫기</button>{% endif %}
+    </div>
+  </form>
+</dialog>
+
+<section class="sec">
+  <div class="sec-h"><h2>급여 내역</h2>
+    <div class="sec-h-r"><span class="count">{{ payrolls|length }}건</span>
+      <button class="add-btn" data-open="payDialog" data-fresh>+ 급여 등록</button></div></div>
+  <div class="list">
+    {% for p in payrolls %}
+    <div class="li"><span class="dot {{ '' if p['paid'] else 'gray' }}"></span>
+      <div class="m">
+        <div class="t">{{ p['user_name'] }} · {{ p['pay_month'] }}
+          <span class="tag {{ 'on' if p['paid'] else 'off' }}">{{ '지급완료' if p['paid'] else '미지급' }}</span></div>
+        <div class="d">실수령 <b>{{ won(p['net_pay']) }}원</b>
+          (기본 {{ won(p['base_pay']) }} · 수당 {{ won(p['allowance']) }} · 공제 {{ won(p['deduction']) }})
+          {%- if p['paid_date'] %} · 지급 {{ p['paid_date'] }}{% endif %}{% if p['note'] %} · {{ p['note'] }}{% endif %}</div>
+      </div>
+      <div class="act">
+        <a class="mini" href="{{ url_for('staff', pedit=p['id']) }}#pay">수정</a>
+        <form method="post" action="{{ url_for('payroll_delete', row_id=p['id']) }}"
+              onsubmit="return confirm('이 급여 내역을 삭제할까요?');"><button class="mini del">삭제</button></form>
+      </div>
+    </div>
+    {% else %}
+    <div class="empty">급여 내역이 없습니다.</div>
+    {% endfor %}
+  </div>
+</section>
+</div>
+
+{# ── 작업지시 탭 ──────────────────────────────────────── #}
+<div class="tabpane" data-pane="work" {{ 'hidden' if not work_edit }}>
+<dialog class="modal" id="workDialog" {{ 'data-autoopen' if work_edit }}>
+  <form method="post" action="{{ url_for('work_save') }}" class="form">
+    <div class="modal-h"><h3>{{ '작업지시 수정' if work_edit else '작업지시 내리기' }}</h3>
+      <button type="button" class="modal-x" data-close aria-label="닫기">&times;</button></div>
+    {% if work_edit %}<input type="hidden" name="id" value="{{ work_edit['id'] }}">{% endif %}
+    <div class="grid">
+      <label class="fld"><span>담당 직원</span>
+        <select name="assignee_id" required>
+          <option value="">- 선택 -</option>
+          {% for u in staff_list %}<option value="{{ u['id'] }}" {{ 'selected' if work_edit and work_edit['assignee_id']==u['id'] }}>{{ u['name'] }}</option>{% endfor %}
+        </select></label>
+      <label class="fld"><span>마감일</span>
+        <input name="due_date" type="date" value="{{ work_edit['due_date'] if work_edit and work_edit['due_date'] else today }}"></label>
+      <label class="fld full"><span>작업 제목</span>
+        <input name="title" required value="{{ work_edit['title'] if work_edit else '' }}" placeholder="예) 1동 우사 청소"></label>
+      <label class="fld full"><span>상세 내용</span>
+        <textarea name="detail" rows="3" placeholder="작업 방법·주의사항 등">{{ work_edit['detail'] if work_edit and work_edit['detail'] else '' }}</textarea></label>
+    </div>
+    <div class="actions">
+      <button type="submit" class="btn">{{ '수정 저장' if work_edit else '작업 지시' }}</button>
+      {% if work_edit %}<a class="btn sec" href="{{ url_for('staff') }}#work">취소</a>
+      {% else %}<button type="button" class="btn sec" data-close>닫기</button>{% endif %}
+    </div>
+  </form>
+</dialog>
+
+<section class="sec">
+  <div class="sec-h"><h2>작업지시</h2>
+    <div class="sec-h-r"><button class="add-btn" data-open="workDialog" data-fresh>+ 작업 지시</button></div></div>
+</section>
+
+<section class="sec">
+  <div class="sec-h"><h2>작업지시 목록</h2><span class="count">{{ orders|length }}건</span></div>
+  <div class="list">
+    {% for w in orders %}
+    <div class="li"><span class="dot {{ 'gray' if w['status']=='완료' else ('red' if w['due_date'] and w['due_date'] <= today else '') }}"></span>
+      <div class="m">
+        <div class="t">{{ w['title'] }}
+          <span class="tag {{ 'off' if w['status']=='완료' else 'on' }}">{{ w['status'] }}</span></div>
+        <div class="d">담당 <b>{{ w['assignee_name'] }}</b>
+          {%- if w['due_date'] %} · 마감 {{ w['due_date'] }}{% endif %}
+          {%- if w['status']=='완료' %} · 완료 {{ w['completed_at'] }}{% endif %}
+          {%- if w['detail'] %} · {{ w['detail'] }}{% endif %}</div>
+      </div>
+      <div class="act">
+        {% if w['status']=='완료' %}
+        <form method="post" action="{{ url_for('work_reopen', row_id=w['id']) }}"><button class="mini">되돌리기</button></form>
+        {% else %}
+        <a class="mini" href="{{ url_for('staff', wedit=w['id']) }}#work">수정</a>
+        {% endif %}
+        <form method="post" action="{{ url_for('work_delete', row_id=w['id']) }}"
+              onsubmit="return confirm('이 작업지시를 삭제할까요?');"><button class="mini del">삭제</button></form>
+      </div>
+    </div>
+    {% else %}
+    <div class="empty">작업지시가 없습니다.</div>
+    {% endfor %}
+  </div>
+</section>
+</div>
+{% endblock %}

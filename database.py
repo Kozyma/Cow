@@ -11,6 +11,8 @@ import os
 import sqlite3
 from datetime import datetime
 
+from werkzeug.security import check_password_hash, generate_password_hash
+
 
 # ──────────────────────────────────────────────────────────────────
 # 태양광 정산 기본 단가 (settings 테이블 초기값)
@@ -65,6 +67,7 @@ class Database:
         self._create_tables()
         self._migrate()
         self._init_settings()
+        self._init_admin()
 
     # ── 초기화 ───────────────────────────────────────────────────
     def _create_tables(self):
@@ -178,6 +181,50 @@ class Database:
                 key   TEXT PRIMARY KEY,
                 value TEXT
             );
+
+            -- 사용자(직원) 계정 — 관리자/직원 로그인
+            CREATE TABLE IF NOT EXISTS users (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                username      TEXT NOT NULL UNIQUE,       -- 로그인 아이디
+                password_hash TEXT NOT NULL,
+                name          TEXT NOT NULL,              -- 표시 이름
+                role          TEXT NOT NULL DEFAULT 'staff', -- admin / staff
+                phone         TEXT,
+                active        INTEGER NOT NULL DEFAULT 1,
+                created       TEXT
+            );
+
+            -- 급여 (직원별 월 급여) — 간단/상세 겸용
+            CREATE TABLE IF NOT EXISTS payroll (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id    INTEGER NOT NULL,
+                pay_month  TEXT NOT NULL,                 -- 귀속 월 (YYYY-MM)
+                base_pay   INTEGER NOT NULL DEFAULT 0,    -- 기본급
+                allowance  INTEGER NOT NULL DEFAULT 0,    -- 수당 합계
+                deduction  INTEGER NOT NULL DEFAULT 0,    -- 공제 합계(4대보험/세금 등)
+                net_pay    INTEGER NOT NULL DEFAULT 0,    -- 실수령액 = 기본급+수당-공제
+                paid       INTEGER NOT NULL DEFAULT 0,    -- 지급 완료 여부
+                paid_date  TEXT,                          -- 지급일
+                note       TEXT,
+                auto_key   TEXT,                          -- 재무 자동반영 식별키
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
+
+            -- 작업지시 (관리자 → 직원)
+            CREATE TABLE IF NOT EXISTS work_order (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                assignee_id  INTEGER NOT NULL,            -- 담당 직원(users.id)
+                title        TEXT NOT NULL,
+                detail       TEXT,
+                due_date     TEXT,                        -- 마감일
+                status       TEXT NOT NULL DEFAULT '지시',-- 지시 / 진행중 / 완료
+                created_by   INTEGER,                     -- 지시한 관리자(users.id)
+                created_at   TEXT,
+                completed_at TEXT,
+                ack          INTEGER NOT NULL DEFAULT 0,  -- 관리자 완료확인 여부(알림용)
+                note         TEXT,
+                FOREIGN KEY (assignee_id) REFERENCES users(id) ON DELETE CASCADE
+            );
             """
         )
         self.conn.commit()
@@ -190,6 +237,12 @@ class Database:
                 (key, value),
             )
         self.conn.commit()
+
+    def _init_admin(self):
+        """사용자가 한 명도 없으면 기본 관리자 계정을 만든다(admin/admin1234)."""
+        n = self.conn.execute("SELECT COUNT(*) AS c FROM users").fetchone()["c"]
+        if n == 0:
+            self.add_user("admin", "admin1234", "관리자", role="admin")
 
     def _migrate(self):
         """구버전 DB와의 호환: 빠진 컬럼을 안전하게 추가한다."""
@@ -220,6 +273,11 @@ class Database:
             ):
                 if col not in fp_cols:
                     self.conn.execute(ddl)
+
+        # 영농일지: 자유 입력 품목명(가축/작물에 묶이지 않는 텍스트)
+        fl_cols = [r["name"] for r in self.conn.execute("PRAGMA table_info(farm_log)")]
+        if "item_label" not in fl_cols:
+            self.conn.execute("ALTER TABLE farm_log ADD COLUMN item_label TEXT")
         self.conn.commit()
 
     # ── 설정 ─────────────────────────────────────────────────────
@@ -472,22 +530,32 @@ class Database:
         return [(r["id"], f"{r['category']} · {r['name']}") for r in rows]
 
     # ── 농축산: 영농 일지 ────────────────────────────────────────
-    def add_farm_log(self, log_date, livestock_id, activity, quantity, unit, note):
+    def add_farm_log(self, log_date, livestock_id, activity, quantity, unit, note,
+                     item_label=None):
         cur = self.conn.execute(
-            "INSERT INTO farm_log(log_date, livestock_id, activity, quantity, unit, note) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            (log_date, livestock_id, activity, quantity, unit, note),
+            "INSERT INTO farm_log(log_date, livestock_id, activity, quantity, unit, note, item_label) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (log_date, livestock_id, activity, quantity, unit, note, item_label),
         )
         self.conn.commit()
         return cur.lastrowid
 
-    def update_farm_log(self, row_id, log_date, livestock_id, activity, quantity, unit, note):
+    def update_farm_log(self, row_id, log_date, livestock_id, activity, quantity, unit, note,
+                        item_label=None):
         self.conn.execute(
             "UPDATE farm_log SET log_date=?, livestock_id=?, activity=?, "
-            "quantity=?, unit=?, note=? WHERE id=?",
-            (log_date, livestock_id, activity, quantity, unit, note, row_id),
+            "quantity=?, unit=?, note=?, item_label=? WHERE id=?",
+            (log_date, livestock_id, activity, quantity, unit, note, item_label, row_id),
         )
         self.conn.commit()
+
+    def farmlog_activities(self):
+        """일지에 이미 쓰인 활동명(자동완성용)."""
+        rows = self.conn.execute(
+            "SELECT DISTINCT activity FROM farm_log WHERE activity IS NOT NULL AND activity<>'' "
+            "ORDER BY activity"
+        ).fetchall()
+        return [r["activity"] for r in rows]
 
     def delete_farm_log(self, row_id):
         self.conn.execute("DELETE FROM farm_log WHERE id=?", (row_id,))
@@ -660,6 +728,216 @@ class Database:
             except (ValueError, TypeError):
                 clean[k] = 0
         self.set_setting("feed_price_map", json.dumps(clean, ensure_ascii=False))
+
+    # ── 사용자(직원) 계정 ────────────────────────────────────────
+    def add_user(self, username, password, name, role="staff", phone=None):
+        cur = self.conn.execute(
+            "INSERT INTO users(username, password_hash, name, role, phone, active, created) "
+            "VALUES (?, ?, ?, ?, ?, 1, ?)",
+            (username, generate_password_hash(password, method="pbkdf2:sha256"),
+             name, role, phone, today_str()),
+        )
+        self.conn.commit()
+        return cur.lastrowid
+
+    def update_user(self, user_id, name, role, phone, active):
+        self.conn.execute(
+            "UPDATE users SET name=?, role=?, phone=?, active=? WHERE id=?",
+            (name, role, phone, 1 if active else 0, user_id),
+        )
+        self.conn.commit()
+
+    def set_password(self, user_id, password):
+        self.conn.execute(
+            "UPDATE users SET password_hash=? WHERE id=?",
+            (generate_password_hash(password, method="pbkdf2:sha256"), user_id),
+        )
+        self.conn.commit()
+
+    def delete_user(self, user_id):
+        self.conn.execute("DELETE FROM users WHERE id=?", (user_id,))
+        self.conn.commit()
+
+    def get_user(self, user_id):
+        return self.conn.execute("SELECT * FROM users WHERE id=?", (user_id,)).fetchone()
+
+    def get_user_by_username(self, username):
+        return self.conn.execute(
+            "SELECT * FROM users WHERE username=?", (username,)
+        ).fetchone()
+
+    def verify_user(self, username, password):
+        """아이디/비밀번호 확인 → 성공 시 user Row, 실패 시 None."""
+        u = self.get_user_by_username(username)
+        if u and u["active"] and check_password_hash(u["password_hash"], password):
+            return u
+        return None
+
+    def username_exists(self, username):
+        return self.get_user_by_username(username) is not None
+
+    def list_users(self, role=None, only_active=False):
+        sql = "SELECT * FROM users WHERE 1=1"
+        params = []
+        if role:
+            sql += " AND role=?"
+            params.append(role)
+        if only_active:
+            sql += " AND active=1"
+        sql += " ORDER BY role, name"
+        return self.conn.execute(sql, params).fetchall()
+
+    # ── 급여(payroll) ────────────────────────────────────────────
+    def add_payroll(self, user_id, pay_month, base_pay, allowance, deduction,
+                    paid=False, paid_date=None, note=None, add_to_finance=True):
+        net = int(base_pay) + int(allowance) - int(deduction)
+        cur = self.conn.execute(
+            "INSERT INTO payroll(user_id, pay_month, base_pay, allowance, deduction, "
+            "net_pay, paid, paid_date, note) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (user_id, pay_month, int(base_pay), int(allowance), int(deduction),
+             net, 1 if paid else 0, paid_date, note),
+        )
+        row_id = cur.lastrowid
+        self._sync_payroll_finance(row_id, user_id, pay_month, net,
+                                   add_to_finance and paid, paid_date)
+        self.conn.commit()
+        return row_id
+
+    def update_payroll(self, row_id, user_id, pay_month, base_pay, allowance, deduction,
+                       paid=False, paid_date=None, note=None, add_to_finance=True):
+        net = int(base_pay) + int(allowance) - int(deduction)
+        self.conn.execute(
+            "UPDATE payroll SET user_id=?, pay_month=?, base_pay=?, allowance=?, "
+            "deduction=?, net_pay=?, paid=?, paid_date=?, note=? WHERE id=?",
+            (user_id, pay_month, int(base_pay), int(allowance), int(deduction),
+             net, 1 if paid else 0, paid_date, note, row_id),
+        )
+        self._sync_payroll_finance(row_id, user_id, pay_month, net,
+                                   add_to_finance and paid, paid_date)
+        self.conn.commit()
+
+    def _sync_payroll_finance(self, row_id, user_id, pay_month, net, reflect, paid_date):
+        """지급 완료한 급여를 재무에 '지출(농축산)'로 자동 반영."""
+        auto_key = f"salary-{row_id}"
+        existing = self.conn.execute(
+            "SELECT id FROM finance WHERE auto_key=?", (auto_key,)
+        ).fetchone()
+        if reflect and net > 0:
+            u = self.get_user(user_id)
+            item = f"{u['name'] if u else '직원'} 급여({pay_month})"
+            tx_date = paid_date or (pay_month + "-25" if pay_month else today_str())
+            if existing:
+                self.conn.execute(
+                    "UPDATE finance SET tx_date=?, tx_type='지출', sector='농축산', "
+                    "item=?, amount=?, note='급여 자동반영' WHERE id=?",
+                    (tx_date, item, int(net), existing["id"]),
+                )
+            else:
+                self.conn.execute(
+                    "INSERT INTO finance(tx_date, tx_type, sector, item, amount, note, auto_key) "
+                    "VALUES (?, '지출', '농축산', ?, ?, '급여 자동반영', ?)",
+                    (tx_date, item, int(net), auto_key),
+                )
+        elif existing:
+            self.conn.execute("DELETE FROM finance WHERE id=?", (existing["id"],))
+
+    def delete_payroll(self, row_id):
+        self.conn.execute("DELETE FROM finance WHERE auto_key=?", (f"salary-{row_id}",))
+        self.conn.execute("DELETE FROM payroll WHERE id=?", (row_id,))
+        self.conn.commit()
+
+    def get_payroll(self, row_id):
+        return self.conn.execute("SELECT * FROM payroll WHERE id=?", (row_id,)).fetchone()
+
+    def list_payroll(self, user_id=None):
+        sql = ("SELECT p.*, u.name AS user_name FROM payroll p "
+               "JOIN users u ON p.user_id = u.id")
+        params = []
+        if user_id:
+            sql += " WHERE p.user_id=?"
+            params.append(user_id)
+        sql += " ORDER BY p.pay_month DESC, u.name"
+        return self.conn.execute(sql, params).fetchall()
+
+    # ── 작업지시(work_order) ─────────────────────────────────────
+    def add_work_order(self, assignee_id, title, detail, due_date, created_by, note=None):
+        cur = self.conn.execute(
+            "INSERT INTO work_order(assignee_id, title, detail, due_date, status, "
+            "created_by, created_at, note) VALUES (?, ?, ?, ?, '지시', ?, ?, ?)",
+            (assignee_id, title, detail, due_date, created_by,
+             datetime.now().strftime("%Y-%m-%d %H:%M"), note),
+        )
+        self.conn.commit()
+        return cur.lastrowid
+
+    def update_work_order(self, row_id, assignee_id, title, detail, due_date, note=None):
+        self.conn.execute(
+            "UPDATE work_order SET assignee_id=?, title=?, detail=?, due_date=?, note=? "
+            "WHERE id=?",
+            (assignee_id, title, detail, due_date, note, row_id),
+        )
+        self.conn.commit()
+
+    def complete_work_order(self, row_id, user_id):
+        """직원이 완료 처리. 본인 작업만 가능. ack=0 으로 관리자 알림 대상이 됨."""
+        self.conn.execute(
+            "UPDATE work_order SET status='완료', completed_at=?, ack=0 "
+            "WHERE id=? AND assignee_id=?",
+            (datetime.now().strftime("%Y-%m-%d %H:%M"), row_id, user_id),
+        )
+        self.conn.commit()
+
+    def reopen_work_order(self, row_id):
+        self.conn.execute(
+            "UPDATE work_order SET status='지시', completed_at=NULL, ack=0 WHERE id=?",
+            (row_id,),
+        )
+        self.conn.commit()
+
+    def ack_work_order(self, row_id):
+        """관리자가 완료 알림을 확인."""
+        self.conn.execute("UPDATE work_order SET ack=1 WHERE id=?", (row_id,))
+        self.conn.commit()
+
+    def ack_all_work_orders(self):
+        self.conn.execute("UPDATE work_order SET ack=1 WHERE status='완료' AND ack=0")
+        self.conn.commit()
+
+    def delete_work_order(self, row_id):
+        self.conn.execute("DELETE FROM work_order WHERE id=?", (row_id,))
+        self.conn.commit()
+
+    def get_work_order(self, row_id):
+        return self.conn.execute(
+            "SELECT * FROM work_order WHERE id=?", (row_id,)
+        ).fetchone()
+
+    def list_work_orders(self, assignee_id=None, status=None):
+        sql = ("SELECT w.*, u.name AS assignee_name FROM work_order w "
+               "JOIN users u ON w.assignee_id = u.id WHERE 1=1")
+        params = []
+        if assignee_id:
+            sql += " AND w.assignee_id=?"
+            params.append(assignee_id)
+        if status:
+            sql += " AND w.status=?"
+            params.append(status)
+        sql += (" ORDER BY CASE w.status WHEN '완료' THEN 1 ELSE 0 END, "
+                "w.due_date IS NULL, w.due_date, w.id DESC")
+        return self.conn.execute(sql, params).fetchall()
+
+    def list_completed_unacked(self):
+        """관리자 알림용: 완료됐지만 아직 확인 안 한 작업."""
+        return self.conn.execute(
+            "SELECT w.*, u.name AS assignee_name FROM work_order w "
+            "JOIN users u ON w.assignee_id = u.id "
+            "WHERE w.status='완료' AND w.ack=0 ORDER BY w.completed_at DESC"
+        ).fetchall()
+
+    def count_completed_unacked(self):
+        return self.conn.execute(
+            "SELECT COUNT(*) AS c FROM work_order WHERE status='완료' AND ack=0"
+        ).fetchone()["c"]
 
     # ── 태양광: 발전 일지 ────────────────────────────────────────
     def add_or_update_solar(self, log_date, kwh, note):

@@ -15,7 +15,11 @@
     .owner-h { display: flex; justify-content: space-between; align-items: baseline;
                border-bottom: 2px solid #333; padding-bottom: 6px; margin: 28px 0 10px; }
     .owner-h .name { font-size: 17px; font-weight: 700; }
+    .owner-h .right { display: flex; align-items: baseline; gap: 12px; }
     .owner-h .sum { font-size: 15px; font-weight: 700; }
+    .owner-h .go { font-size: 13px; font-weight: 600; text-decoration: none;
+                   color: #1a7f4b; border: 1px solid #1a7f4b; border-radius: 6px;
+                   padding: 3px 10px; white-space: nowrap; }
     table { width: 100%; border-collapse: collapse; font-size: 13px; }
     th, td { border: 1px solid #ddd; padding: 7px 8px; text-align: left; }
     th { background: #f3f4f6; font-weight: 600; }
@@ -31,7 +35,7 @@
     .empty { color: #888; padding: 24px 0; text-align: center; }
     @media print {
       body { background: #fff; padding: 0; }
-      .toolbar { display: none; }
+      .toolbar, .owner-h .go { display: none; }
       .sheet { box-shadow: none; border-radius: 0; max-width: none; margin: 0; padding: 0; }
       .owner-h { page-break-after: avoid; }
       table { page-break-inside: auto; }
@@ -52,7 +56,10 @@
     {% for g in groups %}
     <div class="owner-h">
       <span class="name">명의 · {{ g.owner or '(미입력)' }}</span>
-      <span class="sum">소계 {{ won(g.total) }}원 ({{ g.count }}건)</span>
+      <span class="right">
+        <span class="sum">소계 {{ won(g.total) }}원 ({{ g.count }}건)</span>
+        {% if g.owner %}<a class="go" href="{{ url_for('feed_statement', owner=g.owner) }}" target="_blank">🧾 간이 내역서 →</a>{% endif %}
+      </span>
     </div>
     <table>
       <thead>

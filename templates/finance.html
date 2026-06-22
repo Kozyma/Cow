@@ -20,9 +20,10 @@
 
 {# ── 거래 탭 ──────────────────────────────────────────── #}
 <div class="tabpane" data-pane="tx" {{ 'hidden' if deftab != 'tx' }}>
-<section class="sec">
-  <div class="sec-h"><h2>{{ '거래 수정' if edit_row else '거래 추가' }}</h2></div>
+<dialog class="modal" id="txDialog" {{ 'data-autoopen' if edit_row }}>
   <form method="post" action="{{ url_for('finance_save') }}" class="form">
+    <div class="modal-h"><h3>{{ '거래 수정' if edit_row else '거래 추가' }}</h3>
+      <button type="button" class="modal-x" data-close aria-label="닫기">&times;</button></div>
     {% if edit_row %}<input type="hidden" name="id" value="{{ edit_row['id'] }}">{% endif %}
     <div class="grid">
       <label class="fld"><span>날짜</span><input name="tx_date" type="date" value="{{ edit_row['tx_date'] if edit_row else today }}"></label>
@@ -44,13 +45,16 @@
     </div>
     <div class="actions">
       <button class="btn">{{ '수정 저장' if edit_row else '거래 추가' }}</button>
-      {% if edit_row %}<a class="btn sec" href="{{ url_for('finance') }}">취소</a>{% endif %}
+      {% if edit_row %}<a class="btn sec" href="{{ url_for('finance') }}">취소</a>
+      {% else %}<button type="button" class="btn sec" data-close>닫기</button>{% endif %}
     </div>
   </form>
-</section>
+</dialog>
 
 <section class="sec">
-  <div class="sec-h"><h2>거래 내역</h2><span class="count">{{ total_tx }}건</span></div>
+  <div class="sec-h"><h2>거래 내역</h2>
+    <div class="sec-h-r"><span class="count">{{ total_tx }}건</span>
+      <button class="add-btn" data-open="txDialog" data-fresh>+ 거래 추가</button></div></div>
 
   <form method="get" action="{{ url_for('finance') }}#tx" class="form filterbar">
     <div class="grid">
@@ -180,12 +184,10 @@
 
 {# ── 지원사업 탭 ──────────────────────────────────────── #}
 <div class="tabpane" data-pane="support" {{ 'hidden' if deftab != 'support' }}>
-<section class="sec">
-  <div class="sec-h"><h2>{{ '지원사업 수정' if support_edit else '지원사업 추가' }}</h2>
-    {% if support_sum.received or support_sum.pending %}
-    <span class="count">수령 {{ won(support_sum.received) }}원 · 진행 {{ won(support_sum.pending) }}원</span>
-    {% endif %}</div>
+<dialog class="modal" id="supportDialog" {{ 'data-autoopen' if support_edit }}>
   <form method="post" action="{{ url_for('support_save') }}" class="form">
+    <div class="modal-h"><h3>{{ '지원사업 수정' if support_edit else '지원사업 추가' }}</h3>
+      <button type="button" class="modal-x" data-close aria-label="닫기">&times;</button></div>
     {% if support_edit %}<input type="hidden" name="id" value="{{ support_edit['id'] }}">{% endif %}
     <div class="grid">
       <label class="fld full"><span>사업명</span>
@@ -204,9 +206,19 @@
     </div>
     <div class="actions">
       <button class="btn">{{ '수정 저장' if support_edit else '지원사업 추가' }}</button>
-      {% if support_edit %}<a class="btn sec" href="{{ url_for('finance') }}">취소</a>{% endif %}
+      {% if support_edit %}<a class="btn sec" href="{{ url_for('finance') }}">취소</a>
+      {% else %}<button type="button" class="btn sec" data-close>닫기</button>{% endif %}
     </div>
   </form>
+</dialog>
+
+<section class="sec">
+  <div class="sec-h"><h2>지원사업</h2>
+    <div class="sec-h-r">
+      {% if support_sum.received or support_sum.pending %}
+      <span class="count">수령 {{ won(support_sum.received) }}원 · 진행 {{ won(support_sum.pending) }}원</span>
+      {% endif %}
+      <button class="add-btn" data-open="supportDialog" data-fresh>+ 지원사업 추가</button></div></div>
   <p class="help">상태를 <b>‘수령’</b>으로 바꾸면 지원금액이 재무에 ‘공통’ 수입으로 자동 반영됩니다.</p>
 
   <div class="list" style="margin-top:6px">

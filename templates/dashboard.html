@@ -2,6 +2,29 @@
 {% block title %}홈 · 영농형 태양광 관리{% endblock %}
 {% block content %}
 
+{% if work_alerts %}
+<section class="sec alert-sec" id="workAlerts">
+  <div class="sec-h"><h2>🔔 작업 완료 알림</h2>
+    <form method="post" action="{{ url_for('work_ack') }}"><button class="mini">모두 확인</button></form>
+  </div>
+  <div class="list">
+    {% for w in work_alerts %}
+    <div class="li"><span class="dot red"></span>
+      <div class="m">
+        <div class="t">{{ w['assignee_name'] }} — “{{ w['title'] }}” 완료</div>
+        <div class="d">완료 {{ w['completed_at'] }}</div>
+      </div>
+      <div class="act">
+        <form method="post" action="{{ url_for('work_ack') }}">
+          <input type="hidden" name="id" value="{{ w['id'] }}"><button class="mini">확인</button>
+        </form>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+
 <nav class="subtabs" data-default="money">
   <button type="button" data-tab="money">수익</button>
   <button type="button" data-tab="sched">일정</button>

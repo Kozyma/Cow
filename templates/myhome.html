@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}내 작업 · 영농형 태양광 관리{% endblock %}
+{% block content %}
+<h1 class="h1">내 작업</h1>
+<p class="lead">{{ current_user['name'] }}님께 지시된 작업입니다. 끝내면 <b>완료</b>를 눌러주세요.</p>
+
+{% set todo = orders | selectattr('status', 'ne', '완료') | list %}
+{% set done = orders | selectattr('status', 'eq', '완료') | list %}
+
+<section class="sec">
+  <div class="sec-h"><h2>할 일</h2><span class="count">{{ todo|length }}건</span></div>
+  <div class="list">
+    {% for w in todo %}
+    <div class="li"><span class="dot {{ 'red' if w['due_date'] and w['due_date'] <= today else '' }}"></span>
+      <div class="m">
+        <div class="t">{{ w['title'] }}</div>
+        <div class="d">
+          {%- if w['due_date'] %}마감 {{ w['due_date'] }} · {% endif %}지시 {{ w['created_at'] }}
+          {%- if w['detail'] %}<br>{{ w['detail'] }}{% endif %}</div>
+      </div>
+      <div class="act">
+        <form method="post" action="{{ url_for('work_complete', row_id=w['id']) }}"
+              onsubmit="return confirm('이 작업을 완료 처리할까요?');">
+          <button class="btn" type="submit">완료</button>
+        </form>
+      </div>
+    </div>
+    {% else %}
+    <div class="empty">지시된 작업이 없습니다. 👍</div>
+    {% endfor %}
+  </div>
+</section>
+
+{% if done %}
+<section class="sec">
+  <div class="sec-h"><h2>완료한 작업</h2><span class="count">{{ done|length }}건</span></div>
+  <div class="list">
+    {% for w in done %}
+    <div class="li"><span class="dot gray"></span>
+      <div class="m">
+        <div class="t">{{ w['title'] }}<span class="tag off">완료</span></div>
+        <div class="d">완료 {{ w['completed_at'] }}{% if w['detail'] %} · {{ w['detail'] }}{% endif %}</div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+
+<section class="sec">
+  <div class="sec-h"><h2>내 급여 내역</h2><span class="count">{{ payrolls|length }}건</span></div>
+  <div class="list">
+    {% for p in payrolls %}
+    <div class="li"><span class="dot {{ '' if p['paid'] else 'gray' }}"></span>
+      <div class="m">
+        <div class="t">{{ p['pay_month'] }} 급여
+          <span class="tag {{ 'on' if p['paid'] else 'off' }}">{{ '지급완료' if p['paid'] else '미지급' }}</span></div>
+        <div class="d">실수령 <b>{{ won(p['net_pay']) }}원</b>
+          (기본급 {{ won(p['base_pay']) }} · 수당 {{ won(p['allowance']) }} · 공제 {{ won(p['deduction']) }})
+          {%- if p['paid_date'] %} · 지급일 {{ p['paid_date'] }}{% endif %}</div>
+      </div>
+    </div>
+    {% else %}
+    <div class="empty">급여 내역이 없습니다.</div>
+    {% endfor %}
+  </div>
+</section>
+{% endblock %}

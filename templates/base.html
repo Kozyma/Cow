@@ -12,7 +12,8 @@
   <meta name="apple-mobile-web-app-title" content="태양광관리">
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
-<body>
+<body data-admin="{{ '1' if is_admin else '' }}">
+{% if is_admin %}<a id="notifApi" data-url="{{ url_for('api_notifications') }}" hidden></a>{% endif %}
 {# ── 라인 아이콘 매크로 ───────────────────────────────── #}
 {% macro icon(name) %}
   {% if name == 'dashboard' %}<svg viewBox="0 0 24 24"><path d="M3 10.5 12 4l9 6.5"/><path d="M5 9.5V20h14V9.5"/><path d="M9.5 20v-5h5v5"/></svg>
@@ -21,6 +22,8 @@
   {% elif name == 'finance' %}<svg viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="13" rx="3"/><path d="M3 10h18"/><path d="M16 14.5h2"/></svg>
   {% elif name == 'reports' %}<svg viewBox="0 0 24 24"><path d="M4 4v16h16"/><rect x="7.5" y="11" width="3" height="6" rx="1"/><rect x="13.5" y="7" width="3" height="10" rx="1"/></svg>
   {% elif name == 'docs' %}<svg viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M9 13h6M9 17h4"/></svg>
+  {% elif name == 'staff' %}<svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><path d="M3.5 20a5.5 5.5 0 0 1 11 0"/><path d="M16 8.5a2.6 2.6 0 0 0 0-1M16 20a5.5 5.5 0 0 0-2-4.3"/></svg>
+  {% elif name == 'me' %}<svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.2"/><path d="M5.5 20a6.5 6.5 0 0 1 13 0"/></svg>
   {% endif %}
 {% endmacro %}
 
@@ -35,7 +38,15 @@
               <circle cx="12" cy="12" r="1.4"/><circle cx="19" cy="12" r="1.4"/></svg>
           </summary>
           <div class="menu-pop">
+            {% if current_user %}<div class="menu-user">👤 {{ current_user['name'] }}
+              <span class="role-tag">{{ '관리자' if is_admin else '직원' }}</span></div>{% endif %}
             <button type="button" id="installBtn">📲 앱 설치 (홈 화면에 추가)</button>
+            <form method="post" action="{{ url_for('account_password') }}" id="pwForm">
+              <input type="hidden" name="cur_password" id="pwCur">
+              <input type="hidden" name="new_password" id="pwNew">
+              <button type="button" id="pwBtn">🔑 비밀번호 변경</button>
+            </form>
+            {% if is_admin %}
             <form method="post" action="{{ url_for('rename_farm') }}" id="renameForm">
               <input type="hidden" name="farm_name" id="renameInput">
               <button type="button" id="renameBtn"
@@ -52,10 +63,11 @@
               <button type="submit">예시 데이터 채우기</button>
             </form>
             <form method="post" action="{{ url_for('reset_all') }}"
-                  onsubmit="return confirm('모든 데이터를 삭제할까요? (설비 설정은 유지)');">
+                  onsubmit="return confirm('모든 데이터를 삭제할까요? (설비 설정·직원 계정은 유지)');">
               <button type="submit" class="danger">전체 데이터 초기화</button>
             </form>
-            {% if auth_on %}<a href="{{ url_for('logout') }}">로그아웃</a>{% endif %}
+            {% endif %}
+            <a href="{{ url_for('logout') }}">로그아웃</a>
           </div>
         </details>
       </div>
@@ -74,17 +86,23 @@
   </main>
 
   <nav class="tabs">
+    {% if is_admin %}
     {% set nav_items = [
       ('dashboard','홈'), ('livestock','농축산'), ('solar','태양광'),
-      ('finance','재무'), ('reports','통계'), ('docs','서류')
+      ('finance','재무'), ('staff','직원'), ('reports','통계'), ('docs','서류')
     ] %}
+    {% else %}
+    {% set nav_items = [('me','내 작업')] %}
+    {% endif %}
     {% for ep, label in nav_items %}
       {% set on = nav_active == ep
                   or (nav_active in ('livestock_save','farmlog_add','livestock_sell','facility_save') and ep=='livestock')
                   or (nav_active in ('finance_save','tax_settings','tax_sync','support_save') and ep=='finance')
+                  or (nav_active in ('staff_save','payroll_save','work_save','work_ack') and ep=='staff')
                   or (nav_active in ('solar_settings','solar_add','solar_sync') and ep=='solar') %}
       <a href="{{ url_for(ep) }}" class="tab {{ 'on' if on }}">
         {{ icon(ep) }}<span>{{ label }}</span>
+        {% if ep=='staff' and notif_count %}<span class="nav-badge">{{ notif_count }}</span>{% endif %}
       </a>
     {% endfor %}
   </nav>

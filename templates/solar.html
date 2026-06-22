@@ -51,9 +51,10 @@
   </p>
 </section>
 
-<section class="sec">
-  <div class="sec-h"><h2>{{ '발전량 수정' if edit_row else '일별 발전량 입력' }}</h2></div>
+<dialog class="modal" id="solarDialog" {{ 'data-autoopen' if edit_row }}>
   <form method="post" action="{{ url_for('solar_add') }}" class="form">
+    <div class="modal-h"><h3>{{ '발전량 수정' if edit_row else '일별 발전량 입력' }}</h3>
+      <button type="button" class="modal-x" data-close aria-label="닫기">&times;</button></div>
     <div class="grid">
       <label class="fld"><span>날짜</span>
         <input name="log_date" type="date" value="{{ edit_row['log_date'] if edit_row else today }}"></label>
@@ -65,9 +66,15 @@
     </div>
     <div class="actions">
       <button class="btn">{{ '수정 저장' if edit_row else '기록 (같은 날짜는 덮어쓰기)' }}</button>
-      {% if edit_row %}<a class="btn sec" href="{{ url_for('solar') }}">취소</a>{% endif %}
+      {% if edit_row %}<a class="btn sec" href="{{ url_for('solar') }}">취소</a>
+      {% else %}<button type="button" class="btn sec" data-close>닫기</button>{% endif %}
     </div>
   </form>
+</dialog>
+
+<section class="sec">
+  <div class="sec-h"><h2>일별 발전량</h2>
+    <div class="sec-h-r"><button class="add-btn" data-open="solarDialog" data-fresh>+ 발전량 입력</button></div></div>
   {% if loss_rate %}
   <p class="help">입력 발전량에 <b>손실률 {{ '%g'|format(loss_rate) }}%</b>를 반영해 실발전량·수익을 계산합니다.
     (계측값이 이미 손실 반영된 값이면 설정에서 손실률을 0으로 두세요.)</p>

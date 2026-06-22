@@ -21,7 +21,7 @@ from functools import wraps
 
 from flask import (
     Flask, render_template, request, redirect, url_for,
-    send_file, abort, flash, Response, session,
+    send_file, abort, flash, Response, session, jsonify,
 )
 
 import exporter
@@ -144,31 +144,50 @@ APP_PASSWORD = os.environ.get("APP_PASSWORD", "").strip()
 db = Database(DB_PATH)
 
 
+# 로그인 없이 접근 가능한 엔드포인트(정적/PWA 자원·로그인 화면)
+OPEN_ENDPOINTS = {"login", "static", "manifest", "service_worker", "assetlinks"}
+# 직원(staff) 역할이 접근 가능한 엔드포인트(그 외는 관리자 전용)
+STAFF_ENDPOINTS = {
+    "me", "work_complete", "logout", "account_password",
+    "api_notifications",
+} | OPEN_ENDPOINTS
+
+
+def current_user():
+    uid = session.get("uid")
+    return db.get_user(uid) if uid else None
+
+
 @app.before_request
 def _require_login():
-    if not APP_PASSWORD:
-        return  # 비밀번호 미설정 = 로컬 모드, 인증 불필요
-    if session.get("authed"):
+    ep = request.endpoint
+    if ep is None or ep in OPEN_ENDPOINTS:
         return
-    # 로그인 화면과 정적/PWA 자원은 인증 없이 허용
-    open_endpoints = {"login", "static", "manifest", "service_worker", "assetlinks"}
-    if request.endpoint in open_endpoints:
-        return
-    return redirect(url_for("login", next=request.path))
+    u = current_user()
+    if not u:
+        return redirect(url_for("login", next=request.path))
+    # 직원은 허용된 화면만 — 그 외는 본인 작업 홈으로
+    if u["role"] != "admin" and ep not in STAFF_ENDPOINTS:
+        return redirect(url_for("me"))
 
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
-    if not APP_PASSWORD or session.get("authed"):
+    if current_user():
         return redirect(url_for("dashboard"))
     error = None
     if request.method == "POST":
-        if (request.form.get("password") or "") == APP_PASSWORD:
-            session["authed"] = True
+        u = db.verify_user(_f("username"), request.form.get("password") or "")
+        if u:
+            session.clear()
+            session["uid"] = u["id"]
+            session["role"] = u["role"]
+            session["name"] = u["name"]
             session.permanent = True
-            nxt = request.args.get("next") or url_for("dashboard")
-            return redirect(nxt)
-        error = "비밀번호가 올바르지 않습니다."
+            nxt = request.args.get("next")
+            home = url_for("dashboard") if u["role"] == "admin" else url_for("me")
+            return redirect(nxt or home)
+        error = "아이디 또는 비밀번호가 올바르지 않습니다."
     return render_template("login.html", error=error)
 
 
@@ -176,6 +195,21 @@ def login():
 def logout():
     session.clear()
     return redirect(url_for("login"))
+
+
+@app.route("/account/password", methods=["POST"])
+def account_password():
+    """본인 비밀번호 변경(관리자·직원 공통)."""
+    u = current_user()
+    new = request.form.get("new_password") or ""
+    if not db.verify_user(u["username"], request.form.get("cur_password") or ""):
+        flash("현재 비밀번호가 올바르지 않습니다.", "error")
+    elif len(new) < 4:
+        flash("새 비밀번호는 4자 이상이어야 합니다.", "error")
+    else:
+        db.set_password(u["id"], new)
+        flash("비밀번호를 변경했습니다.", "ok")
+    return redirect(request.referrer or url_for("dashboard"))
 
 
 @app.route("/rename", methods=["POST"])
@@ -227,7 +261,11 @@ def inject_helpers():
         REMINDER_CATEGORIES=REMINDER_CATEGORIES, REMINDER_REPEATS=REMINDER_REPEATS,
         FACILITY_TYPES=FACILITY_TYPES, FACILITY_STATUSES=FACILITY_STATUSES,
         nav_active=request.endpoint or "",
-        auth_on=bool(APP_PASSWORD),
+        auth_on=True,
+        current_user=current_user(),
+        is_admin=(session.get("role") == "admin"),
+        notif_count=(db.count_completed_unacked()
+                     if session.get("role") == "admin" else 0),
     )
 
 
@@ -322,6 +360,8 @@ def dashboard():
         m_income=m_income, m_expense=m_expense, m_profit=m_profit,
         y_income=y_income, y_expense=y_expense, y_profit=y_profit,
         upcoming=upcoming, reminders=reminders, solar_prog=solar_prog,
+        work_alerts=db.list_completed_unacked(),
+        work_todo=db.list_work_orders(status="지시"),
     )
 
 
@@ -405,6 +445,8 @@ def livestock():
         feed_summary=db.feed_purchase_summary(),
         feed_edit=db.get_feed_purchase(request.args.get("feedit", type=int))
                   if request.args.get("feedit", type=int) else None,
+        log_items=[r["name"] for r in db.list_livestock()],
+        log_activities=sorted(set(FARM_ACTIVITIES) | set(db.farmlog_activities())),
     )
 
 
@@ -491,10 +533,18 @@ def livestock_delete(row_id):
 
 @app.route("/farmlog/add", methods=["POST"])
 def farmlog_add():
-    lid = request.form.get("livestock_id", type=int)
+    # 품목·활동 모두 자유 입력. 품목명이 등록된 가축/작물과 같으면 자동으로 연결한다.
+    item_label = _f("item_label")
+    lid = None
+    if item_label:
+        for r in db.list_livestock():
+            if r["name"] == item_label:
+                lid = r["id"]
+                break
     db.add_farm_log(
-        _f("log_date", today_str()), lid or None,
-        _f("activity", "급여/관리"), _num("quantity"), _f("unit"), _f("note"),
+        _f("log_date", today_str()), lid,
+        _f("activity") or "기타", _num("quantity"), _f("unit"), _f("note"),
+        item_label=item_label or None,
     )
     flash("영농 일지를 기록했습니다.", "ok")
     return redirect(url_for("livestock") + "#log")
@@ -630,6 +680,177 @@ def feed_settings():
     db.set_feed_prices(prices)
     flash("사료 설정을 저장했습니다.", "ok")
     return redirect(url_for("livestock") + "#feedset")
+
+
+# ── 👷 직원 / 급여 / 작업지시 (관리자) ────────────────────────────────
+def _month_str():
+    return datetime.now().strftime("%Y-%m")
+
+
+@app.route("/staff")
+def staff():
+    """관리자: 직원 계정·급여·작업지시 관리."""
+    staff_edit = db.get_user(request.args.get("uedit", type=int)) \
+        if request.args.get("uedit", type=int) else None
+    pay_edit = db.get_payroll(request.args.get("pedit", type=int)) \
+        if request.args.get("pedit", type=int) else None
+    work_edit = db.get_work_order(request.args.get("wedit", type=int)) \
+        if request.args.get("wedit", type=int) else None
+    return render_template(
+        "staff.html",
+        users=db.list_users(),
+        staff_list=db.list_users(role="staff", only_active=True),
+        payrolls=db.list_payroll(),
+        orders=db.list_work_orders(),
+        staff_edit=staff_edit, pay_edit=pay_edit, work_edit=work_edit,
+        this_month=_month_str(),
+    )
+
+
+@app.route("/staff/save", methods=["POST"])
+def staff_save():
+    row_id = request.form.get("id", type=int)
+    username = _f("username")
+    name = _f("name")
+    role = _f("role", "staff")
+    phone = _f("phone") or None
+    active = bool(request.form.get("active", "1"))
+    password = request.form.get("password") or ""
+    if not name:
+        flash("이름을 입력하세요.", "error")
+        return redirect(url_for("staff"))
+    if row_id:
+        db.update_user(row_id, name, role, phone, active)
+        if password:
+            db.set_password(row_id, password)
+        flash("직원 정보를 수정했습니다.", "ok")
+    else:
+        if not username or not password:
+            flash("새 계정은 아이디와 비밀번호가 필요합니다.", "error")
+            return redirect(url_for("staff"))
+        if db.username_exists(username):
+            flash("이미 사용 중인 아이디입니다.", "error")
+            return redirect(url_for("staff"))
+        db.add_user(username, password, name, role=role, phone=phone)
+        flash(f"'{name}' 계정을 만들었습니다.", "ok")
+    return redirect(url_for("staff"))
+
+
+@app.route("/staff/<int:row_id>/delete", methods=["POST"])
+def staff_delete(row_id):
+    u = db.get_user(row_id)
+    if u and u["id"] == session.get("uid"):
+        flash("로그인한 본인 계정은 삭제할 수 없습니다.", "error")
+    elif u and u["role"] == "admin" and len(db.list_users(role="admin")) <= 1:
+        flash("관리자 계정이 최소 1명은 있어야 합니다.", "error")
+    else:
+        db.delete_user(row_id)
+        flash("계정을 삭제했습니다.", "ok")
+    return redirect(url_for("staff"))
+
+
+@app.route("/payroll/save", methods=["POST"])
+def payroll_save():
+    row_id = request.form.get("id", type=int)
+    user_id = request.form.get("user_id", type=int)
+    if not user_id:
+        flash("직원을 선택하세요.", "error")
+        return redirect(url_for("staff") + "#pay")
+    base = int(round(_num("base_pay")))
+    allow = int(round(_num("allowance")))
+    deduct = int(round(_num("deduction")))
+    paid = bool(request.form.get("paid"))
+    paid_date = _f("paid_date") or None
+    args = (user_id, _f("pay_month", _month_str()), base, allow, deduct,
+            paid, paid_date, _f("note") or None)
+    if row_id:
+        db.update_payroll(row_id, *args, add_to_finance=True)
+        flash("급여를 수정했습니다.", "ok")
+    else:
+        db.add_payroll(*args, add_to_finance=True)
+        flash("급여를 등록했습니다.", "ok")
+    return redirect(url_for("staff") + "#pay")
+
+
+@app.route("/payroll/<int:row_id>/delete", methods=["POST"])
+def payroll_delete(row_id):
+    db.delete_payroll(row_id)
+    flash("급여 내역을 삭제했습니다.", "ok")
+    return redirect(url_for("staff") + "#pay")
+
+
+@app.route("/work/save", methods=["POST"])
+def work_save():
+    row_id = request.form.get("id", type=int)
+    assignee_id = request.form.get("assignee_id", type=int)
+    title = _f("title")
+    if not assignee_id or not title:
+        flash("담당 직원과 작업 제목을 입력하세요.", "error")
+        return redirect(url_for("staff") + "#work")
+    detail = _f("detail") or None
+    due = _f("due_date") or None
+    if row_id:
+        db.update_work_order(row_id, assignee_id, title, detail, due)
+        flash("작업지시를 수정했습니다.", "ok")
+    else:
+        db.add_work_order(assignee_id, title, detail, due, session.get("uid"))
+        flash("작업지시를 내렸습니다.", "ok")
+    return redirect(url_for("staff") + "#work")
+
+
+@app.route("/work/<int:row_id>/delete", methods=["POST"])
+def work_delete(row_id):
+    db.delete_work_order(row_id)
+    flash("작업지시를 삭제했습니다.", "ok")
+    return redirect(url_for("staff") + "#work")
+
+
+@app.route("/work/<int:row_id>/reopen", methods=["POST"])
+def work_reopen(row_id):
+    db.reopen_work_order(row_id)
+    flash("작업을 다시 지시 상태로 되돌렸습니다.", "ok")
+    return redirect(request.referrer or (url_for("staff") + "#work"))
+
+
+@app.route("/work/ack", methods=["POST"])
+def work_ack():
+    """관리자가 완료 알림을 확인 처리."""
+    wid = request.form.get("id", type=int)
+    if wid:
+        db.ack_work_order(wid)
+    else:
+        db.ack_all_work_orders()
+    return redirect(request.referrer or url_for("dashboard"))
+
+
+@app.route("/me")
+def me():
+    """직원·관리자 공통: 본인에게 배정된 작업 + 본인 급여."""
+    u = current_user()
+    return render_template(
+        "myhome.html",
+        orders=db.list_work_orders(assignee_id=u["id"]),
+        payrolls=db.list_payroll(user_id=u["id"]),
+    )
+
+
+@app.route("/work/<int:row_id>/complete", methods=["POST"])
+def work_complete(row_id):
+    """직원이 본인 작업을 완료 처리 → 관리자 알림 대상이 됨."""
+    db.complete_work_order(row_id, session.get("uid"))
+    flash("작업을 완료 처리했습니다. 관리자에게 알림이 전달됩니다.", "ok")
+    return redirect(url_for("me"))
+
+
+@app.route("/api/notifications")
+def api_notifications():
+    """관리자 알림 폴링용 JSON(완료된 미확인 작업)."""
+    if session.get("role") != "admin":
+        return jsonify(count=0, items=[])
+    rows = db.list_completed_unacked()
+    items = [dict(id=r["id"], title=r["title"], who=r["assignee_name"],
+                  at=r["completed_at"]) for r in rows]
+    return jsonify(count=len(items), items=items)
 
 
 # ── ☀ 태양광 (설비 설정 + 발전 기록) ────────────────────────────────
@@ -944,10 +1165,11 @@ def seed_sample():
 @app.route("/reset", methods=["POST"])
 def reset_all():
     for table in ("farm_log", "livestock", "solar_log", "finance",
-                  "support_program", "reminder", "facility"):
+                  "support_program", "reminder", "facility",
+                  "feed_purchase", "payroll", "work_order"):
         db.conn.execute(f"DELETE FROM {table}")
     db.conn.commit()
-    flash("모든 데이터를 초기화했습니다. (설비 설정은 유지)", "ok")
+    flash("모든 데이터를 초기화했습니다. (설비 설정·직원 계정은 유지)", "ok")
     return redirect(url_for("dashboard"))
 
 

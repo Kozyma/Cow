@@ -203,10 +203,19 @@ a.li{color:var(--ink)}
 .auth-card input:focus{outline:none; border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-soft)}
 
 /* ── 모달(팝업) ───────────────────────────────────── */
-.modal{border:0; border-radius:18px; padding:0; width:calc(100% - 36px); max-width:440px;
-  background:#fff; color:var(--ink); box-shadow:0 24px 60px rgba(20,24,30,.22)}
+.modal{border:0; border-radius:18px; padding:0; width:calc(100% - 36px); max-width:480px;
+  max-height:90vh; overflow:auto; background:#fff; color:var(--ink);
+  box-shadow:0 24px 60px rgba(20,24,30,.22)}
 .modal::backdrop{background:rgba(20,24,30,.42); backdrop-filter:blur(2px)}
 .modal > form{margin:0; padding:20px}
+/* 모달 헤더의 닫기(X) 버튼 */
+.modal-x{border:0; background:none; font-size:1.5rem; line-height:1; color:var(--ink-3);
+  cursor:pointer; padding:0 2px}
+.modal-x:hover{color:var(--ink)}
+/* 목록 섹션 헤더의 '추가' 버튼 */
+.add-btn{font:inherit; font-weight:700; font-size:.85rem; color:#fff; background:var(--accent);
+  border:0; border-radius:9px; padding:7px 14px; cursor:pointer}
+.sec-h-r{display:flex; align-items:center; gap:10px}
 .modal-h{display:flex; align-items:center; justify-content:space-between; margin:0 0 2px}
 .modal-h h3{font-size:1.15rem; font-weight:800; letter-spacing:-.03em; margin:0}
 .modal .lead{margin:0 0 14px; font-weight:600; color:var(--ink)}
@@ -273,3 +282,22 @@ a.li{color:var(--ink)}
 .v.neg{color:var(--out)}
 
 @media (min-width:641px){ :root{--maxw:620px} }
+
+/* ── 직원/작업지시/급여 · v1.3 ─────────────────────────── */
+.fld textarea{font:inherit; font-size:1rem; color:var(--ink); width:100%; min-height:80px;
+  padding:12px 13px; border:1px solid var(--line); border-radius:12px; background:#fff; resize:vertical}
+.fld textarea:focus{outline:none; border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-soft)}
+.fld > span small{font-weight:500; color:var(--ink-3)}
+.li .dot.red{background:#d9534f}
+.netline{margin-top:12px; font-size:.95rem; color:var(--ink-2)}
+.netline b{color:var(--accent); font-size:1.1rem}
+/* 헤더 메뉴: 사용자 표시 */
+.menu-user{padding:11px 12px; font-weight:700; border-bottom:1px solid var(--line-2); margin-bottom:4px}
+.menu-user .role-tag{font-size:.7rem; font-weight:700; color:var(--ink-3); margin-left:4px}
+/* 완료 알림 섹션 강조 */
+.alert-sec{border:1px solid #f0c9c7; background:#fdf5f4}
+/* 하단 탭 배지 */
+.tab{position:relative}
+.nav-badge{position:absolute; top:0; right:50%; transform:translateX(20px);
+  min-width:17px; height:17px; padding:0 4px; border-radius:9px; background:#d9534f; color:#fff;
+  font-size:.66rem; font-weight:800; display:flex; align-items:center; justify-content:center; line-height:1}
