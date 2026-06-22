@@ -34,13 +34,44 @@ document.addEventListener('click', (e) => {
 
 // 품목 폼: '가축'일 때만 입식 체중(kg) 입력칸 표시
 (() => {
-  const fld = document.getElementById('weightFld');
-  if (!fld) return;
+  const flds = document.querySelectorAll('[data-cat-only]');
+  if (!flds.length) return;
   const sel = document.querySelector('select[name="category"]');
   if (!sel) return;
-  const sync = () => { fld.style.display = (sel.value === fld.dataset.catOnly) ? '' : 'none'; };
+  const sync = () => flds.forEach((f) => {
+    f.style.display = (sel.value === f.dataset.catOnly) ? '' : 'none';
+  });
   sel.addEventListener('change', sync);
   sync();
+})();
+
+// 사료 구매: 품목 → 단가 자동입력, 수량 × 단가 → 사료값 자동 계산
+(() => {
+  const qty = document.getElementById('feedQty');
+  const price = document.getElementById('feedPrice');
+  const amount = document.getElementById('feedAmount');
+  const type = document.getElementById('feedType');
+  if (!qty || !price || !amount) return;
+  let touched = amount.value !== '';   // 기존값(수정)·직접입력이면 자동계산 끔
+  amount.addEventListener('input', () => { touched = true; });
+  const sync = () => {
+    if (touched) return;
+    const q = parseFloat(qty.value) || 0;
+    const p = parseFloat(price.value) || 0;
+    amount.value = q && p ? Math.round(q * p) : '';
+  };
+  // 품목 선택 시 설정된 품목별 단가를 단가 칸에 채운다(단가가 비어있을 때만).
+  if (type) {
+    let prices = {};
+    try { prices = JSON.parse(type.dataset.prices || '{}'); } catch (e) { prices = {}; }
+    type.addEventListener('change', () => {
+      const p = prices[type.value];
+      if (p && !price.value) { price.value = p; sync(); }
+      else if (p) { price.value = p; sync(); }
+    });
+  }
+  qty.addEventListener('input', sync);
+  price.addEventListener('input', sync);
 })();
 
 // 농장(앱) 이름 변경 — 헤더 메뉴

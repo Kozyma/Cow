@@ -26,9 +26,10 @@ def export_all(db, folder):
     # 1) 농축산 품목
     written.append(_write_csv(
         folder, "농축산_품목.csv",
-        ["구분", "품목명", "수량", "단위", "입식체중(kg)", "시작일", "상태", "메모",
+        ["구분", "품목명", "명의", "소품목", "수량", "단위", "입식체중(kg)", "시작일", "상태", "메모",
          "판매일", "판매금액(원)", "출하체중(kg)", "성장(kg)", "등급"],
-        [(r["category"], r["name"], r["quantity"], r["unit"] or "",
+        [(r["category"], r["name"], r["owner"] or "", r["cattle_type"] or "",
+          r["quantity"], r["unit"] or "",
           r["weight_kg"] if r["weight_kg"] is not None else "",
           r["start_date"] or "", r["status"], r["note"] or "",
           r["sold_date"] or "",
@@ -49,6 +50,16 @@ def export_all(db, folder):
            if r["livestock_name"] else "-"),
           r["activity"], r["quantity"], r["unit"] or "", r["note"] or "")
          for r in db.list_farm_log(limit=1000000)],
+    ))
+
+    # 2-1) 사료 구매 내역 (명의별)
+    written.append(_write_csv(
+        folder, "사료_구매내역.csv",
+        ["구매일", "명의", "소품목", "사료명", "수량", "단위", "단가(원)", "사료값(원)", "구매처", "메모"],
+        [(r["purchase_date"], r["owner"] or "", r["cattle_type"] or "",
+          r["feed_name"], r["quantity"], r["unit"] or "",
+          r["unit_price"], r["amount"], r["supplier"] or "", r["note"] or "")
+         for r in db.list_feed_purchase()],
     ))
 
     # 3) 태양광 발전 기록 (예상수익 포함)

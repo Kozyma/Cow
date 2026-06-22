@@ -6,6 +6,7 @@ UI 코드(tab_*.py)는 이 Database 클래스의 메서드만 호출하며,
 SQL 문은 전부 이 파일 안에만 존재한다.
 """
 
+import json
 import os
 import sqlite3
 from datetime import datetime
@@ -35,6 +36,9 @@ DEFAULT_SETTINGS = {
 
 # 분류 선택지 (UI 콤보박스에서 공통 사용)
 LIVESTOCK_CATEGORIES = ["가축", "작물"]
+CATTLE_TYPES = ["임신우", "육성", "송아지"]   # 소 품목(가축) 구분
+DEFAULT_FEED_UNITS = ["포", "kg", "톤", "두", "袋"]   # 사료 단위 기본값(설정에서 변경)
+DEFAULT_FEED_PRICES = {"임신우": 19200, "육성": 19100, "송아지": 18500}  # 품목별 사료 단가 기본값
 FARM_ACTIVITIES = ["급여/관리", "방역/병해충", "생산/수확", "출하/판매", "기타"]
 FINANCE_TYPES = ["수입", "지출"]
 FINANCE_SECTORS = ["농축산", "태양광", "공통"]
@@ -94,6 +98,22 @@ class Database:
                 note         TEXT,
                 FOREIGN KEY (livestock_id)
                     REFERENCES livestock(id) ON DELETE SET NULL
+            );
+
+            -- 사료 구매 내역 (명의별 구매 내역서용)
+            CREATE TABLE IF NOT EXISTS feed_purchase (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                purchase_date TEXT NOT NULL,             -- 구매일 (YYYY-MM-DD)
+                owner         TEXT NOT NULL DEFAULT '',  -- 명의 (소 소유주)
+                cattle_type   TEXT,                      -- 대상 소 품목 (임신우/육성/송아지)
+                feed_name     TEXT NOT NULL,             -- 사료명/품목
+                quantity      REAL NOT NULL DEFAULT 0,   -- 구매 수량
+                unit          TEXT,                      -- 단위 (포 / kg ...)
+                unit_price    INTEGER NOT NULL DEFAULT 0,-- 사료 단가(원)
+                amount        INTEGER NOT NULL DEFAULT 0,-- 사료값=금액(원) = 수량×단가
+                supplier      TEXT,                      -- 구매처
+                note          TEXT,
+                auto_key      TEXT                       -- 재무 자동반영 식별키
             );
 
             -- 태양광 일별 발전량 (하루 1건)
@@ -185,9 +205,21 @@ class Database:
             ("sold_amount", "ALTER TABLE livestock ADD COLUMN sold_amount INTEGER"),   # 판매 금액(원)
             ("sold_weight_kg", "ALTER TABLE livestock ADD COLUMN sold_weight_kg REAL"),# 판매(출하) 체중
             ("sold_grade", "ALTER TABLE livestock ADD COLUMN sold_grade TEXT"),       # 판매 등급
+            ("owner", "ALTER TABLE livestock ADD COLUMN owner TEXT"),                 # 명의(소유주)
+            ("cattle_type", "ALTER TABLE livestock ADD COLUMN cattle_type TEXT"),     # 소 품목(임신우/육성/송아지)
         ):
             if col not in ls_cols:
                 self.conn.execute(ddl)
+
+        # 사료 구매: 구버전(테이블만 있던 경우) 대비 컬럼 보강
+        fp_cols = [r["name"] for r in self.conn.execute("PRAGMA table_info(feed_purchase)")]
+        if fp_cols:  # 테이블이 존재할 때만
+            for col, ddl in (
+                ("supplier", "ALTER TABLE feed_purchase ADD COLUMN supplier TEXT"),
+                ("auto_key", "ALTER TABLE feed_purchase ADD COLUMN auto_key TEXT"),
+            ):
+                if col not in fp_cols:
+                    self.conn.execute(ddl)
         self.conn.commit()
 
     # ── 설정 ─────────────────────────────────────────────────────
@@ -353,21 +385,24 @@ class Database:
 
     # ── 농축산: 품목 ─────────────────────────────────────────────
     def add_livestock(self, category, name, quantity, unit, start_date, status, note,
-                      weight_kg=None):
+                      weight_kg=None, owner=None, cattle_type=None):
         cur = self.conn.execute(
-            "INSERT INTO livestock(category, name, quantity, unit, start_date, status, note, weight_kg) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (category, name, quantity, unit, start_date, status, note, weight_kg),
+            "INSERT INTO livestock(category, name, quantity, unit, start_date, status, note, "
+            "weight_kg, owner, cattle_type) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (category, name, quantity, unit, start_date, status, note,
+             weight_kg, owner, cattle_type),
         )
         self.conn.commit()
         return cur.lastrowid
 
     def update_livestock(self, row_id, category, name, quantity, unit, start_date, status, note,
-                         weight_kg=None):
+                         weight_kg=None, owner=None, cattle_type=None):
         self.conn.execute(
             "UPDATE livestock SET category=?, name=?, quantity=?, unit=?, "
-            "start_date=?, status=?, note=?, weight_kg=? WHERE id=?",
-            (category, name, quantity, unit, start_date, status, note, weight_kg, row_id),
+            "start_date=?, status=?, note=?, weight_kg=?, owner=?, cattle_type=? WHERE id=?",
+            (category, name, quantity, unit, start_date, status, note,
+             weight_kg, owner, cattle_type, row_id),
         )
         self.conn.commit()
 
@@ -473,6 +508,158 @@ class Database:
 
     def count_farm_log(self):
         return self.conn.execute("SELECT COUNT(*) AS c FROM farm_log").fetchone()["c"]
+
+    # ── 농축산: 사료 구매 내역 ───────────────────────────────────
+    def add_feed_purchase(self, purchase_date, owner, cattle_type, feed_name,
+                          quantity, unit, unit_price, amount,
+                          supplier=None, note=None, add_to_finance=False):
+        cur = self.conn.execute(
+            "INSERT INTO feed_purchase(purchase_date, owner, cattle_type, feed_name, "
+            "quantity, unit, unit_price, amount, supplier, note) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (purchase_date, owner, cattle_type, feed_name,
+             quantity, unit, unit_price, amount, supplier, note),
+        )
+        row_id = cur.lastrowid
+        if add_to_finance:
+            self._sync_feed_finance(row_id, purchase_date, owner, feed_name, amount)
+        self.conn.commit()
+        return row_id
+
+    def update_feed_purchase(self, row_id, purchase_date, owner, cattle_type, feed_name,
+                             quantity, unit, unit_price, amount,
+                             supplier=None, note=None, add_to_finance=False):
+        self.conn.execute(
+            "UPDATE feed_purchase SET purchase_date=?, owner=?, cattle_type=?, feed_name=?, "
+            "quantity=?, unit=?, unit_price=?, amount=?, supplier=?, note=? WHERE id=?",
+            (purchase_date, owner, cattle_type, feed_name,
+             quantity, unit, unit_price, amount, supplier, note, row_id),
+        )
+        if add_to_finance:
+            self._sync_feed_finance(row_id, purchase_date, owner, feed_name, amount)
+        else:
+            self.conn.execute("DELETE FROM finance WHERE auto_key=?", (f"feed-{row_id}",))
+        self.conn.commit()
+
+    def _sync_feed_finance(self, row_id, purchase_date, owner, feed_name, amount):
+        """사료 구매를 재무에 '지출(농축산)'로 자동 반영(중복 없이 갱신)."""
+        auto_key = f"feed-{row_id}"
+        item = f"{feed_name} 사료 구매"
+        fnote = f"명의: {owner}" if owner else ""
+        existing = self.conn.execute(
+            "SELECT id FROM finance WHERE auto_key=?", (auto_key,)
+        ).fetchone()
+        if amount and amount > 0:
+            if existing:
+                self.conn.execute(
+                    "UPDATE finance SET tx_date=?, tx_type='지출', sector='농축산', "
+                    "item=?, amount=?, note=? WHERE id=?",
+                    (purchase_date, item, int(amount), fnote, existing["id"]),
+                )
+            else:
+                self.conn.execute(
+                    "INSERT INTO finance(tx_date, tx_type, sector, item, amount, note, auto_key) "
+                    "VALUES (?, '지출', '농축산', ?, ?, ?, ?)",
+                    (purchase_date, item, int(amount), fnote, auto_key),
+                )
+        elif existing:
+            self.conn.execute("DELETE FROM finance WHERE id=?", (existing["id"],))
+
+    def delete_feed_purchase(self, row_id):
+        self.conn.execute("DELETE FROM finance WHERE auto_key=?", (f"feed-{row_id}",))
+        self.conn.execute("DELETE FROM feed_purchase WHERE id=?", (row_id,))
+        self.conn.commit()
+
+    def get_feed_purchase(self, row_id):
+        return self.conn.execute(
+            "SELECT * FROM feed_purchase WHERE id=?", (row_id,)
+        ).fetchone()
+
+    def list_feed_purchase(self, owner=None):
+        """사료 구매 내역(최신순). owner 지정 시 해당 명의만."""
+        if owner:
+            return self.conn.execute(
+                "SELECT * FROM feed_purchase WHERE owner=? "
+                "ORDER BY purchase_date DESC, id DESC", (owner,)
+            ).fetchall()
+        return self.conn.execute(
+            "SELECT * FROM feed_purchase ORDER BY purchase_date DESC, id DESC"
+        ).fetchall()
+
+    def feed_owners(self):
+        """사료 구매 또는 품목에 등록된 명의 목록(중복 제거)."""
+        rows = self.conn.execute(
+            "SELECT owner FROM feed_purchase WHERE owner IS NOT NULL AND owner<>'' "
+            "UNION SELECT owner FROM livestock WHERE owner IS NOT NULL AND owner<>'' "
+            "ORDER BY owner"
+        ).fetchall()
+        return [r["owner"] for r in rows]
+
+    def feed_purchase_summary(self):
+        """명의별 합계: [(owner, 건수, 총수량X, 총금액), ...] → 화면 요약용.
+
+        수량은 단위가 섞일 수 있어 합산하지 않고 건수·금액만 집계한다.
+        """
+        return self.conn.execute(
+            "SELECT owner, COUNT(*) AS cnt, SUM(amount) AS total "
+            "FROM feed_purchase GROUP BY owner ORDER BY total DESC"
+        ).fetchall()
+
+    # ── 농축산: 사료 설정 (소유주·단위·품목별 단가) ──────────────
+    def get_owner_list(self):
+        """설정에 저장된 소유주(명의) 목록 + 실제 데이터에 쓰인 명의를 합쳐 반환."""
+        raw = self.get_setting("feed_owner_list", "")
+        managed = [s.strip() for s in raw.split(",") if s.strip()] if raw else []
+        seen = list(managed)
+        for o in self.feed_owners():        # 데이터에 이미 쓰인 명의도 포함(누락 방지)
+            if o not in seen:
+                seen.append(o)
+        return seen
+
+    def set_owner_list(self, owners):
+        """owners: 문자열 리스트. 중복 제거 후 콤마로 저장."""
+        clean, seen = [], set()
+        for o in owners:
+            o = (o or "").strip()
+            if o and o not in seen:
+                seen.add(o)
+                clean.append(o)
+        self.set_setting("feed_owner_list", ",".join(clean))
+
+    def get_feed_units(self):
+        raw = self.get_setting("feed_unit_list", "")
+        units = [s.strip() for s in raw.split(",") if s.strip()] if raw else []
+        return units or list(DEFAULT_FEED_UNITS)
+
+    def set_feed_units(self, units):
+        clean, seen = [], set()
+        for u in units:
+            u = (u or "").strip()
+            if u and u not in seen:
+                seen.add(u)
+                clean.append(u)
+        self.set_setting("feed_unit_list", ",".join(clean))
+
+    def get_feed_prices(self):
+        """품목별 사료 단가 dict. 설정값이 없으면 기본값."""
+        raw = self.get_setting("feed_price_map", "")
+        prices = dict(DEFAULT_FEED_PRICES)
+        if raw:
+            try:
+                for k, v in json.loads(raw).items():
+                    prices[k] = int(v)
+            except (ValueError, TypeError):
+                pass
+        return prices
+
+    def set_feed_prices(self, price_map):
+        clean = {}
+        for k, v in price_map.items():
+            try:
+                clean[k] = int(round(float(v)))
+            except (ValueError, TypeError):
+                clean[k] = 0
+        self.set_setting("feed_price_map", json.dumps(clean, ensure_ascii=False))
 
     # ── 태양광: 발전 일지 ────────────────────────────────────────
     def add_or_update_solar(self, log_date, kwh, note):

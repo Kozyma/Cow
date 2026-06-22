@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>명의별 사료 구매 내역서</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: -apple-system, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+           color: #1a1a1a; margin: 0; padding: 24px; background: #f4f4f5; }
+    .sheet { max-width: 820px; margin: 0 auto 24px; background: #fff; padding: 32px;
+             border-radius: 10px; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
+    h1 { font-size: 22px; margin: 0 0 4px; }
+    .sub { color: #666; font-size: 13px; margin: 0 0 20px; }
+    .owner-h { display: flex; justify-content: space-between; align-items: baseline;
+               border-bottom: 2px solid #333; padding-bottom: 6px; margin: 28px 0 10px; }
+    .owner-h .name { font-size: 17px; font-weight: 700; }
+    .owner-h .sum { font-size: 15px; font-weight: 700; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th, td { border: 1px solid #ddd; padding: 7px 8px; text-align: left; }
+    th { background: #f3f4f6; font-weight: 600; }
+    td.num, th.num { text-align: right; }
+    tfoot td { font-weight: 700; background: #fafafa; }
+    .grand { margin-top: 24px; padding-top: 12px; border-top: 2px solid #333;
+             text-align: right; font-size: 16px; font-weight: 700; }
+    .toolbar { max-width: 820px; margin: 0 auto 16px; display: flex; gap: 8px; }
+    .toolbar a, .toolbar button { font: inherit; padding: 8px 16px; border-radius: 8px;
+             border: 1px solid #ccc; background: #fff; color: #1a1a1a; cursor: pointer;
+             text-decoration: none; }
+    .toolbar .primary { background: #1a7f4b; color: #fff; border-color: #1a7f4b; }
+    .empty { color: #888; padding: 24px 0; text-align: center; }
+    @media print {
+      body { background: #fff; padding: 0; }
+      .toolbar { display: none; }
+      .sheet { box-shadow: none; border-radius: 0; max-width: none; margin: 0; padding: 0; }
+      .owner-h { page-break-after: avoid; }
+      table { page-break-inside: auto; }
+    }
+  </style>
+</head>
+<body>
+  <div class="toolbar">
+    <button class="primary" onclick="window.print()">🖨 인쇄 / PDF 저장</button>
+    <a href="{{ url_for('livestock') }}#feed">← 돌아가기</a>
+    {% if owner %}<a href="{{ url_for('feed_report') }}">전체 명의 보기</a>{% endif %}
+  </div>
+
+  <div class="sheet">
+    <h1>{{ farm_name or '영농형 태양광 관리' }} — 사료 구매 내역서</h1>
+    <p class="sub">{% if owner %}명의: {{ owner }} · {% endif %}발행일 {{ today }}</p>
+
+    {% for g in groups %}
+    <div class="owner-h">
+      <span class="name">명의 · {{ g.owner or '(미입력)' }}</span>
+      <span class="sum">소계 {{ won(g.total) }}원 ({{ g.count }}건)</span>
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th style="width:88px">구매일</th>
+          <th>사료명</th>
+          <th style="width:64px">소 품목</th>
+          <th class="num" style="width:70px">수량</th>
+          <th class="num" style="width:90px">단가(원)</th>
+          <th class="num" style="width:100px">사료값(원)</th>
+          <th>구매처</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in g.rows %}
+        <tr>
+          <td>{{ r['purchase_date'] }}</td>
+          <td>{{ r['feed_name'] }}{% if r['note'] %} <small>({{ r['note'] }})</small>{% endif %}</td>
+          <td>{{ r['cattle_type'] or '-' }}</td>
+          <td class="num">{{ '%g'|format(r['quantity']) }}{{ r['unit'] or '' }}</td>
+          <td class="num">{{ won(r['unit_price']) if r['unit_price'] else '-' }}</td>
+          <td class="num">{{ won(r['amount'] or 0) }}</td>
+          <td>{{ r['supplier'] or '-' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+      <tfoot>
+        <tr>
+          <td colspan="5" class="num">소계</td>
+          <td class="num">{{ won(g.total) }}</td>
+          <td></td>
+        </tr>
+      </tfoot>
+    </table>
+    {% else %}
+    <div class="empty">사료 구매 내역이 없습니다.</div>
+    {% endfor %}
+
+    {% if groups|length > 1 %}
+    <div class="grand">총 합계 {{ won(grand_total) }}원</div>
+    {% endif %}
+  </div>
+</body>
+</html>

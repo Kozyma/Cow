@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>사료 구매내역서</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: -apple-system, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+           color: #1a1a1a; margin: 0; padding: 24px; background: #f4f4f5; }
+    .toolbar { max-width: 720px; margin: 0 auto 16px; display: flex; gap: 8px; flex-wrap: wrap; }
+    .toolbar a, .toolbar button { font: inherit; padding: 8px 16px; border-radius: 8px;
+             border: 1px solid #ccc; background: #fff; color: #1a1a1a; cursor: pointer;
+             text-decoration: none; }
+    .toolbar .primary { background: #1a7f4b; color: #fff; border-color: #1a7f4b; }
+    .sheet { max-width: 720px; margin: 0 auto 28px; background: #fff; padding: 28px 32px;
+             border-radius: 10px; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
+    h1 { font-size: 20px; margin: 0 0 16px; text-align: center; }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    th, td { border: 1px solid #c9c9c9; padding: 6px 10px; }
+    th { background: #efeefb; font-weight: 700; text-align: center; }
+    td.c { text-align: center; }
+    td.r { text-align: right; }
+    tr.sub td { font-weight: 700; background: #faf9ff; }
+    tr.date-start td { border-top: 2px solid #b9b6e0; }
+    .empty { color: #888; padding: 24px 0; text-align: center; }
+    @media print {
+      body { background: #fff; padding: 0; }
+      .toolbar { display: none; }
+      .sheet { box-shadow: none; border-radius: 0; max-width: none; margin: 0;
+               padding: 0; page-break-after: always; }
+      .sheet:last-child { page-break-after: auto; }
+    }
+  </style>
+</head>
+<body>
+  <div class="toolbar">
+    <button class="primary" onclick="window.print()">🖨 인쇄 / PDF 저장</button>
+    <a href="{{ url_for('livestock') }}#feed">← 돌아가기</a>
+    {% if owner %}<a href="{{ url_for('feed_statement') }}">전체 명의 보기</a>{% endif %}
+    <a href="{{ url_for('feed_report', owner=owner) if owner else url_for('feed_report') }}">상세 내역서</a>
+  </div>
+
+  {% for sh in sheets %}
+  <div class="sheet">
+    <h1>{{ sh.owner or '(명의 미입력)' }} 사료 구매내역서</h1>
+    <table>
+      <thead>
+        <tr>
+          <th style="width:96px">날짜</th>
+          <th style="width:80px">품목</th>
+          <th style="width:64px">수량</th>
+          <th style="width:96px">단가</th>
+          <th style="width:120px">금액</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in sh.rows %}
+          {% if r.kind == 'data' %}
+          <tr class="{{ 'date-start' if r.first_of_date else '' }}">
+            <td class="c">{{ r.date }}</td>
+            <td class="c">{{ r.item }}</td>
+            <td class="c">{{ '%g'|format(r.qty) }}{{ r.unit }}</td>
+            <td class="r">{{ won(r.price) if r.price else '' }}</td>
+            <td class="r">{{ won(r.amount) }}</td>
+          </tr>
+          {% else %}
+          <tr class="sub">
+            <td class="c">누계</td>
+            <td></td><td></td><td></td>
+            <td class="r">{{ won(r.total) }}</td>
+          </tr>
+          {% endif %}
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="sheet"><div class="empty">사료 구매 내역이 없습니다.</div></div>
+  {% endfor %}
+</body>
+</html>

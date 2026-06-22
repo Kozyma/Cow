@@ -27,7 +27,7 @@ from flask import (
 import exporter
 from database import (
     Database, today_str,
-    LIVESTOCK_CATEGORIES, FARM_ACTIVITIES, FINANCE_TYPES, FINANCE_SECTORS,
+    LIVESTOCK_CATEGORIES, CATTLE_TYPES, FARM_ACTIVITIES, FINANCE_TYPES, FINANCE_SECTORS,
     SUPPORT_STATUSES, REMINDER_CATEGORIES, REMINDER_REPEATS,
     FACILITY_TYPES, FACILITY_STATUSES,
 )
@@ -220,7 +220,8 @@ def inject_helpers():
     return dict(
         won=won, won_short=won_short, today=today_str(),
         farm_name=db.get_setting("farm_name", ""),
-        CATEGORIES=LIVESTOCK_CATEGORIES, ACTIVITIES=FARM_ACTIVITIES,
+        CATEGORIES=LIVESTOCK_CATEGORIES, CATTLE_TYPES=CATTLE_TYPES,
+        ACTIVITIES=FARM_ACTIVITIES,
         FIN_TYPES=FINANCE_TYPES, FIN_SECTORS=FINANCE_SECTORS,
         SUPPORT_STATUSES=SUPPORT_STATUSES,
         REMINDER_CATEGORIES=REMINDER_CATEGORIES, REMINDER_REPEATS=REMINDER_REPEATS,
@@ -397,6 +398,13 @@ def livestock():
         edit_row=edit_row,
         logp=logp, log_pages=pages, total_logs=total_logs,
         facilities=db.list_facility(), facility_edit=facility_edit,
+        feeds=db.list_feed_purchase(),
+        feed_owners=db.get_owner_list(),
+        feed_units=db.get_feed_units(),
+        feed_prices=db.get_feed_prices(),
+        feed_summary=db.feed_purchase_summary(),
+        feed_edit=db.get_feed_purchase(request.args.get("feedit", type=int))
+                  if request.args.get("feedit", type=int) else None,
     )
 
 
@@ -439,6 +447,7 @@ def livestock_save():
         _f("unit"), _f("start_date", today_str()),
         _f("status", "진행중"), _f("note"),
         weight if weight > 0 else None,
+        _f("owner") or None, _f("cattle_type") or None,
     )
     if not args[1]:
         flash("품목명을 입력하세요.", "error")
@@ -496,6 +505,131 @@ def farmlog_delete(row_id):
     db.delete_farm_log(row_id)
     flash("일지를 삭제했습니다.", "ok")
     return redirect(request.referrer or (url_for("livestock") + "#log"))
+
+
+# ── 🌾 농축산: 사료 구매 (명의별 내역서) ──────────────────────────────
+@app.route("/feed/save", methods=["POST"])
+def feed_save():
+    row_id = request.form.get("id", type=int)
+    cattle_type = _f("cattle_type") or None
+    qty = _num("quantity")
+    unit_price = int(round(_num("unit_price")))
+    # 단가 미입력 시 품목별 설정 단가를 적용
+    if unit_price <= 0 and cattle_type:
+        unit_price = db.get_feed_prices().get(cattle_type, 0)
+    # 금액(사료값): 직접 입력값이 있으면 우선, 없으면 수량×단가로 계산
+    amount_in = int(round(_num("amount")))
+    amount = amount_in if amount_in > 0 else int(round(qty * unit_price))
+    add_fin = bool(request.form.get("add_to_finance"))
+    # 사료명 미입력 시 품목명을 사료명으로 사용(간이 내역서 대응)
+    feed_name = _f("feed_name") or (cattle_type or "")
+    args = (
+        _f("purchase_date", today_str()), _f("owner"), cattle_type,
+        feed_name, qty, _f("unit"), unit_price, amount,
+        _f("supplier") or None, _f("note") or None,
+    )
+    if not args[1]:
+        flash("명의(소유주)를 선택하세요.", "error")
+        return redirect(url_for("livestock") + "#feed")
+    if not feed_name:
+        flash("품목 또는 사료명을 입력하세요.", "error")
+        return redirect(url_for("livestock") + "#feed")
+    if row_id:
+        db.update_feed_purchase(row_id, *args, add_to_finance=add_fin)
+        flash("사료 구매 내역을 수정했습니다.", "ok")
+    else:
+        db.add_feed_purchase(*args, add_to_finance=add_fin)
+        flash("사료 구매 내역을 추가했습니다.", "ok")
+    return redirect(url_for("livestock") + "#feed")
+
+
+@app.route("/feed/<int:row_id>/delete", methods=["POST"])
+def feed_delete(row_id):
+    db.delete_feed_purchase(row_id)
+    flash("사료 구매 내역을 삭제했습니다.", "ok")
+    return redirect(url_for("livestock") + "#feed")
+
+
+@app.route("/feed/report")
+def feed_report():
+    """명의별 사료 구매 내역서(인쇄용). owner 미지정 시 전체 명의."""
+    owner = _arg("owner")
+    owners = [owner] if owner else db.feed_owners()
+    groups = []
+    for o in owners:
+        rows = db.list_feed_purchase(owner=o)
+        if not rows:
+            continue
+        total = sum(r["amount"] or 0 for r in rows)
+        groups.append(dict(owner=o, rows=rows, total=total,
+                           count=len(rows)))
+    grand_total = sum(g["total"] for g in groups)
+    return render_template(
+        "feed_report.html", groups=groups, grand_total=grand_total,
+        owner=owner, all_owners=db.feed_owners(),
+    )
+
+
+def _yymmdd(d):
+    """YYYY-MM-DD → YY.MM.DD (간이 내역서 표시용)."""
+    p = (d or "").split("-")
+    return f"{p[0][2:]}.{p[1]}.{p[2]}" if len(p) == 3 else (d or "")
+
+
+@app.route("/feed/statement")
+def feed_statement():
+    """간이 사료 구매내역서(엑셀 양식 형태): 날짜·품목·수량·단가·금액 + 월별 누계."""
+    owner = _arg("owner")
+    owners = [owner] if owner else db.feed_owners()
+    sheets = []
+    for o in owners:
+        rows = sorted(db.list_feed_purchase(owner=o),
+                      key=lambda r: (r["purchase_date"] or "", r["id"]))
+        if not rows:
+            continue
+        display = []
+        cumulative = 0
+        prev_date = None
+        prev_month = None
+        for r in rows:
+            month = (r["purchase_date"] or "")[:7]
+            # 달이 바뀌면 직전까지의 누계 행을 끼워넣는다
+            if prev_month is not None and month != prev_month:
+                display.append(dict(kind="subtotal", total=cumulative))
+            amt = r["amount"] or 0
+            cumulative += amt
+            new_date = r["purchase_date"] != prev_date
+            display.append(dict(
+                kind="data",
+                date=_yymmdd(r["purchase_date"]) if new_date else "",
+                first_of_date=new_date,
+                item=r["cattle_type"] or r["feed_name"] or "",
+                qty=r["quantity"], unit=r["unit"] or "",
+                price=r["unit_price"] or 0, amount=amt,
+            ))
+            prev_date = r["purchase_date"]
+            prev_month = month
+        display.append(dict(kind="subtotal", total=cumulative))   # 최종 누계
+        sheets.append(dict(owner=o, rows=display, total=cumulative))
+    return render_template(
+        "feed_statement.html", sheets=sheets,
+        owner=owner, all_owners=db.feed_owners(),
+    )
+
+
+@app.route("/feed/settings", methods=["POST"])
+def feed_settings():
+    """사료 설정 저장: 소유주(명의) 목록 · 단위 목록 · 품목별 단가."""
+    owners = [s.strip() for s in (request.form.get("owners") or "").splitlines() if s.strip()]
+    units = [s.strip() for s in (request.form.get("units") or "").splitlines() if s.strip()]
+    db.set_owner_list(owners)
+    db.set_feed_units(units)
+    prices = {}
+    for t in CATTLE_TYPES:
+        prices[t] = _num(f"price_{t}", 0)
+    db.set_feed_prices(prices)
+    flash("사료 설정을 저장했습니다.", "ok")
+    return redirect(url_for("livestock") + "#feedset")
 
 
 # ── ☀ 태양광 (설비 설정 + 발전 기록) ────────────────────────────────
