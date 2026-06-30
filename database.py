@@ -260,6 +260,11 @@ class Database:
             ("sold_grade", "ALTER TABLE livestock ADD COLUMN sold_grade TEXT"),       # 판매 등급
             ("owner", "ALTER TABLE livestock ADD COLUMN owner TEXT"),                 # 명의(소유주)
             ("cattle_type", "ALTER TABLE livestock ADD COLUMN cattle_type TEXT"),     # 소 품목(임신우/육성/송아지)
+            ("ear_tag", "ALTER TABLE livestock ADD COLUMN ear_tag TEXT"),             # 이표번호(개체식별번호)
+            ("birth_date", "ALTER TABLE livestock ADD COLUMN birth_date TEXT"),       # 출생일
+            ("sex", "ALTER TABLE livestock ADD COLUMN sex TEXT"),                     # 성별(암/수/거세)
+            ("dam_tag", "ALTER TABLE livestock ADD COLUMN dam_tag TEXT"),             # 어미소 이표번호
+            ("health_note", "ALTER TABLE livestock ADD COLUMN health_note TEXT"),     # 건강·진료·방역 메모
         ):
             if col not in ls_cols:
                 self.conn.execute(ddl)
@@ -472,6 +477,43 @@ class Database:
         return self.conn.execute(
             "SELECT * FROM livestock WHERE id=?", (row_id,)
         ).fetchone()
+
+    def update_cow_info(self, row_id, ear_tag=None, birth_date=None, sex=None,
+                        dam_tag=None, health_note=None):
+        """소 개체 정보(이표번호·출생일·성별·어미소·건강메모)만 갱신.
+
+        품목 기본정보(수량·명의·체중 등)는 건드리지 않으므로 '수정' 폼과 충돌하지 않는다.
+        """
+        self.conn.execute(
+            "UPDATE livestock SET ear_tag=?, birth_date=?, sex=?, dam_tag=?, "
+            "health_note=? WHERE id=?",
+            (ear_tag, birth_date, sex, dam_tag, health_note, row_id),
+        )
+        self.conn.commit()
+
+    def set_livestock_sex(self, row_id, sex):
+        """품목 성별(암/수/거세)만 갱신 — 등록/수정 폼에서 사용.
+
+        다른 컬럼은 건드리지 않으므로 update_livestock(데스크톱 포함)과 충돌하지 않는다.
+        """
+        self.conn.execute("UPDATE livestock SET sex=? WHERE id=?", (sex, row_id))
+        self.conn.commit()
+
+    def update_cow_detail(self, row_id, owner=None, cattle_type=None, weight_kg=None,
+                          ear_tag=None, birth_date=None, sex=None, dam_tag=None,
+                          health_note=None):
+        """소 개체 상세정보 갱신 — 명의·소품목·입식체중 + 이표/출생/성별/어미/건강.
+
+        품목 기본정보(구분·품목명·수량·단위·시작일·상태·메모)는 건드리지 않는다.
+        데스크톱 농축산 탭의 '소 정보' 팝업에서 사용한다.
+        """
+        self.conn.execute(
+            "UPDATE livestock SET owner=?, cattle_type=?, weight_kg=?, ear_tag=?, "
+            "birth_date=?, sex=?, dam_tag=?, health_note=? WHERE id=?",
+            (owner, cattle_type, weight_kg, ear_tag, birth_date, sex, dam_tag,
+             health_note, row_id),
+        )
+        self.conn.commit()
 
     def sell_livestock(self, row_id, sold_date, sold_amount, sold_weight_kg,
                        note="", add_to_finance=True, sold_grade=None):

@@ -6,12 +6,15 @@ tab_livestock.py — 🐄 농축산 탭
 두 영역은 위/아래로 나뉘며 각각 추가·수정·삭제할 수 있다.
 """
 
+from datetime import date, datetime
+
 import tkinter as tk
 from tkinter import ttk, messagebox
 
 from database import (
-    LIVESTOCK_CATEGORIES, FARM_ACTIVITIES, today_str,
+    LIVESTOCK_CATEGORIES, FARM_ACTIVITIES, CATTLE_TYPES, today_str,
 )
+from charts import KFONT
 from ui_helpers import parse_float, valid_date, build_tree, selected_id
 
 NO_ITEM = "(품목 미지정)"
@@ -83,6 +86,8 @@ class LivestockTab(ttk.Frame):
         ttk.Button(btns, text="수정", command=self.update_item).pack(side="left", padx=2)
         ttk.Button(btns, text="삭제", command=self.delete_item).pack(side="left", padx=2)
         ttk.Button(btns, text="입력 초기화", command=self.clear_item_form).pack(side="left", padx=2)
+        ttk.Separator(btns, orient="vertical").pack(side="left", fill="y", padx=8)
+        ttk.Button(btns, text="🐄 소 정보", command=self.open_cow_info).pack(side="left", padx=2)
 
         cols = [
             ("category", "구분", 60, "center"),
@@ -96,6 +101,8 @@ class LivestockTab(ttk.Frame):
         tree_frame, self.item_tree = build_tree(root, cols, height=6)
         tree_frame.pack(fill="both", expand=True)
         self.item_tree.bind("<<TreeviewSelect>>", self.on_item_select)
+        # 가축 행을 더블클릭하면 개체 정보 팝업을 연다.
+        self.item_tree.bind("<Double-1>", self.open_cow_info)
 
     # ── 일지 영역 ────────────────────────────────────────────────
     def _build_log_section(self, root):
@@ -264,6 +271,20 @@ class LivestockTab(ttk.Frame):
         self.i_status.set(r["status"])
         self.i_note.delete(0, "end"); self.i_note.insert(0, r["note"] or "")
 
+    def open_cow_info(self, event=None):
+        """선택한 가축(소) 한 마리의 개체 정보 입력 팝업을 연다."""
+        row_id = selected_id(self.item_tree)
+        if row_id is None or row_id not in self._item_cache:
+            if event is None:   # 버튼으로 눌렀을 때만 안내(더블클릭 빈 곳은 조용히)
+                messagebox.showinfo("안내", "정보를 입력할 소(가축)를 목록에서 선택하세요.")
+            return
+        r = self._item_cache[row_id]
+        if r["category"] != "가축":
+            if event is None:
+                messagebox.showinfo("안내", "‘가축’ 품목만 소 개체 정보를 입력할 수 있습니다.")
+            return
+        CowInfoDialog(self.app, self.db, r, on_saved=self.refresh)
+
     # ── 일지 CRUD ────────────────────────────────────────────────
     def _read_log_form(self):
         date = self.l_date.get().strip()
@@ -337,3 +358,168 @@ class LivestockTab(ttk.Frame):
         self.l_qty.insert(0, f"{r['quantity']:g}" if r["quantity"] else "")
         self.l_unit.delete(0, "end"); self.l_unit.insert(0, r["unit"] or "")
         self.l_note.delete(0, "end"); self.l_note.insert(0, r["note"] or "")
+
+
+def _days_since(start, end=None):
+    """start(YYYY-MM-DD)부터 end(없으면 오늘)까지의 일수. 잘못된 값이면 None."""
+    try:
+        s = datetime.strptime(str(start).strip(), "%Y-%m-%d").date()
+    except (ValueError, TypeError, AttributeError):
+        return None
+    e = date.today()
+    if end:
+        try:
+            e = datetime.strptime(str(end).strip(), "%Y-%m-%d").date()
+        except ValueError:
+            pass
+    return (e - s).days
+
+
+class CowInfoDialog(tk.Toplevel):
+    """소 한 마리(가축 품목)의 개체 정보를 보고 입력하는 팝업 창.
+
+    요약(읽기 전용) + 입력 폼(이표번호·출생일·성별·어미소·명의·소품목·입식체중·건강메모).
+    저장은 db.update_cow_detail()을 호출하며 품목 기본정보는 건드리지 않는다.
+    """
+
+    SEX_VALUES = ["", "암", "수", "거세"]
+
+    def __init__(self, parent, db, row, on_saved=None):
+        super().__init__(parent)
+        self.db = db
+        self.row = row
+        self.row_id = row["id"]
+        self.on_saved = on_saved
+
+        self.title(f"소 개체 정보 — {row['name']}")
+        self.resizable(False, False)
+        self.transient(parent)
+
+        body = ttk.Frame(self, padding=14)
+        body.pack(fill="both", expand=True)
+
+        # ── 요약(읽기 전용) ──
+        summ = ttk.LabelFrame(body, text=" 요약 ", padding=10)
+        summ.grid(row=0, column=0, columnspan=4, sticky="we", pady=(0, 12))
+        ttk.Label(summ, text=self._summary_text(), justify="left",
+                  font=(KFONT, 10)).pack(anchor="w")
+
+        def lab(text, r, c):
+            ttk.Label(body, text=text).grid(row=r, column=c, sticky="e",
+                                            padx=(0, 6), pady=5)
+
+        # ── 입력 폼 ──
+        lab("이표번호", 1, 0)
+        self.e_ear = ttk.Entry(body, width=20)
+        self.e_ear.grid(row=1, column=1, pady=5, sticky="w")
+        lab("출생일", 1, 2)
+        self.e_birth = ttk.Entry(body, width=14)
+        self.e_birth.grid(row=1, column=3, pady=5, sticky="w")
+
+        lab("성별", 2, 0)
+        self.c_sex = ttk.Combobox(body, values=self.SEX_VALUES, width=8,
+                                  state="readonly")
+        self.c_sex.grid(row=2, column=1, pady=5, sticky="w")
+        lab("어미소 이표번호", 2, 2)
+        self.e_dam = ttk.Entry(body, width=14)
+        self.e_dam.grid(row=2, column=3, pady=5, sticky="w")
+
+        lab("명의(소유주)", 3, 0)
+        self.e_owner = ttk.Entry(body, width=20)
+        self.e_owner.grid(row=3, column=1, pady=5, sticky="w")
+        lab("소 품목", 3, 2)
+        self.c_type = ttk.Combobox(body, values=[""] + list(CATTLE_TYPES),
+                                   width=12, state="readonly")
+        self.c_type.grid(row=3, column=3, pady=5, sticky="w")
+
+        lab("입식 체중(kg)", 4, 0)
+        self.e_weight = ttk.Entry(body, width=12)
+        self.e_weight.grid(row=4, column=1, pady=5, sticky="w")
+
+        ttk.Label(body, text="건강·진료·방역 메모").grid(
+            row=5, column=0, columnspan=4, sticky="w", pady=(8, 2))
+        self.t_health = tk.Text(body, width=46, height=4, font=(KFONT, 10),
+                                relief="solid", borderwidth=1)
+        self.t_health.grid(row=6, column=0, columnspan=4, sticky="we")
+
+        btns = ttk.Frame(body)
+        btns.grid(row=7, column=0, columnspan=4, sticky="e", pady=(14, 0))
+        ttk.Button(btns, text="저장", command=self.save).pack(side="left", padx=3)
+        ttk.Button(btns, text="닫기", command=self.destroy).pack(side="left", padx=3)
+
+        self._fill()
+
+        # 모달 + 부모 가운데 정렬
+        self.grab_set()
+        self.e_ear.focus_set()
+        self.bind("<Escape>", lambda _e: self.destroy())
+        self.update_idletasks()
+        try:
+            px, py = parent.winfo_rootx(), parent.winfo_rooty()
+            pw, ph = parent.winfo_width(), parent.winfo_height()
+            w, h = self.winfo_width(), self.winfo_height()
+            self.geometry(f"+{px + max((pw - w) // 2, 0)}+{py + max((ph - h) // 3, 0)}")
+        except Exception:
+            pass
+
+    def _summary_text(self):
+        r = self.row
+        qty = f"{r['quantity']:g}{r['unit'] or ''}" if r["quantity"] else "-"
+        raise_s = r["start_date"] or "-"
+        days = _days_since(r["start_date"], r["sold_date"])
+        if days is not None:
+            raise_s += f"   (사육 {days}일째)"
+        lines = [
+            f"구분 : {r['category']}        수량 : {qty}",
+            f"시작일 : {raise_s}",
+            f"상태 : {r['status']}",
+        ]
+        if r["sold_date"]:
+            parts = [r["sold_date"]]
+            if r["sold_grade"]:
+                parts.append(f"{r['sold_grade']}등급")
+            if r["sold_amount"]:
+                parts.append(f"{int(r['sold_amount']):,}원")
+            if r["sold_weight_kg"]:
+                w = f"출하 {r['sold_weight_kg']:g}kg"
+                if r["weight_kg"]:
+                    w += f" (성장 +{r['sold_weight_kg'] - r['weight_kg']:g}kg)"
+                parts.append(w)
+            lines.append("판매 : " + " · ".join(parts))
+        return "\n".join(lines)
+
+    def _fill(self):
+        r = self.row
+        self.e_ear.insert(0, r["ear_tag"] or "")
+        self.e_birth.insert(0, r["birth_date"] or "")
+        self.c_sex.set(r["sex"] or "")
+        self.e_dam.insert(0, r["dam_tag"] or "")
+        self.e_owner.insert(0, r["owner"] or "")
+        self.c_type.set(r["cattle_type"] or "")
+        if r["weight_kg"]:
+            self.e_weight.insert(0, f"{r['weight_kg']:g}")
+        self.t_health.insert("1.0", r["health_note"] or "")
+
+    def save(self):
+        birth = self.e_birth.get().strip()
+        if birth and not valid_date(birth):
+            messagebox.showwarning("입력 확인",
+                                   "출생일은 YYYY-MM-DD 형식이어야 합니다.", parent=self)
+            return
+        weight = parse_float(self.e_weight.get())
+        self.db.update_cow_detail(
+            self.row_id,
+            owner=self.e_owner.get().strip() or None,
+            cattle_type=self.c_type.get().strip() or None,
+            weight_kg=weight if weight > 0 else None,
+            ear_tag=self.e_ear.get().strip() or None,
+            birth_date=birth or None,
+            sex=self.c_sex.get().strip() or None,
+            dam_tag=self.e_dam.get().strip() or None,
+            health_note=self.t_health.get("1.0", "end").strip() or None,
+        )
+        if callable(self.on_saved):
+            self.on_saved()
+        messagebox.showinfo("저장", f"‘{self.row['name']}’ 개체 정보를 저장했습니다.",
+                            parent=self)
+        self.destroy()

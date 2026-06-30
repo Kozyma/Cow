@@ -288,6 +288,17 @@ def _num(name, default=0.0):
         return default
 
 
+def _sex_value():
+    """성별(암/수) + 거세여부(드롭다운) → 저장값(암/수/거세).
+
+    수컷이면서 거세여부가 '거세'면 '거세'로, 그 외엔 성별 그대로. 미입력은 None.
+    """
+    base = _f("sex")
+    if base == "수" and request.form.get("castrated"):
+        return "거세"
+    return base or None
+
+
 def _days_until(date_str):
     """오늘 기준 D-day(정수). 미래=양수, 지남=음수. 잘못된 값이면 None."""
     from datetime import date
@@ -494,11 +505,14 @@ def livestock_save():
     if not args[1]:
         flash("품목명을 입력하세요.", "error")
         return redirect(url_for("livestock"))
+    sex = _sex_value()
     if row_id:
         db.update_livestock(row_id, *args)
+        db.set_livestock_sex(row_id, sex)
         flash("품목을 수정했습니다.", "ok")
     else:
-        db.add_livestock(*args)
+        new_id = db.add_livestock(*args)
+        db.set_livestock_sex(new_id, sex)
         flash("품목을 추가했습니다.", "ok")
     return redirect(url_for("livestock"))
 
@@ -521,6 +535,24 @@ def livestock_sell(row_id):
     if add_fin and sold_amount > 0:
         msg += f" 재무에 수입 {won(sold_amount)}원을 반영했습니다."
     flash(msg, "ok")
+    return redirect(url_for("livestock"))
+
+
+@app.route("/livestock/<int:row_id>/info", methods=["POST"])
+def livestock_info(row_id):
+    """소 개체 정보(이표번호·출생일·성별·어미소·건강메모) 저장."""
+    row = db.get_livestock(row_id)
+    if not row:
+        abort(404)
+    db.update_cow_info(
+        row_id,
+        ear_tag=_f("ear_tag") or None,
+        birth_date=_f("birth_date") or None,
+        sex=_sex_value(),
+        dam_tag=_f("dam_tag") or None,
+        health_note=_f("health_note") or None,
+    )
+    flash(f"'{row['name']}' 개체 정보를 저장했습니다.", "ok")
     return redirect(url_for("livestock"))
 
 

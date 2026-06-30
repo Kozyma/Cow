@@ -220,6 +220,28 @@ a.li{color:var(--ink)}
 .modal-h h3{font-size:1.15rem; font-weight:800; letter-spacing:-.03em; margin:0}
 .modal .lead{margin:0 0 14px; font-weight:600; color:var(--ink)}
 .modal .actions{margin-top:18px}
+/* 소 개체 정보 — 요약 카드 */
+.cowsum{margin:0 0 16px; padding:4px 14px; background:var(--sub); border-radius:12px}
+.cowsum .r{display:flex; justify-content:space-between; gap:14px; padding:9px 0;
+  border-bottom:1px solid var(--line-2); font-size:.9rem}
+.cowsum .r:last-child{border-bottom:0}
+.cowsum .r[hidden]{display:none}
+.cowsum .r .k{color:var(--ink-3); font-weight:600; flex:none}
+.cowsum .r .v{font-weight:700; color:var(--ink); text-align:right; min-width:0}
+/* 소 개체 정보 — 건강·진료·방역 메모(일정처럼 하나씩 추가) */
+.memo-add{display:flex; gap:8px; align-items:stretch; flex-wrap:wrap}
+.memo-add input[type="date"]{flex:0 0 auto; width:auto}
+.memo-add input[type="text"]{flex:1 1 130px; width:auto}
+.memo-add .btn{flex:0 0 auto; min-height:50px; display:inline-flex; align-items:center; white-space:nowrap}
+.memo-list{list-style:none; margin:10px 0 0; padding:0;
+  display:flex; flex-direction:column; gap:6px; max-height:168px; overflow:auto}
+.memo-list:empty{margin:0}
+.memo-list li{display:flex; align-items:center; gap:10px; padding:9px 12px;
+  background:var(--sub); border-radius:10px; font-size:.9rem}
+.memo-list li .mi{flex:1; min-width:0; color:var(--ink); font-weight:600; word-break:break-word}
+.memo-list li .mx{flex:none; border:0; background:none; cursor:pointer; color:var(--ink-3);
+  font-size:1rem; line-height:1; padding:3px 6px; border-radius:7px}
+.memo-list li .mx:hover{color:var(--out); background:#fff}
 .check{display:flex; align-items:center; gap:9px; margin-top:14px; cursor:pointer;
   font-size:.9rem; font-weight:600; color:var(--ink-2)}
 .check input{width:19px; height:19px; accent-color:var(--accent); flex:none}

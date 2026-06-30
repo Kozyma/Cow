@@ -47,6 +47,19 @@
           {% for t in CATTLE_TYPES %}<option value="{{ t }}" {{ 'selected' if edit_row and edit_row['cattle_type']==t }}>{{ t }}</option>{% endfor %}
         </select>
       </label>
+      <label class="fld" id="sexFld" data-cat-only="가축"><span>성별 · 가축</span>
+        <select name="sex" id="itemSex">
+          <option value="">- 선택 -</option>
+          <option value="암" {{ 'selected' if edit_row and edit_row['sex']=='암' }}>암 (♀)</option>
+          <option value="수" {{ 'selected' if edit_row and edit_row['sex'] in ['수','거세'] }}>수 (♂)</option>
+        </select>
+      </label>
+      <label class="fld" id="castrateFld"><span>거세 여부 · 수컷</span>
+        <select name="castrated" id="itemCastrated">
+          <option value="">비거세</option>
+          <option value="1" {{ 'selected' if edit_row and edit_row['sex']=='거세' }}>거세</option>
+        </select>
+      </label>
       <label class="fld full" id="weightFld" data-cat-only="가축"><span>입식 체중 (kg) · 가축</span>
         <input name="weight_kg" type="number" step="any" inputmode="decimal"
                value="{{ edit_row['weight_kg'] if edit_row and edit_row['weight_kg'] else '' }}"
@@ -79,6 +92,7 @@
           {%- if r['cattle_type'] %} <span class="tag">{{ r['cattle_type'] }}</span>{% endif %}
           <span class="tag {{ 'on' if r['status']=='진행중' else 'off' }}">{{ r['status'] }}</span></div>
         <div class="d">{{ r['category'] }} · {{ '%g'|format(r['quantity']) }}{{ r['unit'] or '' }}
+          {%- if r['ear_tag'] %} · 이표 {{ r['ear_tag'] }}{% endif %}
           {%- if r['owner'] %} · 명의 {{ r['owner'] }}{% endif %}
           {%- if r['weight_kg'] %} · 입식 {{ '%g'|format(r['weight_kg']) }}kg{% endif %}
           {%- if r['start_date'] %} · {{ r['start_date'] }}{% endif %}{% if r['note'] %} · {{ r['note'] }}{% endif %}</div>
@@ -92,6 +106,27 @@
         {% endif %}
       </div>
       <div class="act">
+        {% if r['category']=='가축' %}
+        <button type="button" class="mini cow-btn"
+                data-action="{{ url_for('livestock_info', row_id=r['id']) }}"
+                data-name="{{ r['name'] }}"
+                data-type="{{ r['cattle_type'] or '' }}"
+                data-owner="{{ r['owner'] or '' }}"
+                data-qty="{{ '%g'|format(r['quantity']) if r['quantity'] else '' }}"
+                data-unit="{{ r['unit'] or '' }}"
+                data-weight="{{ '%g'|format(r['weight_kg']) if r['weight_kg'] else '' }}"
+                data-start="{{ r['start_date'] or '' }}"
+                data-status="{{ r['status'] or '' }}"
+                data-sold-date="{{ r['sold_date'] or '' }}"
+                data-sold-amount="{{ r['sold_amount'] or '' }}"
+                data-sold-weight="{{ '%g'|format(r['sold_weight_kg']) if r['sold_weight_kg'] else '' }}"
+                data-sold-grade="{{ r['sold_grade'] or '' }}"
+                data-ear="{{ r['ear_tag'] or '' }}"
+                data-birth="{{ r['birth_date'] or '' }}"
+                data-sex="{{ r['sex'] or '' }}"
+                data-dam="{{ r['dam_tag'] or '' }}"
+                data-health="{{ r['health_note'] or '' }}">정보</button>
+        {% endif %}
         <button type="button" class="mini sell-btn"
                 data-id="{{ r['id'] }}" data-name="{{ r['name'] }}"
                 data-amount="{{ r['sold_amount'] or '' }}"
@@ -378,6 +413,61 @@
   </div>
 </section>
 </div>
+
+{# ── 소 개체 정보 팝업 ─────────────────────────────────── #}
+<dialog id="cowDialog" class="modal">
+  <form method="post" id="cowForm" class="form">
+    <div class="modal-h">
+      <h3>소 개체 정보</h3>
+      <button type="button" class="modal-x" data-close aria-label="닫기">&times;</button>
+    </div>
+    <p class="lead" id="cowName">한우</p>
+
+    <div class="cowsum" id="cowSum">
+      <div class="r" data-row="type"><span class="k">소 품목</span><span class="v" id="cowType">-</span></div>
+      <div class="r" data-row="owner"><span class="k">명의</span><span class="v" id="cowOwner">-</span></div>
+      <div class="r" data-row="qty"><span class="k">수량</span><span class="v" id="cowQty">-</span></div>
+      <div class="r" data-row="weight"><span class="k">입식 체중</span><span class="v" id="cowWeight">-</span></div>
+      <div class="r" data-row="raise"><span class="k">사육</span><span class="v" id="cowRaise">-</span></div>
+      <div class="r" data-row="status"><span class="k">상태</span><span class="v" id="cowStatus">-</span></div>
+      <div class="r" data-row="sold"><span class="k">판매</span><span class="v" id="cowSold">-</span></div>
+    </div>
+
+    <div class="grid">
+      <label class="fld"><span>이표번호 <small>(개체식별번호)</small></span>
+        <input name="ear_tag" id="cowEar" inputmode="numeric" placeholder="예) 002-1234-5678"></label>
+      <label class="fld"><span>출생일</span>
+        <input name="birth_date" id="cowBirth" type="date"></label>
+      <label class="fld"><span>성별</span>
+        <select name="sex" id="cowSex">
+          <option value="">- 선택 -</option>
+          <option value="암">암 (♀)</option>
+          <option value="수">수 (♂)</option>
+        </select></label>
+      <label class="fld" id="cowCastrateFld"><span>거세 여부 <small>· 수컷</small></span>
+        <select name="castrated" id="cowCastrated">
+          <option value="">비거세</option>
+          <option value="1">거세</option>
+        </select></label>
+      <label class="fld"><span>어미소 이표번호</span>
+        <input name="dam_tag" id="cowDam" inputmode="numeric" placeholder="선택 입력"></label>
+      <div class="fld full"><span>건강·진료·방역 메모 <small>(일정처럼 하나씩 추가)</small></span>
+        <div class="memo-add">
+          <input type="date" id="cowMemoDate" aria-label="메모 날짜">
+          <input type="text" id="cowMemoText" placeholder="예) 구제역 백신 · 설사 치료 · 다음 접종 예정 …" aria-label="메모 내용">
+          <button type="button" class="btn sec" id="cowMemoAdd">메모 추가</button>
+        </div>
+        <ul class="memo-list" id="cowMemoList"></ul>
+        <input type="hidden" name="health_note" id="cowHealth">
+      </div>
+    </div>
+
+    <div class="actions">
+      <button type="submit" class="btn">개체 정보 저장</button>
+      <button type="button" class="btn sec" data-close>닫기</button>
+    </div>
+  </form>
+</dialog>
 
 {# ── 판매 입력 팝업 ──────────────────────────────────── #}
 <dialog id="sellDialog" class="modal">
