@@ -281,6 +281,24 @@ details[open] > .trace-title::before{transform:rotate(90deg)}
 .trace-table td:nth-child(1),.trace-table td:nth-child(2),.trace-table td:nth-child(3){white-space:nowrap}
 .trace-table td:nth-child(4){min-width:150px}
 .trace-table tr:last-child td{border-bottom:0}
+/* 사료 일괄 등록 */
+.bulk-feed{display:flex; flex-direction:column; gap:8px; margin-top:4px}
+.bf-head,.bf-row{display:grid; grid-template-columns:60px 1fr 1fr 1fr; gap:8px; align-items:center}
+.bf-head{font-size:.72rem; font-weight:700; color:var(--ink-3); padding:0 2px}
+.bf-head span:not(:first-child){text-align:right}
+.bf-name{font-weight:700; font-size:.9rem; color:var(--ink)}
+.bulk-feed input{min-height:46px; padding:0 10px; border:1px solid var(--line); border-radius:9px;
+  font:inherit; font-size:.95rem; color:var(--ink); width:100%; text-align:right}
+.bulk-feed input:focus{outline:none; border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-soft)}
+/* 소 정보 — 사료 급여 이력 */
+.cow-feeding{margin:0 0 14px; padding:10px 13px; background:var(--sub); border-radius:12px}
+.cf-title{font-size:.82rem; font-weight:800; color:var(--ink-2); margin-bottom:6px;
+  display:flex; align-items:baseline; gap:8px}
+.cf-title small{margin-left:auto; font-weight:700; color:var(--accent-d); font-size:.78rem}
+.cf-list{display:flex; flex-direction:column; gap:5px; max-height:160px; overflow:auto}
+.cf-row{display:flex; justify-content:space-between; gap:10px; font-size:.86rem; padding:3px 0}
+.cf-row .cf-l{color:var(--ink-2); font-weight:600; min-width:0; word-break:break-word}
+.cf-row .cf-v{color:var(--ink); font-weight:700; flex:none}
 .check{display:flex; align-items:center; gap:9px; margin-top:14px; cursor:pointer;
   font-size:.9rem; font-weight:600; color:var(--ink-2)}
 .check input{width:19px; height:19px; accent-color:var(--accent); flex:none}

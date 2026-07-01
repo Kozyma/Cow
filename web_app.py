@@ -500,8 +500,12 @@ def facility_delete(row_id):
 def livestock_save():
     row_id = request.form.get("id", type=int)
     weight = _num("weight_kg", 0)
+    category = _f("category", "작물")
+    quantity = _num("quantity")
+    if category == "가축" and quantity <= 0:
+        quantity = 1                          # 가축은 최소 1두(두수 집계 정확도)
     args = (
-        _f("category", "작물"), _f("name"), _num("quantity"),
+        category, _f("name"), quantity,
         _f("unit"), _f("start_date", today_str()),
         _f("status", "진행중"), _f("note"),
         weight if weight > 0 else None,
@@ -513,13 +517,14 @@ def livestock_save():
     sex = _sex_value()
     ear_tag = _f("ear_tag") or None
     birth_date = _f("birth_date") or None
+    barn = _f("barn") or None
     if row_id:
         db.update_livestock(row_id, *args)
-        db.set_cow_basics(row_id, sex=sex, ear_tag=ear_tag, birth_date=birth_date)
+        db.set_cow_basics(row_id, sex=sex, ear_tag=ear_tag, birth_date=birth_date, barn=barn)
         flash("품목을 수정했습니다.", "ok")
     else:
         new_id = db.add_livestock(*args)
-        db.set_cow_basics(new_id, sex=sex, ear_tag=ear_tag, birth_date=birth_date)
+        db.set_cow_basics(new_id, sex=sex, ear_tag=ear_tag, birth_date=birth_date, barn=barn)
         flash("품목을 추가했습니다.", "ok")
     return redirect(url_for("livestock"))
 
@@ -558,6 +563,9 @@ def livestock_info(row_id):
         sex=_sex_value(),
         dam_tag=_f("dam_tag") or None,
         health_note=_f("health_note") or None,
+        barn=_f("barn") or None,
+        owner=_f("owner") or None,
+        cattle_type=_f("cattle_type") or None,
     )
     flash(f"'{row['name']}' 개체 정보를 저장했습니다.", "ok")
     return redirect(url_for("livestock"))
@@ -841,7 +849,7 @@ def feed_save():
     feed_name = _f("feed_name") or (cattle_type or "")
     args = (
         _f("purchase_date", today_str()), _f("owner"), cattle_type,
-        feed_name, qty, _f("unit"), unit_price, amount,
+        feed_name, qty, "두", unit_price, amount,          # 사료 단위는 무조건 '두'
         _f("supplier") or None, _f("note") or None,
     )
     if not args[1]:
@@ -857,6 +865,65 @@ def feed_save():
         db.add_feed_purchase(*args, add_to_finance=add_fin)
         flash("사료 구매 내역을 추가했습니다.", "ok")
     return redirect(url_for("livestock") + "#feed")
+
+
+@app.route("/feed/bulk_save", methods=["POST"])
+def feed_bulk_save():
+    """소유주별 임신우·육성·송아지 사료를 한 번에 등록."""
+    owner = _f("owner")
+    if not owner:
+        flash("명의(소유주)를 선택하세요.", "error")
+        return redirect(url_for("livestock") + "#feed")
+    purchase_date = _f("purchase_date", today_str())
+    unit = "두"                               # 사료 단위는 무조건 '두'
+    add_fin = bool(request.form.get("add_to_finance"))
+    prices = db.get_feed_prices()
+    count, total = 0, 0
+    for t in CATTLE_TYPES:
+        qty = _num(f"qty_{t}")
+        amount_in = int(round(_num(f"amount_{t}")))
+        unit_price = int(round(_num(f"price_{t}"))) or prices.get(t, 0)
+        amount = amount_in if amount_in > 0 else int(round(qty * unit_price))
+        if qty <= 0 and amount <= 0:
+            continue                      # 입력 없는 품목은 건너뜀
+        db.add_feed_purchase(purchase_date, owner, t, t, qty, unit,
+                             unit_price, amount, None, None, add_to_finance=add_fin)
+        count += 1
+        total += amount
+    if count:
+        msg = f"'{owner}' 사료 {count}건을 일괄 등록했습니다."
+        if add_fin and total > 0:
+            msg += f" 재무에 지출 {won(total)}원을 반영했습니다."
+        flash(msg, "ok")
+    else:
+        flash("등록할 품목의 수량 또는 금액을 입력하세요.", "error")
+    return redirect(url_for("livestock") + "#feed")
+
+
+@app.route("/api/cow_counts")
+def cow_counts():
+    """(명의+축사)별 임신우·육성·송아지 두수 → 사료 일괄등록 수량 자동입력용."""
+    owner = _arg("owner")
+    barn = _arg("barn")
+    if not owner:
+        return jsonify(ok=True, counts={})
+    return jsonify(ok=True, counts=db.cattle_counts(owner=owner, barn=barn or None))
+
+
+@app.route("/api/feeding")
+def feeding_history():
+    """소 정보 팝업용: (명의+구분) 일치 사료 구매 내역(사료종류·금액)."""
+    owner = _arg("owner")
+    cattle_type = _arg("cattle_type")
+    if not owner or not cattle_type:
+        return jsonify(ok=True, items=[], total=0)
+    rows = db.feed_purchases_for(owner, cattle_type)
+    items = [{
+        "date": r["purchase_date"], "feed_name": r["feed_name"] or cattle_type,
+        "amount": int(r["amount"] or 0),
+        "quantity": r["quantity"] or 0, "unit": r["unit"] or "",
+    } for r in rows]
+    return jsonify(ok=True, items=items, total=sum(i["amount"] for i in items))
 
 
 @app.route("/feed/<int:row_id>/delete", methods=["POST"])
@@ -1480,42 +1547,89 @@ def _days_ahead(n):
 
 
 def _seed(db):
-    cow = db.add_livestock("가축", "한우", 32, "두", _days_ago(400), "진행중", "비육우", 280)
-    db.add_livestock("작물", "벼", 2000, "㎡", _days_ago(120), "진행중", "친환경 재배")
-    db.add_livestock("작물", "고추", 300, "주", _days_ago(80), "진행중", "")
+    # ── 축사(시설) — 소가 배치될 우사 ──────────────────────
+    db.add_facility("1동 우사", "축사", "준공", _days_ago(500), _days_ago(430),
+                    _days_ago(400), "660㎡ · 50두", 180_000_000, "대한축산건설", "지붕 태양광 연계")
+    db.add_facility("2동 우사", "축사", "준공", _days_ago(300), _days_ago(240),
+                    _days_ago(210), "500㎡ · 40두", 150_000_000, "대한축산건설", "")
+    db.add_facility("3동 우사", "축사", "공사중", _days_ago(40), None, None,
+                    "600㎡ · 45두", 170_000_000, "서천종합건설", "")
+    db.add_facility("퇴비사", "퇴비사", "준공", _days_ago(400), _days_ago(330),
+                    _days_ago(300), "200㎡", 45_000_000, "서천종합건설", "")
 
-    # 판매(출하) 완료된 가축 예시 — 성장 통계용 (입식 250kg → 출하 690kg)
-    sold = db.add_livestock("가축", "한우(출하)", 1, "두", _days_ago(420), "진행중", "비육우", 250)
+    # ── 명의(소유주) · 품목별 사료 단가(원/두) ──
+    db.set_owner_list(["성기준", "성혜진"])
+    prices = {"임신우": 9000, "육성": 7000, "송아지": 5000}
+    db.set_feed_prices(prices)
+
+    # ── 소: 무조건 1두씩, 명의·축사·구분·이표·출생·성별·체중 지정 ──
+    plan = [
+        ("성기준", "1동 우사", "임신우", 5), ("성기준", "1동 우사", "육성", 4),
+        ("성기준", "1동 우사", "송아지", 3), ("성기준", "2동 우사", "육성", 4),
+        ("성혜진", "2동 우사", "임신우", 4), ("성혜진", "2동 우사", "송아지", 2),
+        ("성혜진", "3동 우사", "임신우", 3), ("성혜진", "3동 우사", "육성", 5),
+        ("성혜진", "3동 우사", "송아지", 3),
+    ]
+    born = {"임신우": (26, 42), "육성": (8, 16), "송아지": (2, 6)}        # 개월령 범위
+    wrange = {"임신우": (440, 600), "육성": (240, 360), "송아지": (70, 160)}
+    breed = {"임신우": "한우 번식우", "육성": "한우 육성우", "송아지": "한우 송아지"}
+    tag = 410000000000
+    first_cow = None
+    for owner, barn, ctype, cnt in plan:
+        for _ in range(cnt):
+            tag += random.randint(37, 260)
+            birth = _days_ago(random.randint(*born[ctype]) * 30)
+            weight = random.randint(*wrange[ctype])
+            sex = ("암" if ctype == "임신우"
+                   else random.choice(["암", "수"]) if ctype == "송아지"
+                   else random.choice(["암", "수", "거세"]))
+            cid = db.add_livestock("가축", f"{breed[ctype]} {str(tag)[-4:]}", 1, "두",
+                                   birth, "진행중", "", weight, owner, ctype)
+            db.set_cow_basics(cid, sex=sex, ear_tag=str(tag), birth_date=birth, barn=barn)
+            if first_cow is None:
+                first_cow = cid
+
+    # 출하 완료 소 1건 — 성장 통계용 (입식 250kg → 출하 690kg)
+    sold = db.add_livestock("가축", "한우(출하) 8842", 1, "두", _days_ago(700),
+                            "진행중", "", 250, "성기준", "육성")
+    db.set_cow_basics(sold, sex="거세", ear_tag="410008842013",
+                      birth_date=_days_ago(700), barn="1동 우사")
     db.sell_livestock(sold, _days_ago(8), 9_200_000, 690, "도매 출하",
                       add_to_finance=True, sold_grade="1++")
 
-    db.add_farm_log(_days_ago(2), cow, "급여/관리", 240, "kg", "배합사료")
-    db.add_farm_log(_days_ago(1), cow, "방역/병해충", 0, "", "구제역 백신 접종")
+    # 작물
+    db.add_livestock("작물", "벼", 2000, "㎡", _days_ago(120), "진행중", "친환경 재배")
+    db.add_livestock("작물", "고추", 300, "주", _days_ago(80), "진행중", "")
 
+    # ── 사료 구매(명의·구분별, 보유 두수만큼) → 소 정보의 급여 이력에 반영 ──
+    heads = {}
+    for owner, _barn, ctype, cnt in plan:
+        heads[(owner, ctype)] = heads.get((owner, ctype), 0) + cnt
+    for (owner, ctype), n in heads.items():
+        db.add_feed_purchase(_days_ago(random.randint(3, 20)), owner, ctype, ctype,
+                             n, "두", prices[ctype], n * prices[ctype],
+                             "농협", "예시", add_to_finance=True)
+
+    # 영농일지
+    db.add_farm_log(_days_ago(2), first_cow, "급여/관리", 240, "kg", "배합사료")
+    db.add_farm_log(_days_ago(1), first_cow, "방역/병해충", 0, "", "구제역 백신 접종")
+
+    # 발전 기록(최근 30일)
     for i in range(30, -1, -1):
-        d = _days_ago(i)
         base = float(db.get_setting_float("capacity_kw", 100)) * 3.8
-        kwh = round(base * random.uniform(0.55, 1.05), 1)
-        db.add_or_update_solar(d, kwh, "")
+        db.add_or_update_solar(_days_ago(i), round(base * random.uniform(0.55, 1.05), 1), "")
 
-    db.add_finance(_days_ago(20), "수입", "농축산", "한우 출하", 4_800_000, "2두")
-    db.add_finance(_days_ago(15), "지출", "농축산", "사료 구입", 1_200_000, "")
+    # 재무(태양광 정산 + 공통) — 소 판매/사료는 위에서 자동 반영됨
     month_kwh = db.solar_month_total(datetime.now().year, datetime.now().month)
     db.add_finance(_days_ago(5), "수입", "태양광", "발전 정산금",
                    db.solar_revenue(month_kwh), "전월분")
     db.add_finance(_days_ago(10), "지출", "공통", "전기·수도료", 180_000, "")
 
-    # 지원사업 예시 (수령 1건은 재무에 자동 반영됨)
+    # 지원사업
     db.add_support("친환경농업 직불금", "서천군", _days_ago(60), 1_500_000, "수령", "")
     db.add_support("영농형 태양광 시설 융자", "에너지공단", _days_ago(30), 20_000_000, "선정", "이율 1.75%")
 
-    # 시설 예시 (공사중 1동 + 준공 1동)
-    db.add_facility("1동 우사", "축사", "공사중", _days_ago(40), None, None,
-                    "660㎡ · 50두 규모", 180_000_000, "대한축산건설", "지붕 태양광 연계")
-    db.add_facility("퇴비사", "퇴비사", "준공", _days_ago(400), _days_ago(330),
-                    _days_ago(300), "200㎡", 45_000_000, "서천종합건설", "")
-
-    # 일정/알림 예시 (다가오는 일정 + 반복)
+    # 일정/알림
     db.add_reminder("구제역 백신 접종", _days_ahead(5), "방역/백신", "매년", "전 두수")
     db.add_reminder("부가가치세 신고", _days_ahead(20), "세금신고", "매년", "1기 확정")
     db.add_reminder("태양광 패널 점검·청소", _days_ahead(12), "농작업", "매월", "")

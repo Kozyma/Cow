@@ -33,12 +33,23 @@
         <input name="quantity" type="number" step="any" inputmode="decimal" value="{{ edit_row['quantity'] if edit_row else '' }}" placeholder="0">
       </label>
       <label class="fld"><span>단위</span>
-        <input name="unit" value="{{ edit_row['unit'] if edit_row else '' }}" placeholder="두 / ㎡ / 주">
+        {% set item_units = ['두','마리','㎡','주','평','kg','포','톤','개'] %}
+        <select name="unit">
+          <option value="">- 선택 -</option>
+          {% for u in item_units %}<option value="{{ u }}" {{ 'selected' if edit_row and edit_row['unit']==u }}>{{ u }}</option>{% endfor %}
+          {% if edit_row and edit_row['unit'] and edit_row['unit'] not in item_units %}<option value="{{ edit_row['unit'] }}" selected>{{ edit_row['unit'] }}</option>{% endif %}
+        </select>
       </label>
       <label class="fld" id="ownerFld" data-cat-only="가축"><span>명의(소유주) · 가축</span>
         <select name="owner">
           <option value="">- 선택 -</option>
           {% for o in feed_owners %}<option value="{{ o }}" {{ 'selected' if edit_row and edit_row['owner']==o }}>{{ o }}</option>{% endfor %}
+        </select>
+      </label>
+      <label class="fld" id="barnFld" data-cat-only="가축"><span>축사 · 가축</span>
+        <select name="barn">
+          <option value="">- 선택 -</option>
+          {% for f in facilities %}<option value="{{ f['name'] }}" {{ 'selected' if edit_row and edit_row['barn']==f['name'] }}>{{ f['name'] }}</option>{% endfor %}
         </select>
       </label>
       <label class="fld" id="cattleTypeFld" data-cat-only="가축"><span>소 품목 · 가축</span>
@@ -126,6 +137,7 @@
                 data-name="{{ r['name'] }}"
                 data-type="{{ r['cattle_type'] or '' }}"
                 data-owner="{{ r['owner'] or '' }}"
+                data-barn="{{ r['barn'] or '' }}"
                 data-qty="{{ '%g'|format(r['quantity']) if r['quantity'] else '' }}"
                 data-unit="{{ r['unit'] or '' }}"
                 data-weight="{{ '%g'|format(r['weight_kg']) if r['weight_kg'] else '' }}"
@@ -240,12 +252,8 @@
       <label class="fld"><span>수량</span>
         <input name="quantity" id="feedQty" type="number" step="any" inputmode="decimal" value="{{ '%g'|format(feed_edit['quantity']) if feed_edit else '' }}" placeholder="0">
       </label>
-      <label class="fld"><span>단위</span>
-        <select name="unit">
-          <option value="">- 선택 -</option>
-          {% for u in feed_units %}<option value="{{ u }}" {{ 'selected' if feed_edit and feed_edit['unit']==u }}>{{ u }}</option>{% endfor %}
-        </select>
-      </label>
+      <label class="fld"><span>단위 <small>(고정)</small></span>
+        <input value="두" readonly></label>
       <label class="fld"><span>사료 단가 (원)</span>
         <input name="unit_price" id="feedPrice" type="number" step="1" inputmode="numeric" value="{{ feed_edit['unit_price'] if feed_edit and feed_edit['unit_price'] else '' }}" placeholder="품목 선택 시 자동 입력">
       </label>
@@ -272,9 +280,53 @@
   </form>
 </dialog>
 
+{# ── 소유주별 사료 일괄 등록 팝업 ──────────────────────── #}
+<dialog class="modal" id="bulkFeedDialog">
+  <form method="post" action="{{ url_for('feed_bulk_save') }}" class="form">
+    <div class="modal-h"><h3>소유주별 사료 일괄 등록</h3>
+      <button type="button" class="modal-x" data-close aria-label="닫기">&times;</button></div>
+    <p class="lead">명의·축사를 고르면 보유 두수(임신우·육성·송아지)가 <b>수량(두)</b>에 자동입력됩니다. 단위는 ‘두’ 고정.</p>
+    <div class="grid">
+      <label class="fld"><span>구매일</span>
+        <input name="purchase_date" type="date" value="{{ today }}"></label>
+      <label class="fld"><span>명의(소유주)</span>
+        <select name="owner" id="bulkOwner" required>
+          <option value="">- 선택 -</option>
+          {% for o in feed_owners %}<option value="{{ o }}">{{ o }}</option>{% endfor %}
+        </select></label>
+      <label class="fld"><span>축사 <small>(선택 — 비우면 전체)</small></span>
+        <select name="barn" id="bulkBarn">
+          <option value="">전체</option>
+          {% for f in facilities %}<option value="{{ f['name'] }}">{{ f['name'] }}</option>{% endfor %}
+        </select></label>
+    </div>
+    <div class="bulk-feed">
+      <div class="bf-head"><span>품목</span><span>수량(두)</span><span>단가(원/두)</span><span>금액(원)</span></div>
+      {% for t in CATTLE_TYPES %}
+      <div class="bf-row">
+        <span class="bf-name">{{ t }}</span>
+        <input name="qty_{{ t }}" data-type="{{ t }}" type="number" step="any" inputmode="decimal" placeholder="0">
+        <input name="price_{{ t }}" type="number" step="1" inputmode="numeric"
+               value="{{ feed_prices.get(t, 0) or '' }}" placeholder="단가">
+        <input name="amount_{{ t }}" type="number" step="1" inputmode="numeric" placeholder="자동">
+      </div>
+      {% endfor %}
+      <small class="ear-msg" id="bulkCountMsg"></small>
+    </div>
+    <label class="check"><input type="checkbox" name="add_to_finance" value="1" checked>
+      재무에 <b>지출(농축산)</b>으로 반영</label>
+    <div class="actions">
+      <button type="submit" class="btn">일괄 등록</button>
+      <button type="button" class="btn sec" data-close>닫기</button>
+    </div>
+  </form>
+</dialog>
+
 <section class="sec">
   <div class="sec-h"><h2>사료 구매</h2>
-    <div class="sec-h-r"><button class="add-btn" data-open="feedDialog" data-fresh>+ 구매 등록</button></div></div>
+    <div class="sec-h-r">
+      <button class="add-btn" data-open="bulkFeedDialog">+ 일괄 등록</button>
+      <button class="add-btn" data-open="feedDialog" data-fresh>+ 구매 등록</button></div></div>
   <div class="actions" style="margin-top:0">
     <a class="btn sec" href="{{ url_for('feed_statement') }}" target="_blank">🧾 간이 구매내역서</a>
     <a class="btn sec" href="{{ url_for('feed_report') }}" target="_blank">📄 상세 구매내역서</a>
@@ -445,8 +497,6 @@
     <p class="lead" id="cowName">한우</p>
 
     <div class="cowsum" id="cowSum">
-      <div class="r" data-row="type"><span class="k">소 품목</span><span class="v" id="cowType">-</span></div>
-      <div class="r" data-row="owner"><span class="k">명의</span><span class="v" id="cowOwner">-</span></div>
       <div class="r" data-row="qty"><span class="k">수량</span><span class="v" id="cowQty">-</span></div>
       <div class="r" data-row="weight"><span class="k">입식 체중</span><span class="v" id="cowWeight">-</span></div>
       <div class="r" data-row="raise"><span class="k">사육</span><span class="v" id="cowRaise">-</span></div>
@@ -454,7 +504,27 @@
       <div class="r" data-row="sold"><span class="k">판매</span><span class="v" id="cowSold">-</span></div>
     </div>
 
+    <div class="cow-feeding" id="cowFeedingWrap" hidden>
+      <div class="cf-title">🌾 사료 급여 이력 <small id="cowFeedTotal"></small></div>
+      <div class="cf-list" id="cowFeeding"></div>
+    </div>
+
     <div class="grid">
+      <label class="fld"><span>명의(소유주)</span>
+        <select name="owner" id="cowOwnerSel">
+          <option value="">- 선택 -</option>
+          {% for o in feed_owners %}<option value="{{ o }}">{{ o }}</option>{% endfor %}
+        </select></label>
+      <label class="fld"><span>소 품목</span>
+        <select name="cattle_type" id="cowTypeSel">
+          <option value="">- 선택 -</option>
+          {% for t in CATTLE_TYPES %}<option value="{{ t }}">{{ t }}</option>{% endfor %}
+        </select></label>
+      <label class="fld full"><span>축사 <small>(축사 이동 시 변경 후 저장)</small></span>
+        <select name="barn" id="cowBarnSel">
+          <option value="">- 선택 -</option>
+          {% for f in facilities %}<option value="{{ f['name'] }}">{{ f['name'] }}</option>{% endfor %}
+        </select></label>
       <label class="fld full"><span>이표번호 <small>(개체식별번호 — ‘조회’ 시 출생일·성별 자동입력)</small></span>
         <div class="ear-lookup">
           <input name="ear_tag" id="cowEar" inputmode="numeric" placeholder="예) 002-1234-5678">

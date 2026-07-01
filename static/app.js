@@ -197,6 +197,17 @@ document.addEventListener('click', (e) => {
   const cowSexSel = document.getElementById('cowSex');
   const cowCastSel = document.getElementById('cowCastrated');
   const cowCastFld = document.getElementById('cowCastrateFld');
+  const cowOwnerSel = document.getElementById('cowOwnerSel');
+  const cowTypeSel = document.getElementById('cowTypeSel');
+  const cowBarnSel = document.getElementById('cowBarnSel');
+  // 셀렉트 값 지정(목록에 없으면 옵션 추가 — 기존 소의 명의/축사 보존)
+  const setSelect = (sel, val) => {
+    if (!sel) return;
+    if (val && !Array.from(sel.options).some((o) => o.value === val)) {
+      sel.add(new Option(val, val));
+    }
+    sel.value = val || '';
+  };
   const syncCowCast = () => {
     if (cowCastFld) cowCastFld.style.display =
       (cowSexSel && cowSexSel.value === '수') ? '' : 'none';
@@ -223,6 +234,38 @@ document.addEventListener('click', (e) => {
     cowEarInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); cowGo(); } });
   }
 
+  // 사료 급여 이력: (명의+구분)이 일치하는 사료 구매 내역을 소 정보에 표시
+  const feedWrap = document.getElementById('cowFeedingWrap');
+  const feedListEl = document.getElementById('cowFeeding');
+  const feedTotalEl = document.getElementById('cowFeedTotal');
+  const loadFeeding = async (owner, ctype) => {
+    if (!feedWrap) return;
+    feedWrap.hidden = true;
+    if (feedListEl) feedListEl.innerHTML = '';
+    if (!owner || !ctype) return;
+    try {
+      const res = await fetch('/api/feeding?owner=' + encodeURIComponent(owner)
+        + '&cattle_type=' + encodeURIComponent(ctype));
+      const d = await res.json();
+      if (!d.ok || !d.items || !d.items.length) return;
+      d.items.forEach((it) => {
+        const row = document.createElement('div');
+        row.className = 'cf-row';
+        const l = document.createElement('span');
+        l.className = 'cf-l';
+        l.textContent = it.date + ' · ' + it.feed_name
+          + (it.quantity ? ' (' + it.quantity + (it.unit || '') + ')' : '');
+        const v = document.createElement('span');
+        v.className = 'cf-v';
+        v.textContent = won(it.amount) + '원';
+        row.append(l, v);
+        feedListEl.appendChild(row);
+      });
+      if (feedTotalEl) feedTotalEl.textContent = '합계 ' + won(d.total) + '원';
+      feedWrap.hidden = false;
+    } catch (e) { /* 무시 */ }
+  };
+
   document.querySelectorAll('.cow-btn').forEach((btn) => {
     btn.addEventListener('click', () => {
       const d = btn.dataset;
@@ -230,8 +273,9 @@ document.addEventListener('click', (e) => {
       document.getElementById('cowName').textContent = d.name || '소';
 
       // ── 요약(읽기 전용) ──
-      setRow('type', d.type);
-      setRow('owner', d.owner);
+      setSelect(cowOwnerSel, d.owner);
+      setSelect(cowTypeSel, d.type);
+      setSelect(cowBarnSel, d.barn);
       setRow('qty', d.qty ? d.qty + (d.unit || '') : '');
       setRow('weight', d.weight ? d.weight + 'kg' : '');
       const days = daysBetween(d.start, d.soldDate);
@@ -250,6 +294,9 @@ document.addEventListener('click', (e) => {
         }
         setRow('sold', parts.join(' · '));
       } else { setRow('sold', ''); }
+
+      // 이 소(명의+구분)의 사료 급여 이력 불러오기
+      loadFeeding(d.owner, d.type);
 
       // ── 입력 폼(현재 저장된 값) ──
       document.getElementById('cowEar').value = d.ear || '';
@@ -416,6 +463,63 @@ document.addEventListener('click', (e) => {
   }
   qty.addEventListener('input', sync);
   price.addEventListener('input', sync);
+})();
+
+// 사료 일괄 등록: 품목별 수량 × 단가 → 금액 자동 계산
+(() => {
+  const dlg = document.getElementById('bulkFeedDialog');
+  if (!dlg) return;
+  dlg.querySelectorAll('.bf-row').forEach((row) => {
+    const qty = row.querySelector('[name^="qty_"]');
+    const price = row.querySelector('[name^="price_"]');
+    const amount = row.querySelector('[name^="amount_"]');
+    if (!qty || !price || !amount) return;
+    let touched = amount.value !== '';
+    amount.addEventListener('input', () => { touched = true; });
+    const sync = () => {
+      if (touched) return;
+      const q = parseFloat(qty.value) || 0, p = parseFloat(price.value) || 0;
+      amount.value = (q && p) ? Math.round(q * p) : '';
+    };
+    qty.addEventListener('input', sync);
+    price.addEventListener('input', sync);
+  });
+})();
+
+// 사료 일괄 등록: 명의·축사 선택 → 보유 두수(임신우·육성·송아지)를 수량(두)에 자동입력
+(() => {
+  const dlg = document.getElementById('bulkFeedDialog');
+  if (!dlg) return;
+  const owner = document.getElementById('bulkOwner');
+  const barn = document.getElementById('bulkBarn');
+  const msg = document.getElementById('bulkCountMsg');
+  if (!owner) return;
+  const fillCounts = async () => {
+    if (!owner.value) { if (msg) { msg.textContent = ''; msg.className = 'ear-msg'; } return; }
+    if (msg) { msg.textContent = '두수 확인 중…'; msg.className = 'ear-msg'; }
+    try {
+      const res = await fetch('/api/cow_counts?owner=' + encodeURIComponent(owner.value)
+        + '&barn=' + encodeURIComponent(barn ? barn.value : ''));
+      const d = await res.json();
+      const counts = (d && d.counts) || {};
+      let total = 0;
+      dlg.querySelectorAll('[data-type]').forEach((q) => {
+        const n = counts[q.dataset.type] || 0;
+        q.value = n ? n : '';
+        total += n;
+        q.dispatchEvent(new Event('input', { bubbles: true }));   // 금액 자동계산 트리거
+      });
+      if (msg) {
+        const parts = Object.keys(counts).filter((k) => counts[k]).map((k) => k + ' ' + counts[k] + '두');
+        msg.textContent = total ? ('보유 두수 자동입력 — ' + parts.join(' · ')) : '해당 명의/축사에 진행중인 소가 없습니다.';
+        msg.className = 'ear-msg' + (total ? ' ok' : '');
+      }
+    } catch (e) {
+      if (msg) { msg.textContent = '두수 조회 중 오류'; msg.className = 'ear-msg err'; }
+    }
+  };
+  owner.addEventListener('change', fillCounts);
+  if (barn) barn.addEventListener('change', fillCounts);
 })();
 
 // 비밀번호 변경 — 헤더 메뉴

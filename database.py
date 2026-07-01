@@ -265,6 +265,7 @@ class Database:
             ("sex", "ALTER TABLE livestock ADD COLUMN sex TEXT"),                     # 성별(암/수/거세)
             ("dam_tag", "ALTER TABLE livestock ADD COLUMN dam_tag TEXT"),             # 어미소 이표번호
             ("health_note", "ALTER TABLE livestock ADD COLUMN health_note TEXT"),     # 건강·진료·방역 메모
+            ("barn", "ALTER TABLE livestock ADD COLUMN barn TEXT"),                   # 축사(시설명)
         ):
             if col not in ls_cols:
                 self.conn.execute(ddl)
@@ -479,29 +480,54 @@ class Database:
         ).fetchone()
 
     def update_cow_info(self, row_id, ear_tag=None, birth_date=None, sex=None,
-                        dam_tag=None, health_note=None):
-        """소 개체 정보(이표번호·출생일·성별·어미소·건강메모)만 갱신.
+                        dam_tag=None, health_note=None, barn=None, owner=None,
+                        cattle_type=None):
+        """소 개체 정보 갱신 — 이표·출생·성별·어미소·건강메모 + 명의·소품목·축사.
 
-        품목 기본정보(수량·명의·체중 등)는 건드리지 않으므로 '수정' 폼과 충돌하지 않는다.
+        정보 팝업에서 축사 이동·명의/구분 수정까지 할 수 있게 한다. 수량·품목명 등
+        나머지 품목정보는 건드리지 않으므로 '수정' 폼과 충돌하지 않는다.
         """
         self.conn.execute(
             "UPDATE livestock SET ear_tag=?, birth_date=?, sex=?, dam_tag=?, "
-            "health_note=? WHERE id=?",
-            (ear_tag, birth_date, sex, dam_tag, health_note, row_id),
+            "health_note=?, barn=?, owner=?, cattle_type=? WHERE id=?",
+            (ear_tag, birth_date, sex, dam_tag, health_note, barn, owner,
+             cattle_type, row_id),
         )
         self.conn.commit()
 
-    def set_cow_basics(self, row_id, sex=None, ear_tag=None, birth_date=None):
-        """등록/수정 폼의 개체 기본값(성별·이표번호·출생일)만 갱신.
+    def set_cow_basics(self, row_id, sex=None, ear_tag=None, birth_date=None, barn=None):
+        """등록/수정 폼의 개체 기본값(성별·이표번호·출생일·축사)만 갱신.
 
         어미소·건강메모 등(정보 팝업에서 입력하는) 다른 컬럼은 건드리지 않으므로
         update_livestock(데스크톱 포함)·정보 팝업과 충돌하지 않는다.
         """
         self.conn.execute(
-            "UPDATE livestock SET sex=?, ear_tag=?, birth_date=? WHERE id=?",
-            (sex, ear_tag, birth_date, row_id),
+            "UPDATE livestock SET sex=?, ear_tag=?, birth_date=?, barn=? WHERE id=?",
+            (sex, ear_tag, birth_date, barn, row_id),
         )
         self.conn.commit()
+
+    def cattle_counts(self, owner=None, barn=None):
+        """진행중 가축을 구분(임신우/육성/송아지)별 두수로 집계. owner·barn(축사)로 필터.
+
+        개체별 등록(1두)·묶음 등록 모두 대응하도록 수량(quantity)을 합산한다.
+        반환 예: {'임신우': 5, '육성': 3, '송아지': 2}
+        """
+        # 각 등록 건을 최소 1두로 센다(수량 미입력=0 이어도 1두로 파악).
+        q = ("SELECT cattle_type, "
+             "CAST(SUM(CASE WHEN quantity >= 1 THEN quantity ELSE 1 END) AS INTEGER) AS c "
+             "FROM livestock WHERE category='가축' AND status='진행중' "
+             "AND cattle_type IS NOT NULL AND cattle_type<>''")
+        params = []
+        if owner:
+            q += " AND owner=?"
+            params.append(owner)
+        if barn:
+            q += " AND barn=?"
+            params.append(barn)
+        q += " GROUP BY cattle_type"
+        return {r["cattle_type"]: (r["c"] or 0)
+                for r in self.conn.execute(q, params).fetchall()}
 
     def update_cow_detail(self, row_id, owner=None, cattle_type=None, weight_kg=None,
                           ear_tag=None, birth_date=None, sex=None, dam_tag=None,
@@ -698,6 +724,16 @@ class Database:
             ).fetchall()
         return self.conn.execute(
             "SELECT * FROM feed_purchase ORDER BY purchase_date DESC, id DESC"
+        ).fetchall()
+
+    def feed_purchases_for(self, owner, cattle_type):
+        """특정 소유주(명의)+소 구분(임신우/육성/송아지)에 해당하는 사료 구매 내역.
+
+        소 정보 팝업의 '사료 급여 이력'에 쓰인다(그 소가 먹은 사료종류·금액).
+        """
+        return self.conn.execute(
+            "SELECT * FROM feed_purchase WHERE owner=? AND cattle_type=? "
+            "ORDER BY purchase_date DESC, id DESC", (owner, cattle_type)
         ).fetchall()
 
     def feed_owners(self):
