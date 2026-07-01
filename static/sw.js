@@ -2,7 +2,7 @@
 // 정적 자산은 stale-while-revalidate(캐시 즉시 + 백그라운드 갱신),
 // 데이터(페이지/폼)는 네트워크 우선.
 // ※ 코드(css/js)를 고치면 이 버전 숫자를 올려야 옛 캐시가 정리됩니다.
-const CACHE = 'farm-solar-v12';
+const CACHE = 'farm-solar-v17';
 const ASSETS = [
   '/static/style.css',
   '/static/app.js',

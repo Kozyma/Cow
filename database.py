@@ -491,12 +491,16 @@ class Database:
         )
         self.conn.commit()
 
-    def set_livestock_sex(self, row_id, sex):
-        """품목 성별(암/수/거세)만 갱신 — 등록/수정 폼에서 사용.
+    def set_cow_basics(self, row_id, sex=None, ear_tag=None, birth_date=None):
+        """등록/수정 폼의 개체 기본값(성별·이표번호·출생일)만 갱신.
 
-        다른 컬럼은 건드리지 않으므로 update_livestock(데스크톱 포함)과 충돌하지 않는다.
+        어미소·건강메모 등(정보 팝업에서 입력하는) 다른 컬럼은 건드리지 않으므로
+        update_livestock(데스크톱 포함)·정보 팝업과 충돌하지 않는다.
         """
-        self.conn.execute("UPDATE livestock SET sex=? WHERE id=?", (sex, row_id))
+        self.conn.execute(
+            "UPDATE livestock SET sex=?, ear_tag=?, birth_date=? WHERE id=?",
+            (sex, ear_tag, birth_date, row_id),
+        )
         self.conn.commit()
 
     def update_cow_detail(self, row_id, owner=None, cattle_type=None, weight_kg=None,

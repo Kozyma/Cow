@@ -242,6 +242,45 @@ a.li{color:var(--ink)}
 .memo-list li .mx{flex:none; border:0; background:none; cursor:pointer; color:var(--ink-3);
   font-size:1rem; line-height:1; padding:3px 6px; border-radius:7px}
 .memo-list li .mx:hover{color:var(--out); background:#fff}
+/* 이표번호 자동조회 입력 그룹 */
+.ear-lookup{display:flex; gap:8px; align-items:stretch}
+.ear-lookup input{flex:1 1 auto; width:auto; min-width:0}
+.ear-lookup .btn{flex:0 0 auto; min-width:0; min-height:50px; padding:0 20px}
+.btn:disabled{opacity:.55; cursor:default; filter:none}
+.ear-msg{display:block; margin-top:7px; font-size:.82rem; font-weight:600;
+  color:var(--ink-3); min-height:1.05em; line-height:1.45}
+.ear-msg.ok{color:var(--accent-d)}
+.ear-msg.err{color:var(--out)}
+/* 이력제 전체 이력 결과 패널 (모달이 스크롤하므로 내부 스크롤 없이 전체 표시) */
+.trace-result{display:flex; flex-direction:column; gap:12px; margin-top:12px}
+.trace-result:empty{margin:0}
+.trace-sec{border:1px solid var(--line); border-radius:12px; overflow:hidden; background:#fff}
+.trace-title{background:var(--accent-soft); padding:11px 13px; font-size:.82rem; font-weight:800;
+  color:var(--accent-d); letter-spacing:.01em; cursor:pointer; list-style:none;
+  display:flex; align-items:center; gap:8px; user-select:none}
+.trace-title::-webkit-details-marker{display:none}
+.trace-title::before{content:'▸'; font-size:.72rem; transition:transform .15s ease; flex:none}
+details[open] > .trace-title::before{transform:rotate(90deg)}
+.trace-title .tt{flex:1}
+.trace-title .tc{flex:none; font-size:.72rem; font-weight:700; color:var(--accent-d);
+  background:#fff; border-radius:20px; padding:1px 9px; min-width:20px; text-align:center}
+.trace-title:hover{filter:brightness(.97)}
+.trace-block{padding:5px 13px}
+.trace-block + .trace-block{border-top:1px dashed var(--line-2)}
+.trace-row{display:flex; justify-content:space-between; gap:14px; padding:8px 0; font-size:.9rem;
+  align-items:baseline}
+.trace-row .tl{color:var(--ink-3); font-weight:600; flex:none; max-width:42%}
+.trace-row .tv{color:var(--ink); font-weight:700; text-align:right; word-break:break-word; line-height:1.4}
+/* 신고·이동 이력 표 */
+.trace-table-wrap{overflow-x:auto; -webkit-overflow-scrolling:touch}
+.trace-table{width:100%; border-collapse:collapse; font-size:.82rem}
+.trace-table th,.trace-table td{padding:9px 11px; text-align:left; vertical-align:top;
+  border-bottom:1px solid var(--line-2)}
+.trace-table th{background:var(--sub); color:var(--ink-3); font-weight:700; font-size:.74rem; white-space:nowrap}
+.trace-table td{color:var(--ink); font-weight:600; line-height:1.4}
+.trace-table td:nth-child(1),.trace-table td:nth-child(2),.trace-table td:nth-child(3){white-space:nowrap}
+.trace-table td:nth-child(4){min-width:150px}
+.trace-table tr:last-child td{border-bottom:0}
 .check{display:flex; align-items:center; gap:9px; margin-top:14px; cursor:pointer;
   font-size:.9rem; font-weight:600; color:var(--ink-2)}
 .check input{width:19px; height:19px; accent-color:var(--accent); flex:none}

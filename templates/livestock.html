@@ -60,6 +60,20 @@
           <option value="1" {{ 'selected' if edit_row and edit_row['sex']=='거세' }}>거세</option>
         </select>
       </label>
+      <div class="fld full" id="itemEarFld" data-cat-only="가축"><span>이표번호 <small>(개체식별번호 — 입력 후 ‘조회’하면 출생일·성별 자동입력)</small></span>
+        <div class="ear-lookup">
+          <input name="ear_tag" id="itemEar" inputmode="numeric"
+                 value="{{ edit_row['ear_tag'] if edit_row and edit_row['ear_tag'] else '' }}"
+                 placeholder="예) 002-1234-5678">
+          <button type="button" class="btn line" id="itemEarBtn">🔍 조회</button>
+        </div>
+        <small class="ear-msg" id="itemEarMsg"></small>
+        <div class="trace-result" id="itemTraceResult"></div>
+      </div>
+      <label class="fld" id="itemBirthFld" data-cat-only="가축"><span>출생일</span>
+        <input name="birth_date" id="itemBirth" type="date"
+               value="{{ edit_row['birth_date'] if edit_row and edit_row['birth_date'] else '' }}">
+      </label>
       <label class="fld full" id="weightFld" data-cat-only="가축"><span>입식 체중 (kg) · 가축</span>
         <input name="weight_kg" type="number" step="any" inputmode="decimal"
                value="{{ edit_row['weight_kg'] if edit_row and edit_row['weight_kg'] else '' }}"
@@ -337,6 +351,13 @@
       </label>
       {% endfor %}
     </div>
+    <div class="sec-h" style="margin-top:8px"><h3>🐄 이표번호 자동조회 (축산물이력제)</h3></div>
+    <p class="lead">공공데이터포털 ‘축산물통합이력정보’ <b>인증키(Encoding)</b>를 붙여넣으면, 품목/정보 입력창에서 이표번호로 출생일·성별·품종을 자동 조회합니다.</p>
+    <div class="grid">
+      <label class="fld full"><span>축산물이력제 인증키 <small>(serviceKey)</small></span>
+        <input name="ekape_key" value="{{ ekape_key }}" placeholder="공공데이터포털에서 발급받은 일반 인증키(Encoding) 붙여넣기" autocomplete="off">
+      </label>
+    </div>
     <div class="actions">
       <button type="submit" class="btn">설정 저장</button>
     </div>
@@ -434,8 +455,13 @@
     </div>
 
     <div class="grid">
-      <label class="fld"><span>이표번호 <small>(개체식별번호)</small></span>
-        <input name="ear_tag" id="cowEar" inputmode="numeric" placeholder="예) 002-1234-5678"></label>
+      <label class="fld full"><span>이표번호 <small>(개체식별번호 — ‘조회’ 시 출생일·성별 자동입력)</small></span>
+        <div class="ear-lookup">
+          <input name="ear_tag" id="cowEar" inputmode="numeric" placeholder="예) 002-1234-5678">
+          <button type="button" class="btn line" id="cowEarBtn">🔍 조회</button>
+        </div>
+        <small class="ear-msg" id="cowEarMsg"></small>
+        <div class="trace-result" id="cowTraceResult"></div></label>
       <label class="fld"><span>출생일</span>
         <input name="birth_date" id="cowBirth" type="date"></label>
       <label class="fld"><span>성별</span>

@@ -1,3 +1,90 @@
+// 신고·이동 이력 등 표(table) 섹션을 만든다.
+function buildTraceTable(sec) {
+  const wrap = document.createElement('div');
+  wrap.className = 'trace-table-wrap';
+  const table = document.createElement('table');
+  table.className = 'trace-table';
+  const thead = document.createElement('thead');
+  const htr = document.createElement('tr');
+  (sec.columns || []).forEach((col) => {
+    const th = document.createElement('th'); th.textContent = col; htr.appendChild(th);
+  });
+  thead.appendChild(htr);
+  table.appendChild(thead);
+  const tbody = document.createElement('tbody');
+  (sec.rows || []).forEach((row) => {
+    const tr = document.createElement('tr');
+    row.forEach((cell) => {
+      const td = document.createElement('td'); td.textContent = cell; tr.appendChild(td);
+    });
+    tbody.appendChild(tr);
+  });
+  table.appendChild(tbody);
+  wrap.appendChild(table);
+  return wrap;
+}
+
+// 축산물이력제 전체 이력(섹션별)을 펼치기/접기 아코디언으로 그린다.
+function renderTrace(container, sections) {
+  if (!container) return;
+  container.innerHTML = '';
+  (sections || []).forEach((sec, si) => {
+    const det = document.createElement('details');
+    det.className = 'trace-sec';
+    if (si === 0 || sec.type === 'table') det.open = true;  // 첫 섹션 + 이력 표는 펼쳐서 시작
+    const sum = document.createElement('summary');
+    sum.className = 'trace-title';
+    const tt = document.createElement('span'); tt.className = 'tt'; tt.textContent = sec.title;
+    const cnt = (sec.type === 'table')
+      ? (sec.rows || []).length
+      : (sec.blocks || []).reduce((a, b) => a + b.length, 0);
+    const tc = document.createElement('span'); tc.className = 'tc'; tc.textContent = cnt;
+    sum.append(tt, tc);
+    det.appendChild(sum);
+    if (sec.type === 'table') {
+      det.appendChild(buildTraceTable(sec));
+    } else {
+      (sec.blocks || []).forEach((rows) => {
+        const blk = document.createElement('div');
+        blk.className = 'trace-block';
+        rows.forEach((r) => {
+          const row = document.createElement('div');
+          row.className = 'trace-row';
+          const l = document.createElement('span'); l.className = 'tl'; l.textContent = r.label;
+          const v = document.createElement('span'); v.className = 'tv'; v.textContent = r.value;
+          row.append(l, v);
+          blk.appendChild(row);
+        });
+        det.appendChild(blk);
+      });
+    }
+    container.appendChild(det);
+  });
+}
+
+// 이표번호(개체식별번호)로 축산물이력제 전체 이력 조회 → 폼 자동입력 + 이력 표시
+async function lookupCattle(input, msgEl, btn, onData, resultEl) {
+  const raw = (input.value || '').replace(/[^0-9]/g, '');
+  const setMsg = (t, cls) => { if (msgEl) { msgEl.textContent = t; msgEl.className = 'ear-msg' + (cls ? ' ' + cls : ''); } };
+  if (raw.length < 10) { setMsg('이표번호(개체식별번호 12자리)를 입력하세요.', 'err'); return; }
+  if (btn) btn.disabled = true;
+  if (resultEl) resultEl.innerHTML = '';
+  setMsg('이력 조회 중…');
+  try {
+    const res = await fetch('/api/cattle/' + encodeURIComponent(raw), { headers: { 'X-Requested-With': 'fetch' } });
+    const d = await res.json();
+    if (!d.ok) { setMsg(d.error || '조회에 실패했습니다.', 'err'); return; }
+    if (onData) onData(d);
+    if (resultEl) renderTrace(resultEl, d.sections);
+    const n = (d.sections || []).length;
+    setMsg('✓ 이력 ' + n + '개 항목을 불러왔습니다 — 출생일·성별 자동입력됨', 'ok');
+  } catch (e) {
+    setMsg('조회 중 오류가 발생했습니다(인터넷 연결 확인).', 'err');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
 // 메뉴 팝업: 바깥을 누르면 닫기
 document.addEventListener('click', (e) => {
   document.querySelectorAll('details[open]').forEach((d) => {
@@ -116,6 +203,26 @@ document.addEventListener('click', (e) => {
   };
   if (cowSexSel) cowSexSel.addEventListener('change', syncCowCast);
 
+  // 정보 팝업: 이표번호 '조회' → 출생일·성별 자동입력 + 전체 이력 표시
+  const cowEarBtn = document.getElementById('cowEarBtn');
+  const cowEarInput = document.getElementById('cowEar');
+  const cowEarMsg = document.getElementById('cowEarMsg');
+  const cowBirthInput = document.getElementById('cowBirth');
+  const cowTraceResult = document.getElementById('cowTraceResult');
+  const cowFill = (d) => {
+    if (d.birth_date && cowBirthInput) cowBirthInput.value = d.birth_date;
+    if (d.sex && cowSexSel) {
+      cowSexSel.value = (d.sex === '거세') ? '수' : d.sex;
+      if (cowCastSel) cowCastSel.value = (d.sex === '거세') ? '1' : '';
+      syncCowCast();
+    }
+  };
+  const cowGo = () => lookupCattle(cowEarInput, cowEarMsg, cowEarBtn, cowFill, cowTraceResult);
+  if (cowEarBtn) {
+    cowEarBtn.addEventListener('click', cowGo);
+    cowEarInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); cowGo(); } });
+  }
+
   document.querySelectorAll('.cow-btn').forEach((btn) => {
     btn.addEventListener('click', () => {
       const d = btn.dataset;
@@ -146,6 +253,8 @@ document.addEventListener('click', (e) => {
 
       // ── 입력 폼(현재 저장된 값) ──
       document.getElementById('cowEar').value = d.ear || '';
+      if (cowEarMsg) { cowEarMsg.textContent = ''; cowEarMsg.className = 'ear-msg'; }
+      if (cowTraceResult) cowTraceResult.innerHTML = '';
       document.getElementById('cowBirth').value = d.birth || '';
       // 성별: 저장값 '거세'면 성별=수 + 거세여부=거세 로 펼친다
       const sx = d.sex || '';
@@ -161,6 +270,9 @@ document.addEventListener('click', (e) => {
 
       if (typeof dlg.showModal === 'function') dlg.showModal();
       else dlg.setAttribute('open', '');
+
+      // 자동 갱신: 이표번호가 저장돼 있으면 열자마자 최신 이력을 다시 불러온다
+      if (cowEarBtn && (d.ear || '').replace(/[^0-9]/g, '').length >= 10) cowGo();
     });
   });
 
@@ -229,6 +341,52 @@ document.addEventListener('click', (e) => {
   cat.addEventListener('change', sync);
   sex.addEventListener('change', sync);
   sync();
+})();
+
+// 등록/수정 폼: 이표번호 '조회' → 출생일·성별·품종 자동입력
+(() => {
+  const btn = document.getElementById('itemEarBtn');
+  if (!btn) return;
+  const ear = document.getElementById('itemEar');
+  const msg = document.getElementById('itemEarMsg');
+  const birth = document.getElementById('itemBirth');
+  const sex = document.getElementById('itemSex');
+  const cast = document.getElementById('itemCastrated');
+  const castFld = document.getElementById('castrateFld');
+  const nameInput = document.querySelector('#itemDialog [name="name"]');
+  const qtyInput = document.querySelector('#itemDialog [name="quantity"]');
+  const unitInput = document.querySelector('#itemDialog [name="unit"]');
+  const ownerSel = document.querySelector('#itemDialog [name="owner"]');
+  const result = document.getElementById('itemTraceResult');
+  // 이표번호 = 소 한 마리 → 수량 1, 단위 '두' 자동(비어 있을 때만)
+  const setOneHead = () => {
+    if (qtyInput && !qtyInput.value.trim()) qtyInput.value = '1';
+    if (unitInput && !unitInput.value.trim()) unitInput.value = '두';
+  };
+  const fill = (d) => {
+    setOneHead();
+    if (d.birth_date && birth) birth.value = d.birth_date;
+    if (d.sex && sex) {
+      sex.value = (d.sex === '거세') ? '수' : d.sex;
+      if (cast) cast.value = (d.sex === '거세') ? '1' : '';
+      if (castFld) castFld.style.display = (sex.value === '수') ? '' : 'none';
+    }
+    if (d.breed && nameInput && !nameInput.value.trim()) nameInput.value = d.breed;
+    // 소유주 → 명의 드롭다운에 자동입력(목록에 없으면 새 항목으로 추가)
+    if (d.farmer && ownerSel) {
+      if (!Array.from(ownerSel.options).some((o) => o.value === d.farmer)) {
+        ownerSel.add(new Option(d.farmer, d.farmer));
+      }
+      ownerSel.value = d.farmer;
+    }
+  };
+  const go = () => lookupCattle(ear, msg, btn, fill, result);
+  btn.addEventListener('click', go);
+  ear.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); go(); } });
+  // 조회 전이라도 이표번호를 유효하게 입력하면 1두 자동
+  ear.addEventListener('input', () => {
+    if (ear.value.replace(/[^0-9]/g, '').length >= 10) setOneHead();
+  });
 })();
 
 // 사료 구매: 품목 → 단가 자동입력, 수량 × 단가 → 사료값 자동 계산

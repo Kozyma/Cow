@@ -9,11 +9,15 @@ web_app.py — 영농형 태양광 관리 프로그램 (웹 버전)
 데이터는 데스크톱판과 동일하게 SQLite 파일(farm_data.db) 하나에 저장된다.
 """
 
+import concurrent.futures
 import io
 import os
 import random
 import sys
 import tempfile
+import urllib.parse
+import urllib.request
+import xml.etree.ElementTree as ET
 import zipfile
 from datetime import datetime, timedelta
 
@@ -453,6 +457,7 @@ def livestock():
         feed_owners=db.get_owner_list(),
         feed_units=db.get_feed_units(),
         feed_prices=db.get_feed_prices(),
+        ekape_key=db.get_setting("ekape_key", ""),
         feed_summary=db.feed_purchase_summary(),
         feed_edit=db.get_feed_purchase(request.args.get("feedit", type=int))
                   if request.args.get("feedit", type=int) else None,
@@ -506,13 +511,15 @@ def livestock_save():
         flash("품목명을 입력하세요.", "error")
         return redirect(url_for("livestock"))
     sex = _sex_value()
+    ear_tag = _f("ear_tag") or None
+    birth_date = _f("birth_date") or None
     if row_id:
         db.update_livestock(row_id, *args)
-        db.set_livestock_sex(row_id, sex)
+        db.set_cow_basics(row_id, sex=sex, ear_tag=ear_tag, birth_date=birth_date)
         flash("품목을 수정했습니다.", "ok")
     else:
         new_id = db.add_livestock(*args)
-        db.set_livestock_sex(new_id, sex)
+        db.set_cow_basics(new_id, sex=sex, ear_tag=ear_tag, birth_date=birth_date)
         flash("품목을 추가했습니다.", "ok")
     return redirect(url_for("livestock"))
 
@@ -554,6 +561,233 @@ def livestock_info(row_id):
     )
     flash(f"'{row['name']}' 개체 정보를 저장했습니다.", "ok")
     return redirect(url_for("livestock"))
+
+
+# ── 🐄 이표번호(개체식별번호) 자동조회 — 축산물이력제 오픈API ──────────
+EKAPE_TRACE_URL = ("http://data.ekape.or.kr/openapi-data/service/user/"
+                   "animalTrace/traceNoSearch")
+
+# optionNo(소/쇠고기) → 섹션 제목. 이력에 있는 모든 정보를 옵션별로 조회한다.
+EKAPE_SECTIONS = [
+    (1, "개체 · 사육 정보"),
+    (2, "출생 · 이동 신고 이력"),
+    (3, "도축 정보"),
+    (4, "포장처리 정보"),
+    (5, "구제역 백신접종"),
+    (6, "질병 정보"),
+    (7, "브루셀라 검사"),
+]
+
+# 응답 태그 → 한글 라벨. 목록에 없는 태그는 태그명 그대로 노출하여 정보 누락이 없게 한다.
+EKAPE_LABELS = {
+    "traceNo": "이력번호", "cattleNo": "개체(식별)번호", "flatEartagNo": "이표번호",
+    "birthYmd": "출생일자", "sexNm": "성별", "lsTypeNm": "소 품종", "monthDiff": "월령",
+    "farmerNm": "소유주", "farmNm": "소유주", "farmNo": "농장경영자번호",
+    "farmUniqueNo": "농장식별번호", "farmAddr": "사육지(농장 주소)",
+    "regYmd": "신고일자", "regType": "신고구분", "regNm": "신고내용",
+    "butcheryYmd": "도축일자", "butcheryPlaceNm": "도축장",
+    "butcheryPlaceAddr": "도축장 주소", "gradeNm": "등급", "insfat": "근내지방도(마블링)",
+    "processYmd": "포장처리일자", "processPlaceNm": "포장처리업소",
+    "processPlaceAddr": "포장처리업소 주소", "inspectPassYn": "위생검사 결과",
+    "injectionYmd": "구제역 백신접종일", "vaccineorder": "백신접종 차수",
+    "injectiondayCnt": "백신접종 경과일", "lsdYmd": "럼피스킨(LSD) 백신접종일",
+    "lsdVaccineorder": "럼피스킨 접종 차수", "inspectDesc": "질병 유무",
+    "inspectYn": "브루셀라 검사", "inspectDt": "브루셀라 검사최종일",
+    "corpNm": "업체명", "corpNo": "사업자번호",
+}
+
+# 값이 아닌 엔벨로프/메타/요청-echo 태그(표시 제외)
+_EKAPE_NOISE = {
+    "response", "header", "body", "items", "item", "result", "resultCode",
+    "resultMsg", "numOfRows", "pageNo", "totalCount", "errMsg",
+    "returnAuthMsg", "returnReasonCode", "OpenAPI_ServiceResponse",
+    "cmmMsgHeader", "returnCode", "msgHeader", "msgBody",
+    # 요청 파라미터가 응답에 그대로 되돌아오는 항목들(표시 불필요)
+    "infoType", "traceNoType", "optionNo", "corpNo", "serviceKey",
+}
+
+
+def _is_typecode(v):
+    """'CATTLE', 'CATTLE_NO', 'CATTLE|CATTLE_NO' 같은 요청 타입 코드값은 표시에서 제외.
+
+    실데이터(한글 이름·주소·등급, 숫자, 날짜)는 이 패턴에 걸리지 않는다.
+    """
+    return (v.isascii() and any(c.isalpha() for c in v)
+            and all(c.isupper() or c in "_|" for c in v))
+
+
+def _current_owner(results):
+    """양수(소유권 이전)·이동 이력을 반영한 '현재 소유주'.
+
+    소유주가 적힌 모든 신고/이동 기록 중 신고일자(regYmd)가 가장 최근인 것의 소유주를
+    쓴다. 최초 등록자(예: 출생신고자)가 아니라 마지막 양수인이 잡히도록 한다.
+    날짜가 없으면 이력상 마지막(가장 나중에 등장) 소유주를 쓴다.
+    """
+    cands = []          # (regYmd, 등장순서, 소유주)
+    order = 0
+    for opt, _ in EKAPE_SECTIONS:
+        for it in (results.get(opt, {}).get("items") or []):
+            name = it.get("farmerNm") or it.get("farmNm")
+            if name:
+                cands.append((it.get("regYmd", ""), order, name))
+            order += 1
+    if not cands:
+        return ""
+    dated = [c for c in cands if c[0]]
+    if dated:                                   # 신고일자 최대(같으면 나중 등장)
+        return max(dated, key=lambda c: (c[0], c[1]))[2]
+    return cands[-1][2]                          # 날짜가 없으면 마지막 소유주
+
+
+def _sex_from_kr(s):
+    """이력제 성별 문자열 → 저장값(암/수/거세)."""
+    s = (s or "").strip()
+    if "거세" in s:
+        return "거세"
+    if s.startswith("암"):
+        return "암"
+    if s.startswith("수") or s.startswith("숫"):
+        return "수"
+    return None
+
+
+def _fmt_birth(s):
+    """'20240420' → '2024-04-20'. 이미 형식이면 그대로."""
+    s = (s or "").strip()
+    if len(s) == 8 and s.isdigit():
+        return f"{s[0:4]}-{s[4:6]}-{s[6:8]}"
+    return s or None
+
+
+def _fmt_ymd(key, val):
+    """날짜성 필드(YYYYMMDD)만 보기 좋게 하이픈 삽입."""
+    if (key.endswith("Ymd") or key.endswith("Dt")) and len(val) == 8 and val.isdigit():
+        return f"{val[0:4]}-{val[4:6]}-{val[6:8]}"
+    return val
+
+
+def _fetch_option(sk, digits, opt):
+    """한 optionNo를 조회해 {items:[{tag:val}], err:str} 반환. 실패는 조용히 빈 결과."""
+    url = (f"{EKAPE_TRACE_URL}?serviceKey={sk}"
+           f"&traceNo={urllib.parse.quote(digits)}&optionNo={opt}")
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "farm-solar-manager"})
+        with urllib.request.urlopen(req, timeout=6) as resp:
+            root = ET.fromstring(resp.read())
+    except Exception:
+        return {"items": [], "err": ""}
+    # 인증/오류 메시지(있으면)
+    err = ""
+    for tag in ("returnAuthMsg", "errMsg"):
+        for el in root.iter(tag):
+            if el.text and el.text.strip():
+                err = el.text.strip()
+                break
+        if err:
+            break
+    # item 단위로 값 태그 수집(모르는 태그도 모두 포함)
+    items = []
+    containers = list(root.iter("item")) or [root]
+    for it in containers:
+        row = {}
+        for el in it.iter():
+            if list(el) or el.tag in _EKAPE_NOISE:
+                continue
+            txt = (el.text or "").strip()
+            if txt and not _is_typecode(txt):
+                row[el.tag] = txt
+        if row:
+            items.append(row)
+    return {"items": items, "err": err}
+
+
+@app.route("/api/cattle/<trace_no>")
+def cattle_lookup(trace_no):
+    """이표번호(개체식별번호)로 축산물이력제의 모든 이력정보를 조회해 JSON으로 돌려준다.
+
+    optionNo 1~7(개체·사육/신고이동/도축/포장/백신/질병/브루셀라)을 동시에 조회하고,
+    인증키는 설정(ekape_key) → 없으면 환경변수 EKAPE_SERVICE_KEY 순으로 사용한다.
+    """
+    digits = "".join(ch for ch in (trace_no or "") if ch.isdigit())
+    if len(digits) < 10:
+        return jsonify(ok=False, error="이표번호(개체식별번호 12자리)를 확인하세요.")
+    key = (db.get_setting("ekape_key", "")
+           or os.environ.get("EKAPE_SERVICE_KEY", "")).strip()
+    if not key:
+        return jsonify(ok=False,
+                       error="이력제 인증키가 없습니다. 농축산 → 사료설정에서 인증키를 입력하세요.")
+    # serviceKey: Encoding 키(%포함)는 그대로, Decoding 키는 인코딩해서 사용
+    sk = key if "%" in key else urllib.parse.quote(key, safe="")
+
+    # 모든 옵션을 동시에 조회(병렬)
+    results = {}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=len(EKAPE_SECTIONS)) as ex:
+        fut = {ex.submit(_fetch_option, sk, digits, opt): opt
+               for opt, _ in EKAPE_SECTIONS}
+        for f in concurrent.futures.as_completed(fut):
+            results[fut[f]] = f.result()
+
+    sections, auth_err = [], ""
+    for opt, title in EKAPE_SECTIONS:
+        res = results.get(opt) or {"items": [], "err": ""}
+        auth_err = auth_err or res.get("err", "")
+        items = res["items"]
+        if not items:
+            continue
+        if opt == 2:
+            # 신고·이동 이력: 소유권 변동을 표로 (농장경영자 · 신고구분 · 년월일 · 사육지)
+            rows = []
+            for it in items:
+                num = it.get("farmUniqueNo") or it.get("farmNo") or ""
+                owner = it.get("farmerNm") or it.get("farmNm") or ""
+                who = f"{owner} ({num})" if (owner and num) else (owner or num)
+                rows.append([
+                    who,
+                    it.get("regType") or it.get("regNm") or "",
+                    _fmt_ymd("regYmd", it.get("regYmd", "")),
+                    it.get("farmAddr") or "",
+                ])
+            # 오래된→최신 순으로 정렬(년월일 기준)
+            rows.sort(key=lambda r: r[2])
+            if rows:
+                sections.append({
+                    "title": title, "type": "table",
+                    "columns": ["농장경영자", "신고구분", "년월일", "사육지"],
+                    "rows": rows,
+                })
+        else:
+            blocks = []
+            for it in items:
+                r = [{"label": EKAPE_LABELS.get(k, k), "value": _fmt_ymd(k, v)}
+                     for k, v in it.items()]
+                if r:
+                    blocks.append(r)
+            if blocks:
+                sections.append({"title": title, "blocks": blocks})
+
+    if not sections:
+        if auth_err:
+            return jsonify(ok=False, error=f"인증키 오류: {auth_err} (사료설정의 인증키 확인)")
+        return jsonify(ok=False,
+                       error="해당 이력번호의 정보를 찾지 못했습니다. (번호·인증키 확인)")
+
+    # 자동입력 값(출생일·성별·품종)은 옵션에 상관없이 응답 전체에서 찾는다.
+    def _find_any(tag):
+        for opt, _ in EKAPE_SECTIONS:
+            for it in (results.get(opt, {}).get("items") or []):
+                if it.get(tag):
+                    return it[tag]
+        return ""
+
+    return jsonify(
+        ok=True,
+        birth_date=_fmt_birth(_find_any("birthYmd")) or "",
+        sex=_sex_from_kr(_find_any("sexNm")) or "",
+        breed=_find_any("lsTypeNm") or "",
+        farmer=_current_owner(results),
+        ear_tag=_find_any("flatEartagNo") or "",
+        sections=sections,
+    )
 
 
 @app.route("/livestock/<int:row_id>/delete", methods=["POST"])
@@ -710,6 +944,7 @@ def feed_settings():
     for t in CATTLE_TYPES:
         prices[t] = _num(f"price_{t}", 0)
     db.set_feed_prices(prices)
+    db.set_setting("ekape_key", _f("ekape_key"))
     flash("사료 설정을 저장했습니다.", "ok")
     return redirect(url_for("livestock") + "#feedset")
 
