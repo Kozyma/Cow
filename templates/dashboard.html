@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block title %}홈 · 영농형 태양광 관리{% endblock %}
 {% block content %}
+{% from "base.html" import icon %}
 
 {% if work_alerts %}
 <section class="sec alert-sec" id="workAlerts">
@@ -24,6 +25,54 @@
   </div>
 </section>
 {% endif %}
+
+{# ── 홈 허브: 큰 도메인 카드로 바로 이동 ── #}
+{% set ns = namespace(cattle=0) %}
+{% for r in by_cat %}{% if r['category']=='가축' %}{% set ns.cattle = r['q'] %}{% endif %}{% endfor %}
+<div class="hub">
+  <a class="hcard g" href="{{ url_for('livestock') }}">
+    <div class="ic">{{ icon('livestock') }}</div>
+    <div class="tx"><div class="l">농축산</div><div class="s">진행중 품목 {{ active }}건</div></div>
+    <div class="big">{{ '%g'|format(ns.cattle) if ns.cattle else 0 }}<em>두</em></div>
+  </a>
+  <a class="hcard a" href="{{ url_for('solar') }}">
+    <div class="ic">{{ icon('solar') }}</div>
+    <div class="tx"><div class="l">태양광</div><div class="s">이번 달 · 예상 {{ won_short(month_revenue) }}원</div></div>
+    <div class="big">{{ '{:,.0f}'.format(month_kwh) }}<em>kWh</em></div>
+  </a>
+  <a class="hcard b" href="{{ url_for('finance') }}">
+    <div class="ic">{{ icon('finance') }}</div>
+    <div class="tx"><div class="l">재무</div><div class="s">이번 달 순이익</div></div>
+    <div class="big">{{ won_short(m_profit) }}<em>원</em></div>
+  </a>
+</div>
+<div class="mini-row">
+  <a class="mtile" href="{{ url_for('reports') }}">{{ icon('reports') }}통계</a>
+  <a class="mtile" href="{{ url_for('staff') }}">{{ icon('staff') }}직원</a>
+  <a class="mtile" href="{{ url_for('docs') }}">{{ icon('docs') }}서류</a>
+</div>
+
+{# ── 홈: 다가오는 일정 ── #}
+<section class="sec">
+  <div class="sec-h"><h2>다가오는 일정</h2><span class="count">60일 이내</span></div>
+  {% if upcoming %}
+  <div class="up-list">
+    {% for r in upcoming[:4] %}
+    <div class="up">
+      <span class="dday {{ 'over' if r.dday < 0 else ('today' if r.dday == 0 else '') }}">
+        {%- if r.dday < 0 %}{{ -r.dday }}일 지남{% elif r.dday == 0 %}오늘{% else %}D-{{ r.dday }}{% endif -%}
+      </span>
+      <div class="u-m">
+        <div class="u-t">{{ r['title'] }}</div>
+        <div class="u-d">{{ r['due_date'] }} · {{ r['category'] }}{% if r['note'] %} · {{ r['note'] }}{% endif %}</div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty">예정된 일정이 없습니다. ‘일정’ 탭에서 추가해 보세요.</div>
+  {% endif %}
+</section>
 
 <nav class="subtabs" data-default="money">
   <button type="button" data-tab="money">수익</button>

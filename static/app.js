@@ -38,10 +38,15 @@ function renderTrace(container, sections) {
     const cnt = (sec.type === 'table')
       ? (sec.rows || []).length
       : (sec.blocks || []).reduce((a, b) => a + b.length, 0);
-    const tc = document.createElement('span'); tc.className = 'tc'; tc.textContent = cnt;
+    const tc = document.createElement('span'); tc.className = 'tc'; tc.textContent = sec.empty ? 0 : cnt;
     sum.append(tt, tc);
     det.appendChild(sum);
-    if (sec.type === 'table') {
+    if (sec.empty) {
+      const note = document.createElement('div');
+      note.className = 'trace-empty';
+      note.textContent = '조회된 기록 없음';
+      det.appendChild(note);
+    } else if (sec.type === 'table') {
       det.appendChild(buildTraceTable(sec));
     } else {
       (sec.blocks || []).forEach((rows) => {
@@ -85,9 +90,53 @@ async function lookupCattle(input, msgEl, btn, onData, resultEl) {
   }
 }
 
-// 메뉴 팝업: 바깥을 누르면 닫기
+// 소 이표·이름 검색 — 농축산 목록을 즉시 걸러낸다
+(() => {
+  const input = document.getElementById('animalSearch');
+  const listEl = document.getElementById('animalList');
+  if (!input || !listEl) return;
+  const cards = Array.from(listEl.querySelectorAll('.animal'));
+  const none = document.getElementById('animalNoResult');
+  const clear = document.getElementById('animalSearchClear');
+  const run = () => {
+    const q = (input.value || '').trim().toLowerCase();
+    const qDigits = q.replace(/[^0-9]/g, '');
+    if (clear) clear.hidden = !q;
+    let shown = 0;
+    cards.forEach((c) => {
+      let ok = true;
+      if (q) {
+        const text = c.dataset.search || '';
+        const ear = c.dataset.ear || '';
+        ok = text.indexOf(q) !== -1 || (qDigits && ear.indexOf(qDigits) !== -1);
+      }
+      c.style.display = ok ? '' : 'none';
+      if (ok) shown++;
+    });
+    if (none) none.hidden = !(q && shown === 0);
+  };
+  input.addEventListener('input', run);
+  if (clear) clear.addEventListener('click', () => { input.value = ''; run(); input.focus(); });
+})();
+
+// 글자 크게/작게 — 헤더의 가–/가+ (기기에 저장)
+(() => {
+  const KEY = 'fscale';
+  const clamp = (v) => Math.min(1.4, Math.max(0.9, v));
+  const read = () => clamp(parseFloat(localStorage.getItem(KEY) || '1') || 1);
+  const apply = (v) => document.documentElement.style.setProperty('--fscale', v);
+  apply(read());
+  const bump = (d) => { const v = clamp(read() + d); localStorage.setItem(KEY, v); apply(v); };
+  const plus = document.getElementById('fsPlus');
+  const minus = document.getElementById('fsMinus');
+  if (plus) plus.addEventListener('click', () => bump(0.1));
+  if (minus) minus.addEventListener('click', () => bump(-0.1));
+})();
+
+// 헤더 ⋮ 메뉴 팝업만: 바깥을 누르면 닫기
+// (이력 아코디언 details.trace-sec 등 다른 details는 건드리지 않아 개별로 여닫힌다)
 document.addEventListener('click', (e) => {
-  document.querySelectorAll('details[open]').forEach((d) => {
+  document.querySelectorAll('.menu > details[open]').forEach((d) => {
     if (!d.contains(e.target)) d.removeAttribute('open');
   });
 });

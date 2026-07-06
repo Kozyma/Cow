@@ -1,0 +1,138 @@
+{% extends "base.html" %}
+{% block title %}설정 · 영농형 태양광 관리{% endblock %}
+{% block content %}
+<h1 class="h1">설정</h1>
+<p class="lead">농장·계정·태양광 설비·세금·축산(사료)·데이터 관리 설정을 한곳에서 관리합니다.</p>
+
+{# ── 농장 정보 ─────────────────────────────────────────── #}
+<section class="sec" id="farm">
+  <div class="sec-h"><h2>🏡 농장 정보</h2></div>
+  <form method="post" action="{{ url_for('rename_farm') }}" class="form">
+    <div class="grid">
+      <label class="fld full"><span>농장(앱) 이름</span>
+        <input name="farm_name" value="{{ farm_name }}" placeholder="예) 서천 햇살농장"></label>
+    </div>
+    <div class="actions"><button class="btn">농장 이름 저장</button></div>
+  </form>
+</section>
+
+{# ── 계정 ─────────────────────────────────────────────── #}
+<section class="sec" id="account">
+  <div class="sec-h"><h2>🔑 계정 — 비밀번호 변경</h2>
+    {% if current_user %}<span class="count">👤 {{ current_user['name'] }}</span>{% endif %}</div>
+  <form method="post" action="{{ url_for('account_password') }}" class="form">
+    <div class="grid">
+      <label class="fld"><span>현재 비밀번호</span>
+        <input type="password" name="cur_password" autocomplete="current-password" placeholder="현재 비밀번호"></label>
+      <label class="fld"><span>새 비밀번호 <small>(4자 이상)</small></span>
+        <input type="password" name="new_password" autocomplete="new-password" placeholder="새 비밀번호"></label>
+    </div>
+    <div class="actions"><button class="btn sec">비밀번호 변경</button></div>
+  </form>
+</section>
+
+{# ── 태양광 설비 ───────────────────────────────────────── #}
+<section class="sec" id="solar">
+  <div class="sec-h"><h2>☀ 태양광 설비 설정</h2></div>
+  <form method="post" action="{{ url_for('solar_settings') }}" class="form">
+    <div class="grid">
+      <label class="fld"><span>설비 용량 (kW)</span><input name="capacity_kw" type="number" step="any" inputmode="decimal" value="{{ solar['capacity_kw'] }}"></label>
+      <label class="fld"><span>REC 가중치</span><input name="rec_weight" type="number" step="any" inputmode="decimal" value="{{ solar['rec_weight'] }}"></label>
+      <label class="fld"><span>SMP 단가 (원)</span><input name="smp_price" type="number" step="any" inputmode="decimal" value="{{ solar['smp_price'] }}"></label>
+      <label class="fld"><span>REC 단가 (원)</span><input name="rec_price" type="number" step="any" inputmode="decimal" value="{{ solar['rec_price'] }}"></label>
+      <label class="fld"><span>일일 일사시간 (h)</span><input name="daily_yield_hours" type="number" step="any" inputmode="decimal" value="{{ solar['daily_yield_hours'] }}"></label>
+      <label class="fld"><span>시스템 손실률 (%)</span><input name="loss_rate" type="number" step="any" inputmode="decimal" value="{{ solar['loss_rate'] }}"></label>
+    </div>
+    <p class="help"><span style="color:var(--ink-3)">※ 손실률: 인버터·온도·음영·오염·선로 손실(보통 약 15%). 태양광 화면의 목표 대비 분석 기준이 됩니다.</span></p>
+    <div class="actions"><button class="btn">발전 설비 저장</button></div>
+  </form>
+</section>
+
+{# ── 세금 (세율·기준) ──────────────────────────────────── #}
+<section class="sec" id="tax">
+  <div class="sec-h"><h2>🧾 세금 — 세율·기준</h2></div>
+  <form method="post" action="{{ url_for('tax_settings') }}" class="form">
+    <div class="sec-h" style="margin:2px 0 8px"><h2>🐄 농축산 세금</h2></div>
+    <div class="grid">
+      <label class="fld"><span>농축산 부가세율 (%)</span>
+        <input name="vat_rate_farm" type="number" step="any" inputmode="decimal" value="{{ tax['vat_rate_farm'] }}"></label>
+      <label class="fld"><span>농가부업 비과세 한도 (원)</span>
+        <input name="farm_taxfree_limit" type="number" step="1" inputmode="numeric" value="{{ tax['farm_taxfree_limit'] }}"></label>
+    </div>
+    <p class="help" style="margin-top:8px">
+      • 미가공 농·축산물은 <b>부가세 면세(0%)</b>입니다. 가공·과세 품목만 세율을 넣으세요.<br>
+      • 축산 등 <b>농가부업소득은 연 3,000만원까지 비과세</b>(소 50두·돼지 700두·닭 15,000수 이하 규모).
+    </p>
+    <div class="sec-h" style="margin:18px 0 8px"><h2>☀ 태양광 세금</h2></div>
+    <div class="grid">
+      <label class="fld"><span>태양광 부가세율 (%)</span>
+        <input name="vat_rate_solar" type="number" step="any" inputmode="decimal" value="{{ tax['vat_rate_solar'] }}"></label>
+      <label class="fld"><span>종합소득세율 (%)</span>
+        <input name="income_tax_rate" type="number" step="any" inputmode="decimal" value="{{ tax['income_tax_rate'] }}"></label>
+    </div>
+    <p class="help" style="margin-top:8px">
+      • 전력 판매(SMP+REC)는 <b>부가세 10% 과세</b> + 종합소득세 대상(매년 5월 신고).<br>
+      • 종합소득세율은 누진 <b>6%~45%</b>. 본인 실효세율을 넣으세요.<br>
+      • 실제 세금 추정치는 <a href="{{ url_for('finance') }}#tax">재무 → 세금</a>에서 확인·반영합니다.
+    </p>
+    <div class="actions" style="margin-top:14px"><button class="btn sec">세율·기준 저장</button></div>
+  </form>
+</section>
+
+{# ── 축산·사료 ─────────────────────────────────────────── #}
+<section class="sec" id="feed">
+  <div class="sec-h"><h2>🌾 축산·사료 설정</h2></div>
+  <p class="lead">소유주(명의)·단위 목록과 품목별 사료 단가를 관리합니다. 여기서 등록한 값이 농축산의 사료구매·품목 입력 드롭다운에 나타납니다.</p>
+  <form method="post" action="{{ url_for('feed_settings') }}" class="form">
+    <div class="grid">
+      <label class="fld full"><span>소유주(명의) 목록 <small>— 한 줄에 하나씩</small></span>
+        <textarea name="owners" rows="5" placeholder="성기준&#10;성혜진">{{ feed_owners|join('\n') }}</textarea>
+      </label>
+      <label class="fld full"><span>단위 목록 <small>— 한 줄에 하나씩</small></span>
+        <textarea name="units" rows="4" placeholder="포&#10;kg&#10;톤&#10;두">{{ feed_units|join('\n') }}</textarea>
+      </label>
+    </div>
+    <div class="sec-h" style="margin-top:8px"><h3>품목별 사료 단가 (원)</h3></div>
+    <div class="grid">
+      {% for t in CATTLE_TYPES %}
+      <label class="fld"><span>{{ t }}</span>
+        <input name="price_{{ t }}" type="number" step="1" inputmode="numeric"
+               value="{{ feed_prices.get(t, 0) or '' }}" placeholder="0">
+      </label>
+      {% endfor %}
+    </div>
+    <div class="sec-h" style="margin-top:8px"><h3>🐄 이표번호 자동조회 (축산물이력제)</h3></div>
+    <p class="lead">공공데이터포털 ‘축산물통합이력정보’ <b>인증키(Encoding)</b>를 붙여넣으면, 품목/정보 입력창에서 이표번호로 출생일·성별·품종을 자동 조회합니다.</p>
+    <div class="grid">
+      <label class="fld full"><span>축산물이력제 인증키 <small>(serviceKey)</small></span>
+        <input name="ekape_key" value="{{ ekape_key }}" placeholder="공공데이터포털에서 발급받은 일반 인증키(Encoding) 붙여넣기" autocomplete="off">
+      </label>
+    </div>
+    <div class="actions"><button class="btn">축산·사료 설정 저장</button></div>
+  </form>
+</section>
+
+{# ── 데이터 관리 ───────────────────────────────────────── #}
+{% if is_admin %}
+<section class="sec" id="data">
+  <div class="sec-h"><h2>💾 데이터 관리</h2></div>
+  <p class="lead">데이터를 파일로 내보내거나, 백업 파일로 저장·복원할 수 있습니다.</p>
+  <div class="actions">
+    <a class="btn sec" href="{{ url_for('export_csv') }}">데이터 내보내기 (CSV·ZIP)</a>
+    <a class="btn sec" href="{{ url_for('backup_db') }}">데이터 백업 (.db 내려받기)</a>
+    <form method="post" action="{{ url_for('restore_db') }}" enctype="multipart/form-data" id="restoreForm" style="margin:0">
+      <input type="file" name="dbfile" id="restoreInput" accept=".db" hidden
+             onchange="if(this.value){if(confirm('현재 데이터를 이 파일로 덮어씁니다. 계속할까요?')) this.form.submit(); else this.value='';}">
+      <button type="button" class="btn sec" onclick="document.getElementById('restoreInput').click()">데이터 복원 (.db 올리기)</button>
+    </form>
+    <form method="post" action="{{ url_for('seed_sample') }}" style="margin:0">
+      <button type="submit" class="btn sec">예시 데이터 채우기</button>
+    </form>
+    <form method="post" action="{{ url_for('reset_all') }}" style="margin:0"
+          onsubmit="return confirm('모든 데이터를 삭제할까요? (설비 설정·직원 계정은 유지)');">
+      <button type="submit" class="btn danger">전체 데이터 초기화</button>
+    </form>
+  </div>
+</section>
+{% endif %}
+{% endblock %}

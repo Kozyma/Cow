@@ -24,12 +24,18 @@
   {% elif name == 'docs' %}<svg viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M9 13h6M9 17h4"/></svg>
   {% elif name == 'staff' %}<svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><path d="M3.5 20a5.5 5.5 0 0 1 11 0"/><path d="M16 8.5a2.6 2.6 0 0 0 0-1M16 20a5.5 5.5 0 0 0-2-4.3"/></svg>
   {% elif name == 'me' %}<svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.2"/><path d="M5.5 20a6.5 6.5 0 0 1 13 0"/></svg>
+  {% elif name == 'settings' %}<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2.5v2.5M12 19v2.5M4.6 4.6l1.8 1.8M17.6 17.6l1.8 1.8M2.5 12H5M19 12h2.5M4.6 19.4l1.8-1.8M17.6 6.4l1.8-1.8"/></svg>
   {% endif %}
 {% endmacro %}
 
   <header class="top">
     <div class="wrap">
       <div class="word"><span class="mk"></span><span>{{ farm_name or '영농형 태양광 관리' }}</span></div>
+      <div style="display:flex;align-items:center;gap:8px">
+      <div class="fscale" aria-label="글자 크기">
+        <button type="button" id="fsMinus" aria-label="글자 작게">가–</button>
+        <button type="button" id="fsPlus" aria-label="글자 크게">가+</button>
+      </div>
       <div class="menu">
         <details>
           <summary aria-label="메뉴">
@@ -47,29 +53,12 @@
               <button type="button" id="pwBtn">🔑 비밀번호 변경</button>
             </form>
             {% if is_admin %}
-            <form method="post" action="{{ url_for('rename_farm') }}" id="renameForm">
-              <input type="hidden" name="farm_name" id="renameInput">
-              <button type="button" id="renameBtn"
-                      data-current="{{ farm_name or '영농형 태양광 관리' }}">이름(농장명) 변경</button>
-            </form>
-            <a href="{{ url_for('export_csv') }}">데이터 내보내기 (CSV·ZIP)</a>
-            <a href="{{ url_for('backup_db') }}">데이터 백업 (.db 내려받기)</a>
-            <form method="post" action="{{ url_for('restore_db') }}" enctype="multipart/form-data" id="restoreForm">
-              <input type="file" name="dbfile" id="restoreInput" accept=".db" hidden
-                     onchange="if(this.value){if(confirm('현재 데이터를 이 파일로 덮어씁니다. 계속할까요?')) this.form.submit(); else this.value='';}">
-              <button type="button" onclick="document.getElementById('restoreInput').click()">데이터 복원 (.db 올리기)</button>
-            </form>
-            <form method="post" action="{{ url_for('seed_sample') }}">
-              <button type="submit">예시 데이터 채우기</button>
-            </form>
-            <form method="post" action="{{ url_for('reset_all') }}"
-                  onsubmit="return confirm('모든 데이터를 삭제할까요? (설비 설정·직원 계정은 유지)');">
-              <button type="submit" class="danger">전체 데이터 초기화</button>
-            </form>
+            <a href="{{ url_for('settings') }}">⚙ 설정 (농장·세금·데이터 등)</a>
             {% endif %}
             <a href="{{ url_for('logout') }}">로그아웃</a>
           </div>
         </details>
+      </div>
       </div>
     </div>
   </header>
@@ -89,7 +78,7 @@
     {% if is_admin %}
     {% set nav_items = [
       ('dashboard','홈'), ('livestock','농축산'), ('solar','태양광'),
-      ('finance','재무'), ('staff','직원'), ('reports','통계'), ('docs','서류')
+      ('finance','재무'), ('docs','서류')
     ] %}
     {% else %}
     {% set nav_items = [('me','내 작업')] %}
@@ -97,9 +86,10 @@
     {% for ep, label in nav_items %}
       {% set on = nav_active == ep
                   or (nav_active in ('livestock_save','farmlog_add','livestock_sell','facility_save') and ep=='livestock')
-                  or (nav_active in ('finance_save','tax_settings','tax_sync','support_save') and ep=='finance')
-                  or (nav_active in ('staff_save','payroll_save','work_save','work_ack') and ep=='staff')
-                  or (nav_active in ('solar_settings','solar_add','solar_sync') and ep=='solar') %}
+                  or (nav_active in ('finance_save','tax_sync','support_save','tax_settings',
+                                     'staff','staff_save','payroll_save','work_save','work_ack',
+                                     'reports') and ep=='finance')
+                  or (nav_active in ('solar_add','solar_sync') and ep=='solar') %}
       <a href="{{ url_for(ep) }}" class="tab {{ 'on' if on }}">
         {{ icon(ep) }}<span>{{ label }}</span>
         {% if ep=='staff' and notif_count %}<span class="nav-badge">{{ notif_count }}</span>{% endif %}

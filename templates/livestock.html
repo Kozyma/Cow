@@ -8,7 +8,6 @@
   <button type="button" data-tab="items">품목</button>
   <button type="button" data-tab="log">영농일지</button>
   <button type="button" data-tab="feed">사료구매</button>
-  <button type="button" data-tab="feedset">사료설정</button>
   <button type="button" data-tab="facility">시설</button>
 </nav>
 
@@ -109,30 +108,40 @@
   <div class="sec-h"><h2>품목 목록</h2>
     <div class="sec-h-r"><span class="count">{{ items|length }}건</span>
       <button class="add-btn" data-open="itemDialog" data-fresh>+ 품목 추가</button></div></div>
-  <div class="list">
+  <div class="searchbar">
+    <span class="si">🔍</span>
+    <input id="animalSearch" type="search" inputmode="search" autocomplete="off"
+           placeholder="이표번호·이름·명의로 검색">
+    <button type="button" class="sx" id="animalSearchClear" aria-label="지우기" hidden>✕</button>
+  </div>
+  <div class="list" id="animalList">
     {% for r in items %}
-    <div class="li"><span class="dot {{ 'gray' if r['category']!='가축' else '' }}"></span>
-      <div class="m">
-        <div class="t">{{ r['name'] }}
-          {%- if r['cattle_type'] %} <span class="tag">{{ r['cattle_type'] }}</span>{% endif %}
-          <span class="tag {{ 'on' if r['status']=='진행중' else 'off' }}">{{ r['status'] }}</span></div>
-        <div class="d">{{ r['category'] }} · {{ '%g'|format(r['quantity']) }}{{ r['unit'] or '' }}
-          {%- if r['ear_tag'] %} · 이표 {{ r['ear_tag'] }}{% endif %}
-          {%- if r['owner'] %} · 명의 {{ r['owner'] }}{% endif %}
-          {%- if r['weight_kg'] %} · 입식 {{ '%g'|format(r['weight_kg']) }}kg{% endif %}
-          {%- if r['start_date'] %} · {{ r['start_date'] }}{% endif %}{% if r['note'] %} · {{ r['note'] }}{% endif %}</div>
-        {% if r['sold_date'] %}
-        <div class="d">🏷 {{ r['sold_date'] }} 판매
-          {%- if r['sold_grade'] %} · <b>{{ r['sold_grade'] }}등급</b>{% endif %}
-          {%- if r['sold_amount'] %} · {{ won(r['sold_amount']) }}원{% endif %}
-          {%- if r['sold_weight_kg'] %} · 출하 {{ '%g'|format(r['sold_weight_kg']) }}kg
-            {%- if r['weight_kg'] %} (성장 +{{ '%g'|format(r['sold_weight_kg'] - r['weight_kg']) }}kg){% endif %}
-          {%- endif %}</div>
-        {% endif %}
+    <div class="animal {{ 'sold' if r['sold_date'] }}"
+         data-ear="{{ (r['ear_tag'] or '')|replace('-','')|replace(' ','') }}"
+         data-search="{{ (r['name'] ~ ' ' ~ (r['owner'] or '') ~ ' ' ~ (r['cattle_type'] or '') ~ ' ' ~ (r['barn'] or ''))|lower }}">
+      <div class="a-top">
+        <span class="a-name">{{ r['name'] }}</span>
+        <span class="tag {{ 'on' if r['status']=='진행중' and not r['sold_date'] else 'off' }}">{{ '판매완료' if r['sold_date'] else r['status'] }}</span>
       </div>
-      <div class="act">
+      {% if r['ear_tag'] %}<div class="a-ear">이표 {{ r['ear_tag'] }}</div>{% endif %}
+      <div class="chips">
+        {% if r['cattle_type'] %}<span class="chip">{{ r['cattle_type'] }}</span>{% endif %}
+        {% if r['category']!='가축' %}<span class="chip"><b>수량</b> {{ '%g'|format(r['quantity']) }}{{ r['unit'] or '' }}</span>{% endif %}
+        {% if r['owner'] %}<span class="chip"><b>명의</b> {{ r['owner'] }}</span>{% endif %}
+        {% if r['barn'] %}<span class="chip"><b>축사</b> {{ r['barn'] }}</span>{% endif %}
+        {% if r['birth_date'] %}{% set ma = r['birth_date']|months %}{% if ma is not none %}<span class="chip"><b>월령</b> {{ ma }}개월</span>{% endif %}{% endif %}
+        {% if r['weight_kg'] %}<span class="chip"><b>입식</b> {{ '%g'|format(r['weight_kg']) }}kg</span>{% endif %}
+        {% if not (r['cattle_type'] or r['owner'] or r['barn'] or r['birth_date'] or r['weight_kg'] or r['category']!='가축') %}<span class="chip"><b>수량</b> {{ '%g'|format(r['quantity']) }}{{ r['unit'] or '' }}</span>{% endif %}
+      </div>
+      {% if r['sold_date'] %}
+      <div class="a-ear">🏷 {{ r['sold_date'] }} 판매
+        {%- if r['sold_grade'] %} · {{ r['sold_grade'] }}등급{% endif %}
+        {%- if r['sold_amount'] %} · {{ won(r['sold_amount']) }}원{% endif %}
+        {%- if r['sold_weight_kg'] %} · 출하 {{ '%g'|format(r['sold_weight_kg']) }}kg{% endif %}</div>
+      {% endif %}
+      <div class="a-acts">
         {% if r['category']=='가축' %}
-        <button type="button" class="mini cow-btn"
+        <button type="button" class="btn cow-btn"
                 data-action="{{ url_for('livestock_info', row_id=r['id']) }}"
                 data-name="{{ r['name'] }}"
                 data-type="{{ r['cattle_type'] or '' }}"
@@ -151,14 +160,16 @@
                 data-birth="{{ r['birth_date'] or '' }}"
                 data-sex="{{ r['sex'] or '' }}"
                 data-dam="{{ r['dam_tag'] or '' }}"
-                data-health="{{ r['health_note'] or '' }}">정보</button>
+                data-health="{{ r['health_note'] or '' }}">정보 보기</button>
         {% endif %}
-        <button type="button" class="mini sell-btn"
+        <button type="button" class="btn ghost sell-btn"
                 data-id="{{ r['id'] }}" data-name="{{ r['name'] }}"
                 data-amount="{{ r['sold_amount'] or '' }}"
                 data-weight="{{ r['sold_weight_kg'] or '' }}"
                 data-grade="{{ r['sold_grade'] or '' }}"
                 data-date="{{ r['sold_date'] or today }}">판매</button>
+      </div>
+      <div class="a-sub">
         <a class="mini" href="{{ url_for('livestock', edit=r['id']) }}">수정</a>
         <form method="post" action="{{ url_for('livestock_delete', row_id=r['id']) }}"
               onsubmit="return confirm('이 품목을 삭제할까요?');"><button class="mini del">삭제</button></form>
@@ -168,6 +179,7 @@
     <div class="empty">품목이 없습니다.</div>
     {% endfor %}
   </div>
+  <div class="empty" id="animalNoResult" hidden>검색 결과가 없습니다.</div>
 </section>
 </div>
 
@@ -380,42 +392,7 @@
 </section>
 </div>
 
-{# ── 사료설정 탭 ──────────────────────────────────────── #}
-<div class="tabpane" data-pane="feedset" hidden>
-<section class="sec">
-  <div class="sec-h"><h2>사료 설정</h2></div>
-  <p class="lead">소유주(명의)·단위 목록과 품목별 사료 단가를 관리합니다. 여기서 등록한 값이 사료구매·품목 입력의 드롭다운에 나타납니다.</p>
-  <form method="post" action="{{ url_for('feed_settings') }}" class="form">
-    <div class="grid">
-      <label class="fld full"><span>소유주(명의) 목록 <small>— 한 줄에 하나씩</small></span>
-        <textarea name="owners" rows="5" placeholder="성기준&#10;성혜진">{{ feed_owners|join('\n') }}</textarea>
-      </label>
-      <label class="fld full"><span>단위 목록 <small>— 한 줄에 하나씩</small></span>
-        <textarea name="units" rows="4" placeholder="포&#10;kg&#10;톤&#10;두">{{ feed_units|join('\n') }}</textarea>
-      </label>
-    </div>
-    <div class="sec-h" style="margin-top:8px"><h3>품목별 사료 단가 (원)</h3></div>
-    <div class="grid">
-      {% for t in CATTLE_TYPES %}
-      <label class="fld"><span>{{ t }}</span>
-        <input name="price_{{ t }}" type="number" step="1" inputmode="numeric"
-               value="{{ feed_prices.get(t, 0) or '' }}" placeholder="0">
-      </label>
-      {% endfor %}
-    </div>
-    <div class="sec-h" style="margin-top:8px"><h3>🐄 이표번호 자동조회 (축산물이력제)</h3></div>
-    <p class="lead">공공데이터포털 ‘축산물통합이력정보’ <b>인증키(Encoding)</b>를 붙여넣으면, 품목/정보 입력창에서 이표번호로 출생일·성별·품종을 자동 조회합니다.</p>
-    <div class="grid">
-      <label class="fld full"><span>축산물이력제 인증키 <small>(serviceKey)</small></span>
-        <input name="ekape_key" value="{{ ekape_key }}" placeholder="공공데이터포털에서 발급받은 일반 인증키(Encoding) 붙여넣기" autocomplete="off">
-      </label>
-    </div>
-    <div class="actions">
-      <button type="submit" class="btn">설정 저장</button>
-    </div>
-  </form>
-</section>
-</div>
+{# 사료설정은 상단 '설정' 탭으로 이동했습니다. #}
 
 {# ── 시설 탭 ──────────────────────────────────────────── #}
 <div class="tabpane" data-pane="facility" {{ 'hidden' if not facility_edit }}>

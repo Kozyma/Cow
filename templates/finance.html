@@ -2,6 +2,7 @@
 {% block title %}재무 · 영농형 태양광 관리{% endblock %}
 {% block content %}
 {% set deftab = 'support' if support_edit else 'tx' %}
+{% include "_finance_nav.html" %}
 
 <section class="stat">
   <div class="lab">전체 순이익</div>
@@ -125,37 +126,9 @@
 {# ── 세금 탭 ──────────────────────────────────────────── #}
 <div class="tabpane" data-pane="tax" {{ 'hidden' if deftab != 'tax' }}>
 <section class="sec">
-  <div class="sec-h"><h2>세금 자동계산</h2></div>
-  <form method="post" action="{{ url_for('tax_settings') }}" class="form">
-
-    <div class="sec-h" style="margin:2px 0 8px"><h2>🐄 농축산 세금</h2></div>
-    <div class="grid">
-      <label class="fld"><span>농축산 부가세율 (%)</span>
-        <input name="vat_rate_farm" type="number" step="any" inputmode="decimal" value="{{ tax_settings['vat_rate_farm'] }}"></label>
-      <label class="fld"><span>농가부업 비과세 한도 (원)</span>
-        <input name="farm_taxfree_limit" type="number" step="1" inputmode="numeric" value="{{ tax_settings['farm_taxfree_limit'] }}"></label>
-    </div>
-    <p class="help" style="margin-top:8px">
-      • 미가공 농·축산물은 <b>부가세 면세(0%)</b>입니다. 가공·과세 품목만 세율을 넣으세요.<br>
-      • 축산 등 <b>농가부업소득은 연 3,000만원까지 비과세</b>(소 50두·돼지 700두·닭 15,000수 이하 규모).<br>
-      • 직접 생산한 작물을 직접 판매하면 금액과 무관하게 소득세 면제.
-    </p>
-
-    <div class="sec-h" style="margin:18px 0 8px"><h2>☀ 태양광 세금</h2></div>
-    <div class="grid">
-      <label class="fld"><span>태양광 부가세율 (%)</span>
-        <input name="vat_rate_solar" type="number" step="any" inputmode="decimal" value="{{ tax_settings['vat_rate_solar'] }}"></label>
-      <label class="fld"><span>종합소득세율 (%)</span>
-        <input name="income_tax_rate" type="number" step="any" inputmode="decimal" value="{{ tax_settings['income_tax_rate'] }}"></label>
-    </div>
-    <p class="help" style="margin-top:8px">
-      • 전력 판매(SMP+REC)는 <b>부가세 10% 과세</b> + 종합소득세 대상(매년 5월 신고).<br>
-      • 종합소득세율은 누진 <b>6%~45%</b>(과표 1,400만 6% · 5,000만 15% · 8,800만 24% · 1.5억 35% …). 본인 실효세율을 넣으세요.<br>
-      • 소득세는 전체 순이익에서 농가부업 비과세를 뺀 금액 기준으로 추정합니다.
-    </p>
-
-    <div class="actions" style="margin-top:14px"><button class="btn sec">세율·기준 저장</button></div>
-  </form>
+  <div class="sec-h"><h2>세금 자동계산</h2>
+    <a class="mini" href="{{ url_for('settings') }}#tax">세율·기준 설정</a></div>
+  <p class="help" style="margin-top:2px">세율·비과세 기준은 <a href="{{ url_for('settings') }}#tax">설정 → 세금</a>에서 변경합니다. 아래는 현재 세율로 추정한 세액입니다.</p>
 
   <div class="tiles" style="margin-top:18px">
     <div class="tile">

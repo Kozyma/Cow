@@ -4,12 +4,22 @@
    장식 최소화, 색은 흑백 명도(블랙 강조 / 수입 블랙·지출 그레이).
    ========================================================= */
 :root{
-  --bg:#ffffff; --sub:#fafafa;
-  --ink:#16181d; --ink-2:#646b73; --ink-3:#a0a6ad;
-  --line:#ededf0; --line-2:#f4f4f6;
+  /* V2 리디자인 — 중립 바탕 + 흰 카드 + 절제된 도메인 색(장부 느낌) */
+  --bg:#EEEFEA; --sub:#F6F6F2; --card:#ffffff;
+  --ink:#1E241F; --ink-2:#5B615A; --ink-3:#8E938C;
+  --line:#DEDFD7; --line-2:#E9EAE2;
 
-  --accent:#16181d; --accent-d:#000000; --accent-soft:#f0f0f2;
-  --in:#16181d; --out:#7a818a; --sun:#9aa0a6;
+  /* 브랜드/강조 = 깊은 농장 초록(절제해서 사용) */
+  --accent:#2B6E44; --accent-d:#1E5333; --accent-soft:#E6EEE8;
+  --in:#1E5333;   /* 수입 = 초록 */
+  --out:#B23A2A;  /* 지출·위험·삭제 = 벽돌 빨강 */
+  --sun:#C67A12;  /* 태양광 = 주황 */
+
+  /* 도메인 색 (홈 카드·상세 지표에 아이콘·숫자·점으로만) */
+  --green:#2B6E44; --green-soft:#E6EEE8; --green-ink:#1E5333;
+  --amber:#C67A12; --amber-soft:#F5ECDA; --amber-ink:#8F560C;
+  --blue:#2A57A8;  --blue-soft:#E4E9F2;  --blue-ink:#1E4080;
+  --danger:#B23A2A;
 
   --r:14px; --r-sm:10px; --pill:999px;
   --safe-b:env(safe-area-inset-bottom,0px);
@@ -22,8 +32,8 @@ body{
   margin:0; background:var(--bg); color:var(--ink);
   font-family:-apple-system,BlinkMacSystemFont,"Pretendard","Pretendard Variable",
               "Apple SD Gothic Neo","Noto Sans KR",system-ui,"Malgun Gothic",sans-serif;
-  font-size:16px; line-height:1.55; letter-spacing:-.015em;
-  padding-bottom:calc(92px + var(--safe-b));
+  font-size:calc(17px * var(--fscale, 1)); line-height:1.55; letter-spacing:-.01em;
+  padding-bottom:calc(96px + var(--safe-b));
   -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility;
 }
 .num{font-variant-numeric:tabular-nums; font-feature-settings:"tnum"}
@@ -265,6 +275,7 @@ details[open] > .trace-title::before{transform:rotate(90deg)}
 .trace-title .tc{flex:none; font-size:.72rem; font-weight:700; color:var(--accent-d);
   background:#fff; border-radius:20px; padding:1px 9px; min-width:20px; text-align:center}
 .trace-title:hover{filter:brightness(.97)}
+.trace-empty{padding:11px 13px; font-size:.85rem; color:var(--ink-3)}
 .trace-block{padding:5px 13px}
 .trace-block + .trace-block{border-top:1px dashed var(--line-2)}
 .trace-row{display:flex; justify-content:space-between; gap:14px; padding:8px 0; font-size:.9rem;
@@ -311,6 +322,15 @@ details[open] > .trace-title::before{transform:rotate(90deg)}
   letter-spacing:-.01em; transition:background .12s,color .12s}
 .subtabs button.on{background:#fff; color:var(--ink); box-shadow:0 1px 3px rgba(20,24,30,.1)}
 .tabpane[hidden]{display:none}
+/* 재무 그룹 상단 네비(재무·직원·통계) — 세그먼트형 링크 */
+.group-nav{display:flex; gap:4px; margin:16px 0 4px; padding:4px;
+  background:var(--line-2); border-radius:12px}
+.group-nav a{flex:1; min-height:42px; display:flex; align-items:center; justify-content:center; gap:5px;
+  border-radius:9px; text-decoration:none; color:var(--ink-2); font-weight:700; font-size:.9rem;
+  letter-spacing:-.01em; transition:background .12s,color .12s}
+.group-nav a.on{background:#fff; color:var(--ink); box-shadow:0 1px 3px rgba(20,24,30,.1)}
+.gn-badge{min-width:18px; height:18px; padding:0 5px; border-radius:20px; background:var(--out);
+  color:#fff; font-size:.68rem; font-weight:800; display:inline-flex; align-items:center; justify-content:center}
 
 /* ── 통계: 요약 타일 ──────────────────────────────── */
 .tiles{display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:8px}
@@ -378,5 +398,115 @@ details[open] > .trace-title::before{transform:rotate(90deg)}
 /* 하단 탭 배지 */
 .tab{position:relative}
 .nav-badge{position:absolute; top:0; right:50%; transform:translateX(20px);
-  min-width:17px; height:17px; padding:0 4px; border-radius:9px; background:#d9534f; color:#fff;
+  min-width:17px; height:17px; padding:0 4px; border-radius:9px; background:var(--danger); color:#fff;
   font-size:.66rem; font-weight:800; display:flex; align-items:center; justify-content:center; line-height:1}
+
+/* ============================================================
+   V2 직관 리디자인 — 큰 글자 · 흰 카드 · 도메인 색
+   (아래 규칙들은 위 기존 규칙을 의도적으로 덮어씁니다)
+   ============================================================ */
+
+/* ── 컨테이너를 흰 카드로 ── */
+.stat{background:var(--card); border:1px solid var(--line); border-radius:20px;
+  padding:20px; margin:14px 0; border-bottom:1px solid var(--line)}
+.sec{background:var(--card); border:1px solid var(--line); border-radius:var(--r);
+  padding:16px; margin:0 0 14px; border-bottom:1px solid var(--line)}
+.sec:last-child{border-bottom:1px solid var(--line)}
+.sec-h{margin:0 0 10px}
+.sec-h h2{font-size:1.02rem; font-weight:820; color:var(--ink); letter-spacing:-.01em; text-transform:none}
+.sec-h .count{font-size:.9rem; color:var(--ink-2)}
+
+/* ── 목록 줄 더 읽기 쉽게 ── */
+.li{padding:13px 0; gap:12px}
+.li .t{font-size:1.06rem; font-weight:750}
+.li .d{font-size:.92rem; color:var(--ink-2)}
+.li .dot{width:10px; height:10px; background:var(--accent)}
+.li .x{font-size:1.06rem}
+
+/* ── 태그·칩 ── */
+.tag{font-size:.78rem; padding:4px 11px; font-weight:800}
+.tag.on{background:var(--green-soft); color:var(--green-ink); border-color:#cfe4d4}
+.chip{background:var(--sub); border:1px solid var(--line); color:#41503f;
+  padding:6px 12px; border-radius:11px; font-size:.92rem; font-weight:700}
+.chip b{color:var(--ink-2); font-weight:700}
+.chips{display:flex; flex-wrap:wrap; gap:7px}
+
+/* ── 버튼 크게 ── */
+.btn{min-height:52px; font-size:1.05rem; border-radius:13px}
+.btn.ghost{background:var(--card); color:var(--green-ink); border:1.5px solid var(--green)}
+.mini{min-height:42px; padding:8px 15px; font-size:.95rem; border-radius:11px; font-weight:750}
+.mini.del{color:var(--danger); border-color:#e6c3bd}
+.add-btn{min-height:44px; font-size:.98rem; border-radius:12px; padding:0 16px}
+
+/* ── 하단 탭 크게 ── */
+.tabs{padding:9px 6px calc(9px + var(--safe-b))}
+.tab{font-size:.74rem; gap:4px; padding:5px 2px}
+.tab svg{width:27px; height:27px}
+.tab.on{color:var(--accent-d)}
+
+/* ── 홈 허브: 도메인 요약(절제된 아이콘·숫자) ── */
+.hub{display:flex; flex-direction:column; gap:10px; margin:14px 0}
+.hcard{display:flex; align-items:center; gap:13px; padding:15px 16px; border-radius:var(--r);
+  background:var(--card); border:1px solid var(--line); text-decoration:none; color:var(--ink)}
+.hcard:active{background:var(--sub)}
+.hcard .ic{width:42px; height:42px; border-radius:10px; display:grid; place-items:center; flex:none;
+  border:1.5px solid currentColor}
+.hcard .ic svg{width:23px; height:23px; stroke:currentColor; fill:none; stroke-width:1.7;
+  stroke-linecap:round; stroke-linejoin:round}
+.hcard .tx{flex:1; min-width:0}
+.hcard .tx .l{font-size:1.05rem; font-weight:800}
+.hcard .tx .s{font-size:.85rem; color:var(--ink-2); margin-top:1px}
+.hcard .big{font-size:1.5rem; font-weight:820; letter-spacing:-.02em; text-align:right; line-height:1.05;
+  font-variant-numeric:tabular-nums; color:var(--ink)}
+.hcard .big em{display:block; font-size:.72rem; font-weight:700; color:var(--ink-3); font-style:normal; letter-spacing:0}
+.hcard.g .ic{color:var(--green)}  .hcard.g .big{color:var(--green-ink)}
+.hcard.a .ic{color:var(--amber)}  .hcard.a .big{color:var(--amber-ink)}
+.hcard.b .ic{color:var(--blue)}   .hcard.b .big{color:var(--blue-ink)}
+.mini-row{display:grid; grid-template-columns:1fr 1fr 1fr; gap:9px; margin-bottom:4px}
+.mtile{background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px 8px;
+  display:flex; flex-direction:column; align-items:center; gap:6px;
+  font-size:.9rem; font-weight:700; color:var(--ink); text-decoration:none}
+.mtile svg{width:22px; height:22px; stroke:var(--ink-2); fill:none; stroke-width:1.7; stroke-linecap:round; stroke-linejoin:round}
+
+/* ── 홈: 다가오는 일정 ── */
+.up-list{display:flex; flex-direction:column}
+.up{display:flex; align-items:center; gap:12px; padding:12px 0; border-bottom:1px solid var(--line-2)}
+.up:last-child{border-bottom:0}
+.up .dday{flex:none; min-width:58px; white-space:nowrap; text-align:center; font-weight:800; font-size:.86rem;
+  padding:6px 8px; border-radius:9px; background:var(--sub); color:var(--ink-2)}
+.up .dday.over{background:#f6e3df; color:var(--out)}
+.up .dday.today{background:var(--accent-soft); color:var(--accent-d)}
+.up .u-m{flex:1; min-width:0}
+.up .u-t{font-size:1rem; font-weight:750; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+.up .u-d{font-size:.85rem; color:var(--ink-2); margin-top:1px}
+
+/* ── 농축산: 개체 카드(색 띠 없이 담백하게) ── */
+.animal{background:var(--card); border:1px solid var(--line); border-radius:var(--r); padding:14px; margin-bottom:10px}
+.animal.sold{opacity:.72}
+.a-top{display:flex; align-items:center; justify-content:space-between; gap:8px}
+.a-name{font-size:1.12rem; font-weight:820}
+.a-ear{font-size:.92rem; color:var(--ink-2); margin:3px 0 10px; font-variant-numeric:tabular-nums}
+.a-acts{display:flex; gap:8px; margin-top:12px}
+.a-acts .btn{min-height:46px; font-size:.98rem}
+.a-sub{display:flex; justify-content:flex-end; gap:8px; margin-top:9px}
+.a-sub form{margin:0}
+/* 검색 바 */
+.searchbar{display:flex; align-items:center; gap:8px; margin:2px 0 12px; padding:0 14px;
+  background:var(--card); border:1.5px solid var(--line); border-radius:13px; height:52px}
+.searchbar .si{font-size:1.1rem; flex:none; opacity:.75}
+.searchbar input{flex:1; border:0; background:transparent; font:inherit; font-size:1.02rem;
+  color:var(--ink); outline:none; min-width:0}
+.searchbar input::placeholder{color:var(--ink-3)}
+.searchbar .sx{flex:none; width:30px; height:30px; border-radius:50%; border:0;
+  background:var(--line-2); color:var(--ink-2); font-size:.85rem; cursor:pointer}
+
+/* ── 상세(보기): 큰 정보 칸 ── */
+.facts{display:grid; grid-template-columns:1fr 1fr; gap:9px; margin:12px 0}
+.fact{background:var(--card); border:1px solid var(--line); border-radius:13px; padding:11px 13px}
+.fact .k{font-size:.82rem; color:var(--ink-2); font-weight:700}
+.fact .v{font-size:1.1rem; font-weight:800; margin-top:2px}
+
+/* ── 글자 크게 조절 버튼 (헤더) ── */
+.fscale{display:flex; align-items:center; gap:5px}
+.fscale button{width:34px; height:34px; border-radius:50%; border:1px solid var(--line);
+  background:var(--card); font-size:1.1rem; font-weight:900; color:var(--ink); cursor:pointer; line-height:1}

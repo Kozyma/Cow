@@ -1,0 +1,6 @@
+{# 재무 그룹 상단 네비 — 재무·직원·통계를 한 묶음으로(휴대폰 하단 탭 축소용) #}
+<nav class="group-nav">
+  <a href="{{ url_for('finance') }}" class="{{ 'on' if nav_active in ['finance','finance_save','tax_sync','support_save'] }}">💰 재무</a>
+  <a href="{{ url_for('staff') }}" class="{{ 'on' if nav_active in ['staff','staff_save','payroll_save','work_save','work_ack'] }}">👷 직원{% if notif_count %} <span class="gn-badge">{{ notif_count }}</span>{% endif %}</a>
+  <a href="{{ url_for('reports') }}" class="{{ 'on' if nav_active == 'reports' }}">📊 통계</a>
+</nav>

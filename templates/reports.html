@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block title %}통계 · 영농형 태양광 관리{% endblock %}
 {% block content %}
+{% include "_finance_nav.html" %}
 <h1 class="h1">통계</h1>
 <p class="lead">연도별 수입·지출과 월별 발전량을 한눈에 봅니다.</p>
 
@@ -64,6 +65,42 @@
       </tr>
     {% else %}
       <tr><td colspan="3" class="rtab-empty">기록이 없습니다.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section class="sec">
+  <div class="sec-h"><h2>소 마릿수 증감</h2>
+    <span class="count">{{ '증가' if head.change > 0 else ('감소' if head.change < 0 else '변동 없음') }}</span></div>
+  <div class="chart-box">{{ head_chart|safe }}</div>
+
+  <div class="tiles" style="margin-top:14px">
+    <div class="tile"><div class="k">연초 마릿수</div>
+      <div class="v num">{{ head.base }}<span class="u">두</span></div></div>
+    <div class="tile"><div class="k">현재(연말) 마릿수</div>
+      <div class="v num">{{ head.end }}<span class="u">두</span></div></div>
+    <div class="tile full"><div class="k">{{ year }}년 증감</div>
+      <div class="v num" style="color:{{ 'var(--in)' if head.change >= 0 else 'var(--out)' }}">
+        {{ '+' if head.change > 0 else '' }}{{ head.change }}<span class="u">두</span></div></div>
+    <div class="tile"><div class="k">총 입식</div>
+      <div class="v num" style="color:var(--in)">+{{ head.total_in }}<span class="u">두</span></div></div>
+    <div class="tile"><div class="k">총 출하</div>
+      <div class="v num" style="color:var(--out)">−{{ head.total_out }}<span class="u">두</span></div></div>
+  </div>
+
+  <table class="rtab">
+    <thead><tr><th>월</th><th>입식</th><th>출하</th><th>월말 마릿수</th></tr></thead>
+    <tbody>
+    {% for r in head_rows %}
+      <tr>
+        <td>{{ r.month }}월</td>
+        <td class="num in">{{ '+' ~ r.added if r.added else '·' }}</td>
+        <td class="num out">{{ '−' ~ r.removed if r.removed else '·' }}</td>
+        <td class="num">{{ r.running }}두</td>
+      </tr>
+    {% else %}
+      <tr><td colspan="4" class="rtab-empty">입식·출하 기록이 없습니다.</td></tr>
     {% endfor %}
     </tbody>
   </table>

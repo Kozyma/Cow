@@ -243,6 +243,12 @@ def wday_filter(date_str):
         return ""
 
 
+@app.template_filter("months")
+def months_filter(date_str):
+    """출생일 → 월령(개월, 정수). 계산 불가면 None. (목록 칩 표시용)"""
+    return _month_age(date_str)
+
+
 @app.template_filter("md")
 def md_filter(date_str):
     """'2026-06-15' → '6월 15일'."""
@@ -674,6 +680,26 @@ def _fmt_ymd(key, val):
     return val
 
 
+def _month_age(birth):
+    """출생일(YYYYMMDD 또는 YYYY-MM-DD)로 오늘까지의 월령(개월 수)을 계산.
+
+    이력제 API의 monthDiff는 조회 시점과 어긋나거나 비어 오는 경우가 있어,
+    출생일이 있으면 이 값으로 월령을 다시 계산해 정확도를 높인다.
+    """
+    b = _fmt_birth(birth)
+    if not b or len(b) != 10:
+        return None
+    try:
+        by, bm, bd = (int(x) for x in b.split("-"))
+    except (ValueError, AttributeError):
+        return None
+    now = datetime.now()
+    months = (now.year - by) * 12 + (now.month - bm)
+    if now.day < bd:          # 생일(일) 아직 안 지났으면 1개월 차감
+        months -= 1
+    return max(months, 0)
+
+
 def _fetch_option(sk, digits, opt):
     """한 optionNo를 조회해 {items:[{tag:val}], err:str} 반환. 실패는 조용히 빈 결과."""
     url = (f"{EKAPE_TRACE_URL}?serviceKey={sk}"
@@ -723,7 +749,7 @@ def cattle_lookup(trace_no):
            or os.environ.get("EKAPE_SERVICE_KEY", "")).strip()
     if not key:
         return jsonify(ok=False,
-                       error="이력제 인증키가 없습니다. 농축산 → 사료설정에서 인증키를 입력하세요.")
+                       error="이력제 인증키가 없습니다. 설정 → 축산·사료에서 인증키를 입력하세요.")
     # serviceKey: Encoding 키(%포함)는 그대로, Decoding 키는 인코딩해서 사용
     sk = key if "%" in key else urllib.parse.quote(key, safe="")
 
@@ -734,6 +760,17 @@ def cattle_lookup(trace_no):
                for opt, _ in EKAPE_SECTIONS}
         for f in concurrent.futures.as_completed(fut):
             results[fut[f]] = f.result()
+
+    # 출생일 기반 월령(개월) — API의 monthDiff는 비거나 시점이 어긋날 수 있어 우선 적용
+    _birth = ""
+    for _opt, _ in EKAPE_SECTIONS:
+        for it in (results.get(_opt, {}).get("items") or []):
+            if it.get("birthYmd"):
+                _birth = it["birthYmd"]
+                break
+        if _birth:
+            break
+    month_age = _month_age(_birth)
 
     sections, auth_err = [], ""
     for opt, title in EKAPE_SECTIONS:
@@ -766,6 +803,9 @@ def cattle_lookup(trace_no):
         else:
             blocks = []
             for it in items:
+                # 개체·사육 정보에는 출생일 기반 월령을 넣어(또는 덮어써) 정확히 보여준다.
+                if month_age is not None and (opt == 1 or "monthDiff" in it):
+                    it = dict(it, monthDiff=f"{month_age}개월")
                 r = [{"label": EKAPE_LABELS.get(k, k), "value": _fmt_ymd(k, v)}
                      for k, v in it.items()]
                 if r:
@@ -773,9 +813,18 @@ def cattle_lookup(trace_no):
             if blocks:
                 sections.append({"title": title, "blocks": blocks})
 
+    # 건강 관련(구제역 백신·질병·브루셀라)은 조회가 성공하면 기록이 없어도 항목을 노출한다.
+    # (특히 암소는 브루셀라 검사·백신 여부를 항상 확인할 수 있어야 한다)
+    HEALTH_OPTS = {5, 6, 7}
+    if sections:
+        shown = {s["title"] for s in sections}
+        for opt, title in EKAPE_SECTIONS:
+            if opt in HEALTH_OPTS and title not in shown:
+                sections.append({"title": title, "empty": True})
+
     if not sections:
         if auth_err:
-            return jsonify(ok=False, error=f"인증키 오류: {auth_err} (사료설정의 인증키 확인)")
+            return jsonify(ok=False, error=f"인증키 오류: {auth_err} (설정 → 축산·사료의 인증키 확인)")
         return jsonify(ok=False,
                        error="해당 이력번호의 정보를 찾지 못했습니다. (번호·인증키 확인)")
 
@@ -794,6 +843,7 @@ def cattle_lookup(trace_no):
         breed=_find_any("lsTypeNm") or "",
         farmer=_current_owner(results),
         ear_tag=_find_any("flatEartagNo") or "",
+        month_age=month_age,
         sections=sections,
     )
 
@@ -1012,8 +1062,8 @@ def feed_settings():
         prices[t] = _num(f"price_{t}", 0)
     db.set_feed_prices(prices)
     db.set_setting("ekape_key", _f("ekape_key"))
-    flash("사료 설정을 저장했습니다.", "ok")
-    return redirect(url_for("livestock") + "#feedset")
+    flash("축산·사료 설정을 저장했습니다.", "ok")
+    return redirect(url_for("settings") + "#feed")
 
 
 # ── 👷 직원 / 급여 / 작업지시 (관리자) ────────────────────────────────
@@ -1222,7 +1272,7 @@ def solar():
 
 @app.route("/solar/settings", methods=["POST"])
 def solar_settings():
-    db.set_setting("farm_name", _f("farm_name"))
+    # 농장 이름은 설정 페이지의 '농장 정보'(rename_farm)에서 관리한다.
     db.set_setting("capacity_kw", _num("capacity_kw", 100))
     db.set_setting("smp_price", _num("smp_price", 130))
     db.set_setting("rec_price", _num("rec_price", 70))
@@ -1230,7 +1280,7 @@ def solar_settings():
     db.set_setting("daily_yield_hours", _num("daily_yield_hours", 3.5))
     db.set_setting("loss_rate", _num("loss_rate", 15))
     flash("발전 설비 설정을 저장했습니다.", "ok")
-    return redirect(url_for("solar"))
+    return redirect(url_for("settings") + "#solar")
 
 
 @app.route("/solar/add", methods=["POST"])
@@ -1343,7 +1393,7 @@ def tax_settings():
     db.set_setting("income_tax_rate", _num("income_tax_rate", 0))
     db.set_setting("farm_taxfree_limit", int(round(_num("farm_taxfree_limit", 30000000))))
     flash("세금 설정을 저장했습니다.", "ok")
-    return redirect(url_for("finance") + "#tax")
+    return redirect(url_for("settings") + "#tax")
 
 
 @app.route("/finance/tax/sync", methods=["POST"])
@@ -1384,6 +1434,50 @@ def support_delete(row_id):
 
 
 # ── 📊 통계 ──────────────────────────────────────────────────────────
+def _cattle_headcount(items, year):
+    """선택 연도의 월별 소 마릿수 증감.
+
+    입식(start_date)으로 늘고 출하(sold_date)로 줄어드는 것을 월 단위로 집계한다.
+    반환: added[12]·removed[12]·running[12](월말 마릿수)·base(연초)·end(연말)·change·total_in·total_out
+    """
+    def ym(s):
+        try:
+            parts = str(s).split("-")
+            return int(parts[0]), int(parts[1])
+        except (ValueError, IndexError, TypeError):
+            return None, None
+
+    added = [0] * 13
+    removed = [0] * 13
+    base = 0
+    for r in items:
+        if r["category"] != "가축":
+            continue
+        q = r["quantity"] or 1
+        sy, sm = ym(r["start_date"])
+        oy, om = ym(r["sold_date"]) if r["sold_date"] else (None, None)
+        # 입식 시점: 연초 이전이면 (연초 이전에 팔리지 않은 한) 연초 재고에 포함
+        if sy is None or sy < year:
+            if oy is None or oy >= year:
+                base += q
+        elif sy == year:
+            added[sm] += q
+        # 연중 출하
+        if oy == year and om:
+            removed[om] += q
+
+    running = []
+    cur = base
+    for m in range(1, 13):
+        cur += added[m] - removed[m]
+        running.append(cur)
+    return dict(
+        added=added[1:], removed=removed[1:], running=running,
+        base=base, end=running[-1], change=running[-1] - base,
+        total_in=sum(added), total_out=sum(removed),
+    )
+
+
 @app.route("/reports")
 def reports():
     years = db.finance_years()
@@ -1418,11 +1512,23 @@ def reports():
     solar_year = dict(kwh=sum(kwh), revenue=db.solar_revenue(sum(kwh)))
 
     growth = db.livestock_growth_stats()
+
+    # 소 마릿수 증감(선택 연도) — 입식(+)/출하(-)/월말 마릿수
+    head = _cattle_headcount(db.list_livestock(), year)
+    head_chart = line_chart(months, [("마릿수", head["running"])], colors=["#2E8B4F"])
+    head_rows = [
+        dict(month=m, added=head["added"][m - 1], removed=head["removed"][m - 1],
+             running=head["running"][m - 1])
+        for m in range(1, 13)
+        if head["added"][m - 1] or head["removed"][m - 1]
+    ]
+
     return render_template(
         "reports.html", years=years, year=year,
         fin_chart=fin_chart, solar_chart=solar_chart, growth=growth,
         fin_rows=fin_rows, fin_year=fin_year,
         solar_rows=solar_rows, solar_year=solar_year,
+        head=head, head_chart=head_chart, head_rows=head_rows,
     )
 
 
@@ -1505,6 +1611,38 @@ def reset_all():
     db.conn.commit()
     flash("모든 데이터를 초기화했습니다. (설비 설정·직원 계정은 유지)", "ok")
     return redirect(url_for("dashboard"))
+
+
+# ── ⚙ 설정: 모든 설정을 한곳에 모은 최상위 페이지 ─────────────────────
+@app.route("/settings")
+def settings():
+    """농장·계정·태양광 설비·세금·축산/사료·데이터 관리 설정을 한 페이지로 모은다.
+
+    저장은 기존 라우트(solar_settings·tax_settings·feed_settings·rename_farm 등)를
+    그대로 재사용하며, 각 라우트는 저장 후 이 페이지로 돌아온다.
+    """
+    solar = dict(
+        capacity_kw=db.get_setting("capacity_kw", "100"),
+        smp_price=db.get_setting("smp_price", "130"),
+        rec_price=db.get_setting("rec_price", "70"),
+        rec_weight=db.get_setting("rec_weight", "1.2"),
+        daily_yield_hours=db.get_setting("daily_yield_hours", "3.5"),
+        loss_rate=db.get_setting("loss_rate", "15"),
+    )
+    tax = dict(
+        vat_rate_farm=db.get_setting("vat_rate_farm", "0"),
+        farm_taxfree_limit=db.get_setting("farm_taxfree_limit", "30000000"),
+        vat_rate_solar=db.get_setting("vat_rate_solar", "10"),
+        income_tax_rate=db.get_setting("income_tax_rate", "0"),
+    )
+    return render_template(
+        "settings.html",
+        solar=solar, tax=tax,
+        feed_owners=db.get_owner_list(),
+        feed_units=db.get_feed_units(),
+        feed_prices=db.get_feed_prices(),
+        ekape_key=db.get_setting("ekape_key", ""),
+    )
 
 
 # ── PWA(홈 화면 설치)용 라우트 ───────────────────────────────────────

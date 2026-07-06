@@ -2,25 +2,15 @@
 {% block title %}태양광 · 영농형 태양광 관리{% endblock %}
 {% block content %}
 <h1 class="h1">태양광</h1>
-<p class="lead">설비 단가를 설정하고 일별 발전량을 기록하면 예상 수익이 자동 계산됩니다.</p>
+<p class="lead">일별 발전량을 기록하면 예상 수익이 자동 계산됩니다. 설비 단가·용량은 <a href="{{ url_for('settings') }}#solar">설정 → 태양광 설비</a>에서 관리합니다.</p>
 
 <section class="sec">
-  <div class="sec-h"><h2>발전 설비 설정</h2></div>
-  <form method="post" action="{{ url_for('solar_settings') }}" class="form">
-    <div class="grid">
-      <label class="fld full"><span>농장 이름</span><input name="farm_name" value="{{ settings['farm_name'] }}" placeholder="예) 서천 햇살농장"></label>
-      <label class="fld"><span>설비 용량 (kW)</span><input name="capacity_kw" type="number" step="any" inputmode="decimal" value="{{ settings['capacity_kw'] }}"></label>
-      <label class="fld"><span>REC 가중치</span><input name="rec_weight" type="number" step="any" inputmode="decimal" value="{{ settings['rec_weight'] }}"></label>
-      <label class="fld"><span>SMP 단가 (원)</span><input name="smp_price" type="number" step="any" inputmode="decimal" value="{{ settings['smp_price'] }}"></label>
-      <label class="fld"><span>REC 단가 (원)</span><input name="rec_price" type="number" step="any" inputmode="decimal" value="{{ settings['rec_price'] }}"></label>
-      <label class="fld"><span>일일 일사시간 (h)</span><input name="daily_yield_hours" type="number" step="any" inputmode="decimal" value="{{ settings['daily_yield_hours'] }}"></label>
-      <label class="fld"><span>시스템 손실률 (%)</span><input name="loss_rate" type="number" step="any" inputmode="decimal" value="{{ settings['loss_rate'] }}"></label>
-    </div>
-    <p class="help">1kWh당 정산단가 = SMP + REC단가 × REC가중치 = <b>{{ '%g'|format(unit_revenue) }} 원/kWh</b><br>
-      하루 예상 발전량 = 용량 × 일사시간 × (1 − 손실률) = <b>{{ '{:,.0f}'.format(expected_daily) }} kWh/일</b><br>
-      <span style="color:var(--ink-3)">※ 손실률: 인버터·온도·음영·오염·선로 손실(보통 약 15%). 목표 대비 분석의 기준이 됩니다.</span></p>
-    <div class="actions"><button class="btn">설정 저장</button></div>
-  </form>
+  <div class="sec-h"><h2>발전 설비 요약</h2>
+    <a class="mini" href="{{ url_for('settings') }}#solar">설정 변경</a></div>
+  <p class="help" style="margin-top:2px">
+    설비 용량 <b>{{ settings['capacity_kw'] }} kW</b> · 일사시간 <b>{{ settings['daily_yield_hours'] }} h</b> · 손실률 <b>{{ settings['loss_rate'] }}%</b><br>
+    1kWh당 정산단가 = SMP + REC단가 × REC가중치 = <b>{{ '%g'|format(unit_revenue) }} 원/kWh</b><br>
+    하루 예상 발전량 = 용량 × 일사시간 × (1 − 손실률) = <b>{{ '{:,.0f}'.format(expected_daily) }} kWh/일</b></p>
 </section>
 
 <section class="sec">
