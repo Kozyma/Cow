@@ -191,6 +191,7 @@ class Database:
                 role          TEXT NOT NULL DEFAULT 'staff', -- admin / staff
                 phone         TEXT,
                 active        INTEGER NOT NULL DEFAULT 1,
+                pending       INTEGER NOT NULL DEFAULT 0,  -- 1=자가 회원가입 후 관리자 승인 대기
                 created       TEXT
             );
 
@@ -284,6 +285,12 @@ class Database:
         fl_cols = [r["name"] for r in self.conn.execute("PRAGMA table_info(farm_log)")]
         if "item_label" not in fl_cols:
             self.conn.execute("ALTER TABLE farm_log ADD COLUMN item_label TEXT")
+
+        # 사용자: 자가 회원가입 승인 대기 표시(구버전 DB 호환)
+        u_cols = [r["name"] for r in self.conn.execute("PRAGMA table_info(users)")]
+        if "pending" not in u_cols:
+            self.conn.execute(
+                "ALTER TABLE users ADD COLUMN pending INTEGER NOT NULL DEFAULT 0")
         self.conn.commit()
 
     # ── 설정 ─────────────────────────────────────────────────────
@@ -812,20 +819,41 @@ class Database:
         self.set_setting("feed_price_map", json.dumps(clean, ensure_ascii=False))
 
     # ── 사용자(직원) 계정 ────────────────────────────────────────
-    def add_user(self, username, password, name, role="staff", phone=None):
+    def add_user(self, username, password, name, role="staff", phone=None,
+                 active=True, pending=False):
         cur = self.conn.execute(
-            "INSERT INTO users(username, password_hash, name, role, phone, active, created) "
-            "VALUES (?, ?, ?, ?, ?, 1, ?)",
+            "INSERT INTO users(username, password_hash, name, role, phone, active, pending, created) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (username, generate_password_hash(password, method="pbkdf2:sha256"),
-             name, role, phone, today_str()),
+             name, role, phone, 1 if active else 0, 1 if pending else 0, today_str()),
         )
         self.conn.commit()
         return cur.lastrowid
 
+    def register_user(self, username, password, name, phone=None):
+        """방문자 자가 회원가입 → 승인 대기(비활성) 직원 계정을 만든다.
+        관리자가 승인(approve_user)하기 전까지는 로그인할 수 없다."""
+        return self.add_user(username, password, name, role="staff",
+                             phone=phone, active=False, pending=True)
+
     def update_user(self, user_id, name, role, phone, active):
+        # 관리자가 '활성'으로 바꾸면 가입 승인으로 간주 → 대기 표시도 해제
+        if active:
+            self.conn.execute(
+                "UPDATE users SET name=?, role=?, phone=?, active=1, pending=0 WHERE id=?",
+                (name, role, phone, user_id),
+            )
+        else:
+            self.conn.execute(
+                "UPDATE users SET name=?, role=?, phone=?, active=0 WHERE id=?",
+                (name, role, phone, user_id),
+            )
+        self.conn.commit()
+
+    def approve_user(self, user_id):
+        """가입 승인 → 계정을 활성화하고 승인 대기 표시를 해제한다."""
         self.conn.execute(
-            "UPDATE users SET name=?, role=?, phone=?, active=? WHERE id=?",
-            (name, role, phone, 1 if active else 0, user_id),
+            "UPDATE users SET active=1, pending=0 WHERE id=?", (user_id,),
         )
         self.conn.commit()
 
@@ -858,7 +886,7 @@ class Database:
     def username_exists(self, username):
         return self.get_user_by_username(username) is not None
 
-    def list_users(self, role=None, only_active=False):
+    def list_users(self, role=None, only_active=False, include_pending=True):
         sql = "SELECT * FROM users WHERE 1=1"
         params = []
         if role:
@@ -866,8 +894,16 @@ class Database:
             params.append(role)
         if only_active:
             sql += " AND active=1"
+        if not include_pending:            # 승인 대기 계정은 제외
+            sql += " AND pending=0"
         sql += " ORDER BY role, name"
         return self.conn.execute(sql, params).fetchall()
+
+    def list_pending_users(self):
+        """가입 승인 대기(pending=1) 계정 목록 — 최근 신청 순."""
+        return self.conn.execute(
+            "SELECT * FROM users WHERE pending=1 ORDER BY id DESC"
+        ).fetchall()
 
     # ── 급여(payroll) ────────────────────────────────────────────
     def add_payroll(self, user_id, pay_month, base_pay, allowance, deduction,

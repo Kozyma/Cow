@@ -13,6 +13,7 @@ import concurrent.futures
 import io
 import os
 import random
+import re
 import sys
 import tempfile
 import urllib.parse
@@ -148,13 +149,16 @@ APP_PASSWORD = os.environ.get("APP_PASSWORD", "").strip()
 db = Database(DB_PATH)
 
 
-# 로그인 없이 접근 가능한 엔드포인트(정적/PWA 자원·로그인 화면)
-OPEN_ENDPOINTS = {"login", "static", "manifest", "service_worker", "assetlinks"}
+# 로그인 없이 접근 가능한 엔드포인트(정적/PWA 자원·로그인·회원가입 화면)
+OPEN_ENDPOINTS = {"login", "signup", "static", "manifest", "service_worker", "assetlinks"}
 # 직원(staff) 역할이 접근 가능한 엔드포인트(그 외는 관리자 전용)
 STAFF_ENDPOINTS = {
     "me", "work_complete", "logout", "account_password",
     "api_notifications",
 } | OPEN_ENDPOINTS
+
+# 회원가입 아이디에 허용하는 문자(영문·숫자와 . _ -)
+USERNAME_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 
 
 def current_user():
@@ -180,6 +184,9 @@ def login():
     if current_user():
         return redirect(url_for("dashboard"))
     error = None
+    # 회원가입 직후(?pending=1) 안내 문구
+    notice = ("가입 신청이 접수되었습니다. 관리자 승인이 완료되면 로그인할 수 있습니다."
+              if request.args.get("pending") else None)
     if request.method == "POST":
         u = db.verify_user(_f("username"), request.form.get("password") or "")
         if u:
@@ -192,7 +199,39 @@ def login():
             home = url_for("dashboard") if u["role"] == "admin" else url_for("me")
             return redirect(nxt or home)
         error = "아이디 또는 비밀번호가 올바르지 않습니다."
-    return render_template("login.html", error=error)
+    return render_template("login.html", error=error, notice=notice)
+
+
+@app.route("/signup", methods=["GET", "POST"])
+def signup():
+    """방문자 자가 회원가입 — 신청 후 관리자 승인이 되면 로그인할 수 있다."""
+    if current_user():
+        return redirect(url_for("dashboard"))
+    form = {"name": "", "username": "", "phone": ""}
+    error = None
+    if request.method == "POST":
+        form["name"] = _f("name")
+        form["username"] = _f("username")
+        form["phone"] = _f("phone")
+        pw = request.form.get("password") or ""
+        pw2 = request.form.get("password2") or ""
+        if not form["name"]:
+            error = "이름을 입력하세요."
+        elif len(form["username"]) < 3:
+            error = "아이디는 3자 이상이어야 합니다."
+        elif not USERNAME_RE.match(form["username"]):
+            error = "아이디는 영문·숫자와 . _ - 만 쓸 수 있습니다."
+        elif db.username_exists(form["username"]):
+            error = "이미 사용 중인 아이디입니다."
+        elif len(pw) < 4:
+            error = "비밀번호는 4자 이상이어야 합니다."
+        elif pw != pw2:
+            error = "비밀번호가 서로 일치하지 않습니다."
+        else:
+            db.register_user(form["username"], pw, form["name"],
+                             phone=form["phone"] or None)
+            return redirect(url_for("login", pending=1))
+    return render_template("signup.html", error=error, form=form)
 
 
 @app.route("/logout")
@@ -1082,7 +1121,8 @@ def staff():
         if request.args.get("wedit", type=int) else None
     return render_template(
         "staff.html",
-        users=db.list_users(),
+        users=db.list_users(include_pending=False),
+        pending_users=db.list_pending_users(),
         staff_list=db.list_users(role="staff", only_active=True),
         payrolls=db.list_payroll(),
         orders=db.list_work_orders(),
@@ -1117,6 +1157,16 @@ def staff_save():
             return redirect(url_for("staff"))
         db.add_user(username, password, name, role=role, phone=phone)
         flash(f"'{name}' 계정을 만들었습니다.", "ok")
+    return redirect(url_for("staff"))
+
+
+@app.route("/staff/<int:row_id>/approve", methods=["POST"])
+def staff_approve(row_id):
+    """관리자: 자가 회원가입 신청을 승인 → 계정 활성화(로그인 가능)."""
+    u = db.get_user(row_id)
+    if u:
+        db.approve_user(row_id)
+        flash(f"'{u['name']}' 님의 가입을 승인했습니다.", "ok")
     return redirect(url_for("staff"))
 
 

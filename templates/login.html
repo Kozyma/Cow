@@ -13,12 +13,16 @@
       <div class="auth-mk"></div>
       <h1>영농형 태양광 관리</h1>
       <p class="lead">아이디와 비밀번호로 로그인하세요.</p>
+      {% if notice %}<div class="flash ok" style="margin-top:16px">{{ notice }}</div>{% endif %}
       {% if error %}<div class="flash error" style="margin-top:16px">{{ error }}</div>{% endif %}
       <form method="post">
         <input type="text" name="username" placeholder="아이디" autocomplete="username" autofocus required>
         <input type="password" name="password" placeholder="비밀번호" autocomplete="current-password" required style="margin-top:8px">
         <button type="submit" class="btn" style="width:100%;margin-top:8px">로그인</button>
       </form>
+      <p class="lead" style="margin-top:16px">
+        계정이 없나요? <a href="{{ url_for('signup') }}">회원가입</a>
+      </p>
     </div>
   </main>
 </body>

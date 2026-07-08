@@ -164,6 +164,7 @@ a.li{color:var(--ink)}
 .mini{min-height:36px; padding:7px 13px; border:1px solid var(--line); border-radius:9px; font:inherit;
   font-weight:600; font-size:.82rem; cursor:pointer; background:#fff; color:var(--ink-2)}
 .mini.del{color:var(--out); border-color:#d7d7da}
+.mini.go{color:#fff; background:var(--accent); border-color:var(--accent)}
 .ibtn{width:36px; height:36px; border:1px solid var(--line); border-radius:9px; cursor:pointer; padding:0;
   display:inline-flex; align-items:center; justify-content:center; background:#fff; color:var(--ink-3)}
 .ibtn svg{width:17px; height:17px; stroke:currentColor; stroke-width:1.8; fill:none; stroke-linecap:round; stroke-linejoin:round}
