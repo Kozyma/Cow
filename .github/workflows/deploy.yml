@@ -1,0 +1,43 @@
+name: Deploy to EC2
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1.2.0
+        env:
+          SECRET_KEY: ${{ secrets.SECRET_KEY }}
+          APP_PASSWORD: ${{ secrets.APP_PASSWORD }}
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ec2-user
+          key: ${{ secrets.EC2_SSH_KEY }}
+          envs: SECRET_KEY,APP_PASSWORD
+          script: |
+            set -euo pipefail
+
+            # 최초 배포면 clone, 이후엔 pull
+            if [ ! -d "$HOME/Cow/.git" ]; then
+              git clone https://github.com/Kozyma/Cow.git "$HOME/Cow"
+            fi
+            cd "$HOME/Cow"
+            git fetch --all
+            git reset --hard origin/main
+
+            # GitHub Secrets 값으로 .env 생성 (컨테이너 환경변수 주입용)
+            cat > .env <<EOF
+            SECRET_KEY=${SECRET_KEY}
+            APP_PASSWORD=${APP_PASSWORD}
+            EOF
+
+            # 빌드 & 기동 (기존 컨테이너는 교체, 데이터 볼륨은 유지)
+            docker compose up -d --build
+
+            # 오래된 이미지 정리 (디스크 절약)
+            docker image prune -f
