@@ -4,8 +4,9 @@ services:
     image: cow-web:latest
     container_name: cow-web
     restart: unless-stopped
-    ports:
-      - "80:8000"
+    # 외부 노출은 Caddy가 담당. 내부 네트워크에서만 8000 노출
+    expose:
+      - "8000"
     env_file:
       - .env
     environment:
@@ -15,5 +16,21 @@ services:
       # SQLite 파일(farm_data.db)을 named volume에 보관 → 재배포/재빌드에도 데이터 유지
       - cow-data:/app/data
 
+  caddy:
+    image: caddy:2-alpine
+    container_name: cow-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data     # 발급받은 Let's Encrypt 인증서 보관(재시작에도 유지)
+      - caddy-config:/config
+    depends_on:
+      - web
+
 volumes:
   cow-data:
+  caddy-data:
+  caddy-config:

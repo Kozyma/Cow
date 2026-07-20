@@ -5,9 +5,11 @@
 
 ## 아키텍처
 - **EC2**: t4g.nano (Amazon Linux 2023 ARM64), Docker + docker compose 설치됨
-- **실행**: `docker compose`로 `gunicorn web_app:app` 컨테이너 구동, 호스트 `80` → 컨테이너 `8000`
+- **실행**: `docker compose`로 2개 컨테이너 구동
+  - `web`: `gunicorn web_app:app` (내부 `8000`)
+  - `caddy`: 리버스 프록시. 호스트 `80`/`443` → `web:8000`. **HTTPS(Let's Encrypt) 자동 발급·갱신**
 - **DB**: SQLite(`farm_data.db`)를 named volume `cow-data`(`/app/data`)에 저장 → 재배포에도 유지
-- **도메인**: `koreacow.kr` → EC2 고정 IP(EIP)
+- **도메인**: `koreacow.kr` → EC2 고정 IP(EIP). Caddy가 이 도메인으로 인증서 발급
 
 ## 필수: GitHub Secrets 등록
 레포 **Settings → Secrets and variables → Actions → New repository secret** 에서 아래 4개 등록:
@@ -24,8 +26,9 @@
 - 또는 **Actions 탭 → Deploy to EC2 → Run workflow** (수동 실행)
 
 ## 확인
-- 브라우저에서 `http://koreacow.kr` 접속
+- 브라우저에서 `https://koreacow.kr` 접속 (http는 https로 자동 리다이렉트)
 - 서버에서 상태 확인: `docker compose ps`, 로그: `docker compose logs -f`
+- 인증서 발급 로그: `docker compose logs caddy`
 
 ## 참고
 - t4g.nano는 RAM 0.5GB라 Docker 빌드 중 메모리가 빠듯할 수 있습니다.
@@ -35,4 +38,4 @@
   sudo chmod 600 /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile
   echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
   ```
-- HTTPS가 필요하면 Nginx + Let's Encrypt(certbot) 또는 Caddy를 추가로 구성하세요.
+- HTTPS는 Caddy가 Let's Encrypt로 자동 처리합니다. 인증서 발급 조건: 도메인이 이 서버 IP로 연결되어 있고(가비아 A레코드), 보안그룹에서 80·443이 열려 있어야 합니다(구성됨).

@@ -1,0 +1,4 @@
+koreacow.kr {
+	# HTTP는 자동으로 HTTPS로 리다이렉트되고, 인증서는 Let's Encrypt로 자동 발급·갱신됩니다.
+	reverse_proxy web:8000
+}
