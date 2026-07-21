@@ -14,11 +14,14 @@ jobs:
         env:
           SECRET_KEY: ${{ secrets.SECRET_KEY }}
           APP_PASSWORD: ${{ secrets.APP_PASSWORD }}
+          VISION_API_KEY: ${{ secrets.VISION_API_KEY }}
+          EKAPE_SERVICE_KEY: ${{ secrets.EKAPE_SERVICE_KEY }}
+          CONSOLE_KEY: ${{ secrets.CONSOLE_KEY }}
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ec2-user
           key: ${{ secrets.EC2_SSH_KEY }}
-          envs: SECRET_KEY,APP_PASSWORD
+          envs: SECRET_KEY,APP_PASSWORD,VISION_API_KEY,EKAPE_SERVICE_KEY,CONSOLE_KEY
           script: |
             set -euo pipefail
 
@@ -34,6 +37,9 @@ jobs:
             cat > .env <<EOF
             SECRET_KEY=${SECRET_KEY}
             APP_PASSWORD=${APP_PASSWORD}
+            VISION_API_KEY=${VISION_API_KEY}
+            EKAPE_SERVICE_KEY=${EKAPE_SERVICE_KEY}
+            CONSOLE_KEY=${CONSOLE_KEY}
             EOF
 
             # 빌드 & 기동 (기존 컨테이너는 교체, 데이터 볼륨은 유지)
