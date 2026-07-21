@@ -10,3 +10,7 @@ __pycache__/
 
 # 이전 UI 로컬 백업(저장소에 불필요)
 _ui_backup_prev/
+
+# 비밀 인증키(.env) — 저장소에 올리지 않음(.env.example만 템플릿으로 커밋)
+.env
+.env.bak

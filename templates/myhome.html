@@ -4,6 +4,8 @@
 <h1 class="h1">내 작업</h1>
 <p class="lead">{{ current_user['name'] }}님께 지시된 작업입니다. 끝내면 <b>완료</b>를 눌러주세요.</p>
 
+{% if routine_groups %}{% include "_routine.html" %}{% endif %}
+
 {% set todo = orders | selectattr('status', 'ne', '완료') | list %}
 {% set done = orders | selectattr('status', 'eq', '완료') | list %}
 

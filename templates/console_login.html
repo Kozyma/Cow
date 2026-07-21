@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#ffffff">
+  <title>개발자 콘솔 · 영농형 태양광 관리</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <main class="auth">
+    <div class="auth-card">
+      <div class="auth-mk"></div>
+      <h1>🛠 개발자 콘솔</h1>
+      {% if disabled %}
+      <p class="lead">콘솔이 잠겨 있습니다. <b>.env 에 <code>CONSOLE_KEY</code></b> 를 설정하고 서버를 재시작하세요.</p>
+      {% else %}
+      <p class="lead">운영자 콘솔 키를 입력하세요.</p>
+      {% if error %}<div class="flash error" style="margin-top:16px">{{ error }}</div>{% endif %}
+      <form method="post">
+        <input type="password" name="key" placeholder="콘솔 키 (CONSOLE_KEY)" autocomplete="off" autofocus required>
+        <button type="submit" class="btn" style="width:100%;margin-top:8px">열기</button>
+      </form>
+      {% endif %}
+      <p class="lead" style="margin-top:16px"><a href="{{ url_for('login') }}">← 농장 로그인으로</a></p>
+    </div>
+  </main>
+</body>
+</html>

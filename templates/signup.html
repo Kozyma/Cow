@@ -9,28 +9,78 @@
 </head>
 <body>
   <main class="auth">
+    <div class="auth-wrap">
+      <div class="brand">
+        <div class="brand-mk">
+          <svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <circle cx="32" cy="23" r="9" fill="#C67A12"/>
+            <g stroke="#C67A12" stroke-width="2.6" stroke-linecap="round">
+              <path d="M32 7v4"/><path d="M32 35v4"/><path d="M16 23h4"/><path d="M44 23h4"/>
+              <path d="M20.5 11.5l2.8 2.8"/><path d="M40.7 31.7l2.8 2.8"/>
+              <path d="M43.5 11.5l-2.8 2.8"/><path d="M23.3 31.7l-2.8 2.8"/>
+            </g>
+            <path d="M9 54h46" stroke="#2B6E44" stroke-width="3" stroke-linecap="round"/>
+            <path d="M17 49l5-6M31 49l5-6M45 49l5-6" stroke="#2B6E44" stroke-width="2.6" stroke-linecap="round"/>
+          </svg>
+        </div>
+        <div class="brand-name">영농형 태양광 관리</div>
+        <div class="brand-tag">새 농장을 만들고 바로 시작하세요</div>
+      </div>
     <div class="auth-card">
-      <div class="auth-mk"></div>
       <h1>회원가입</h1>
-      <p class="lead">계정을 신청하면 관리자 승인 후 로그인할 수 있습니다.</p>
+      <p class="lead">가입 유형을 선택하세요. <b>관리자</b>는 새 농장을 만들고, <b>직원</b>은 기존 농장에 합류 신청합니다.</p>
       {% if error %}<div class="flash error" style="margin-top:16px">{{ error }}</div>{% endif %}
       <form method="post">
-        <input type="text" name="name" placeholder="이름" autocomplete="name"
-               value="{{ form.name }}" autofocus required>
+        <div class="kind-pick">
+          <label class="kp"><input type="radio" name="kind" value="admin" {{ 'checked' if form.kind != 'staff' }}>
+            <span><b>관리자</b><small>새 농장 만들기</small></span></label>
+          <label class="kp"><input type="radio" name="kind" value="staff" {{ 'checked' if form.kind == 'staff' }}>
+            <span><b>직원</b><small>기존 농장 합류</small></span></label>
+        </div>
+
+        <div id="adminFields">
+          <input type="text" name="farm_name" placeholder="농장 이름 (예: 서천 햇살농장)"
+                 value="{{ form.farm_name }}">
+        </div>
+        <div id="staffFields" hidden>
+          <select name="join_farm_id" class="signup-sel">
+            <option value="">— 합류할 농장 선택 —</option>
+            {% for f in farms %}<option value="{{ f['id'] }}" {{ 'selected' if form.join_farm_id == f['id']|string }}>{{ f['name'] }}</option>{% endfor %}
+          </select>
+        </div>
+
+        <input type="text" name="name" placeholder="내 이름" autocomplete="name"
+               value="{{ form.name }}" required style="margin-top:8px">
         <input type="text" name="username" placeholder="아이디 (영문·숫자, 3자 이상)"
                autocomplete="username" value="{{ form.username }}" required
-               inputmode="latin" autocapitalize="none" spellcheck="false">
+               inputmode="latin" autocapitalize="none" spellcheck="false" style="margin-top:8px">
         <input type="text" name="phone" placeholder="연락처 (선택)"
-               autocomplete="tel" inputmode="tel" value="{{ form.phone }}">
+               autocomplete="tel" inputmode="tel" value="{{ form.phone }}" style="margin-top:8px">
         <input type="password" name="password" placeholder="비밀번호 (4자 이상)"
-               autocomplete="new-password" required>
+               autocomplete="new-password" required style="margin-top:8px">
         <input type="password" name="password2" placeholder="비밀번호 확인"
-               autocomplete="new-password" required>
-        <button type="submit" class="btn" style="width:100%">가입 신청</button>
+               autocomplete="new-password" required style="margin-top:8px">
+        <button type="submit" class="btn" style="width:100%;margin-top:10px">가입하기</button>
       </form>
+      <script>
+        (function () {
+          var a = document.getElementById('adminFields');
+          var s = document.getElementById('staffFields');
+          function upd() {
+            var k = document.querySelector('input[name=kind]:checked').value;
+            a.hidden = (k !== 'admin');
+            s.hidden = (k !== 'staff');
+          }
+          document.querySelectorAll('input[name=kind]').forEach(function (r) {
+            r.addEventListener('change', upd);
+          });
+          upd();
+        })();
+      </script>
       <p class="lead" style="margin-top:16px">
         이미 계정이 있나요? <a href="{{ url_for('login') }}">로그인</a>
       </p>
+    </div>
     </div>
   </main>
 </body>

@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#ffffff">
+  <title>개발자 콘솔 · 영농형 태양광 관리</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <main class="page" style="max-width:680px; padding-top:20px">
+    {% with msgs = get_flashed_messages(with_categories=true) %}
+      {% if msgs %}<div class="flashes">{% for c, m in msgs %}<div class="flash {{ c }}">{{ m }}</div>{% endfor %}</div>{% endif %}
+    {% endwith %}
+
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-top:6px">
+      <h1 class="h1" style="margin:0">🛠 개발자 콘솔</h1>
+      <div style="display:flex; gap:8px">
+        <a class="mini" href="{{ url_for('console') }}">새로고침</a>
+        <a class="mini" href="{{ url_for('console_logout') }}">콘솔 닫기</a>
+      </div>
+    </div>
+    <p class="lead">전체 농장·계정 관리 · 운영자 전용</p>
+
+    {# ── 시스템 / 환경설정 상태 ── #}
+    <section class="sec">
+      <div class="sec-h"><h2>시스템 상태</h2></div>
+      <div class="chips">
+        <span class="chip"><b>Python</b> {{ sysinfo.python }}</span>
+        <span class="chip"><b>서버시각</b> {{ sysinfo.now }}</span>
+        <span class="chip"><b>농장</b> {{ sysinfo.farm_count }}개</span>
+        <span class="chip"><b>계정</b> {{ sysinfo.account_count }}개</span>
+        <span class="chip"><b>master.db</b> {{ sysinfo.master_kb }}KB</span>
+      </div>
+      <div class="d" style="color:var(--ink-3); font-size:.82rem; margin-top:8px; word-break:break-all">데이터 폴더: {{ sysinfo.data_dir }}</div>
+
+      <div class="sec-h" style="margin-top:12px"><h3>환경설정(.env) 상태</h3></div>
+      <div class="chips">
+        {% for k, ok in sysinfo.env.items() %}
+        <span class="chip"><b>{{ k }}</b> {{ '✓ 설정됨' if ok else '✗ 없음' }}</span>
+        {% endfor %}
+      </div>
+      <p class="lead" style="margin-top:6px; font-size:.82rem">값은 보안상 표시하지 않고 설정 여부만 보여줍니다.</p>
+    </section>
+
+    {# ── 최근 서버 로그 ── #}
+    <section class="sec">
+      <div class="sec-h"><h2>최근 서버 로그</h2>
+        <span class="count">{{ logs|length }}줄 · 접속·오류</span></div>
+      <pre class="logbox">{% for line in logs %}{{ line }}
+{% else %}(로그 없음){% endfor %}</pre>
+      <p class="lead" style="margin-top:6px; font-size:.82rem">‘새로고침’을 누르면 최신 로그로 갱신됩니다. (메모리에 최근 1,000줄 보관)</p>
+    </section>
+
+    {# ── 농장 · 계정 ── #}
+    {% for f in farms %}
+    <section class="sec">
+      <div class="sec-h"><h2>{{ f.name }}</h2>
+        <span class="count">#{{ f.id }} · {{ f.livestock }}두 · 계정 {{ f.accounts|length }} · {{ f.size_kb }}KB</span></div>
+      <div class="d" style="color:var(--ink-3); font-size:.82rem; margin-bottom:6px">생성 {{ f.created }}</div>
+      <div class="list">
+        {% for u in f.accounts %}
+        <div class="li"><span class="dot {{ '' if u['active'] else 'gray' }}"></span>
+          <div class="m">
+            <div class="t">{{ u['name'] }}
+              <span class="tag {{ 'on' if u['role']=='admin' else 'off' }}">{{ '관리자' if u['role']=='admin' else '직원' }}</span>
+              {% if not u['active'] %}<span class="tag off">비활성</span>{% endif %}
+              {% if u['pending'] %}<span class="tag off">승인대기</span>{% endif %}</div>
+            <div class="d">아이디 {{ u['username'] }}{% if u['phone'] %} · {{ u['phone'] }}{% endif %}</div>
+          </div>
+          <div class="act">
+            <form method="post" action="{{ url_for('console_account_reset') }}"
+                  onsubmit="var p=prompt('{{ u['username'] }} 님의 새 비밀번호(4자 이상)'); if(!p||p.length<4){alert('4자 이상 입력하세요.');return false;} this.new_password.value=p;">
+              <input type="hidden" name="farm_id" value="{{ f.id }}">
+              <input type="hidden" name="user_id" value="{{ u['id'] }}">
+              <input type="hidden" name="new_password">
+              <button class="mini">비번초기화</button></form>
+            <form method="post" action="{{ url_for('console_account_delete') }}"
+                  onsubmit="return confirm('{{ u['username'] }} 계정을 삭제할까요?');">
+              <input type="hidden" name="farm_id" value="{{ f.id }}">
+              <input type="hidden" name="user_id" value="{{ u['id'] }}">
+              <button class="mini del">삭제</button></form>
+          </div>
+        </div>
+        {% else %}
+        <div class="empty">계정이 없습니다.</div>
+        {% endfor %}
+      </div>
+      <form method="post" action="{{ url_for('console_farm_delete', farm_id=f.id) }}"
+            onsubmit="return confirm('⚠ 「{{ f.name }}」 농장을 통째로 삭제합니다.\n이 농장의 모든 데이터(가축·재무·계정)가 사라지고 되돌릴 수 없습니다.\n계속할까요?');"
+            style="margin-top:10px">
+        <button class="btn danger" style="min-width:0; padding:0 18px; min-height:44px; flex:0 0 auto">이 농장 삭제</button>
+      </form>
+    </section>
+    {% endfor %}
+  </main>
+</body>
+</html>

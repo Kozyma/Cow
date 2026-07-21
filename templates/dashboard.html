@@ -77,7 +77,13 @@
 <nav class="subtabs" data-default="money">
   <button type="button" data-tab="money">수익</button>
   <button type="button" data-tab="sched">일정</button>
+  <button type="button" data-tab="routine">할일</button>
 </nav>
+
+{# ── 할일 루틴 탭 ──────────────────────────────────────── #}
+<div class="tabpane" data-pane="routine" hidden>
+{% include "_routine.html" %}
+</div>
 
 {# ── 수익 탭 ──────────────────────────────────────────── #}
 <div class="tabpane" data-pane="money">

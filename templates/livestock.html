@@ -75,8 +75,10 @@
           <input name="ear_tag" id="itemEar" inputmode="numeric"
                  value="{{ edit_row['ear_tag'] if edit_row and edit_row['ear_tag'] else '' }}"
                  placeholder="예) 002-1234-5678">
+          <button type="button" class="btn line" id="itemEarCam" title="이표 사진 찍기">📷</button>
           <button type="button" class="btn line" id="itemEarBtn">🔍 조회</button>
         </div>
+        <input type="file" id="itemEarFile" accept="image/*" capture="environment" hidden>
         <small class="ear-msg" id="itemEarMsg"></small>
         <div class="trace-result" id="itemTraceResult"></div>
       </div>
@@ -505,8 +507,10 @@
       <label class="fld full"><span>이표번호 <small>(개체식별번호 — ‘조회’ 시 출생일·성별 자동입력)</small></span>
         <div class="ear-lookup">
           <input name="ear_tag" id="cowEar" inputmode="numeric" placeholder="예) 002-1234-5678">
+          <button type="button" class="btn line" id="cowEarCam" title="이표 사진 찍기">📷</button>
           <button type="button" class="btn line" id="cowEarBtn">🔍 조회</button>
         </div>
+        <input type="file" id="cowEarFile" accept="image/*" capture="environment" hidden>
         <small class="ear-msg" id="cowEarMsg"></small>
         <div class="trace-result" id="cowTraceResult"></div></label>
       <label class="fld"><span>출생일</span>

@@ -1,0 +1,49 @@
+{# 할일 루틴 — 구역(축사)별로 묶어 한 번에 체크. 관리자/직원 공용. #}
+<section class="sec">
+  <div class="sec-h"><h2>할일 루틴</h2>
+    <span class="count">오늘 {{ routine_prog.done }} / {{ routine_prog.total }} 구역 완료</span></div>
+  <p class="lead" style="margin:0 0 4px">구역(축사)별로 <b>루틴 완료</b>를 한 번에 체크하세요. 체크는 매일 새벽 자동으로 초기화됩니다.</p>
+
+  {% if is_admin %}
+  <form method="post" action="{{ url_for('routine_add') }}" class="routine-add">
+    <input name="barn" list="barnList" class="rbarn" placeholder="구역(축사)" autocomplete="off">
+    <input name="title" placeholder="할 일 (예: 사료 급여)" required>
+    <button type="submit" class="btn">추가</button>
+  </form>
+  <datalist id="barnList">{% for b in barns %}<option value="{{ b }}">{% endfor %}</datalist>
+  {% endif %}
+
+  {% if routine_groups %}
+  <div class="routine">
+    {% for g in routine_groups %}
+    <div class="rgroup {{ 'done' if g.all_done }}">
+      <div class="rg-head">
+        <form method="post" action="{{ url_for('routine_barn_toggle') }}">
+          <input type="hidden" name="barn" value="{{ g.barn }}">
+          <button type="submit" class="rcheck" aria-label="{{ g.barn }} 루틴 완료">{% if g.all_done %}✓{% endif %}</button>
+        </form>
+        <span class="rg-name">{{ g.barn }}</span>
+        <span class="rg-count">{{ g.done }}/{{ g.total }}</span>
+      </div>
+      <div class="rg-steps">
+        {% for t in g.tasks %}
+        <div class="rstep {{ 'on' if t['done_date'] == today }}">
+          <span class="rs-dot"></span>
+          <span class="rs-t">{{ t['title'] }}</span>
+          {% if is_admin %}<form method="post" action="{{ url_for('routine_delete', row_id=t['id']) }}"
+                onsubmit="return confirm('이 항목을 삭제할까요?');"><button type="submit" class="rmini del" aria-label="삭제">✕</button></form>{% endif %}
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% if is_admin %}
+  <form method="post" action="{{ url_for('routine_reset') }}" class="actions" style="margin-top:12px">
+    <button type="submit" class="btn sec">오늘 체크 초기화</button>
+  </form>
+  {% endif %}
+  {% else %}
+  <div class="empty">아직 할일이 없습니다.{% if is_admin %}<br>구역(축사)과 할 일을 추가해 보세요. 예: 1동 우사 — 사료 급여{% endif %}</div>
+  {% endif %}
+</section>

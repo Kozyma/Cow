@@ -3,26 +3,50 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#ffffff">
+  <meta name="theme-color" content="#EEEFEA">
   <title>로그인 · 영농형 태양광 관리</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
   <main class="auth">
-    <div class="auth-card">
-      <div class="auth-mk"></div>
-      <h1>영농형 태양광 관리</h1>
-      <p class="lead">아이디와 비밀번호로 로그인하세요.</p>
-      {% if notice %}<div class="flash ok" style="margin-top:16px">{{ notice }}</div>{% endif %}
-      {% if error %}<div class="flash error" style="margin-top:16px">{{ error }}</div>{% endif %}
-      <form method="post">
-        <input type="text" name="username" placeholder="아이디" autocomplete="username" autofocus required>
-        <input type="password" name="password" placeholder="비밀번호" autocomplete="current-password" required style="margin-top:8px">
-        <button type="submit" class="btn" style="width:100%;margin-top:8px">로그인</button>
-      </form>
-      <p class="lead" style="margin-top:16px">
-        계정이 없나요? <a href="{{ url_for('signup') }}">회원가입</a>
-      </p>
+    <div class="auth-wrap">
+      <div class="brand">
+        <div class="brand-mk">
+          <svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <circle cx="32" cy="23" r="9" fill="#C67A12"/>
+            <g stroke="#C67A12" stroke-width="2.6" stroke-linecap="round">
+              <path d="M32 7v4"/><path d="M32 35v4"/><path d="M16 23h4"/><path d="M44 23h4"/>
+              <path d="M20.5 11.5l2.8 2.8"/><path d="M40.7 31.7l2.8 2.8"/>
+              <path d="M43.5 11.5l-2.8 2.8"/><path d="M23.3 31.7l-2.8 2.8"/>
+            </g>
+            <path d="M9 54h46" stroke="#2B6E44" stroke-width="3" stroke-linecap="round"/>
+            <path d="M17 49l5-6M31 49l5-6M45 49l5-6" stroke="#2B6E44" stroke-width="2.6" stroke-linecap="round"/>
+          </svg>
+        </div>
+        <div class="brand-name">영농형 태양광 관리</div>
+        <div class="brand-tag">한 곳에서 관리하는 <b>축산 · 태양광 · 재무</b></div>
+      </div>
+
+      <div class="auth-card">
+        <p class="lead" style="margin:0 0 6px">아이디와 비밀번호로 로그인하세요.</p>
+        {% if notice %}<div class="flash ok" style="margin-top:12px">{{ notice }}</div>{% endif %}
+        {% if error %}<div class="flash error" style="margin-top:12px">{{ error }}</div>{% endif %}
+        <form method="post">
+          <input type="text" name="username" placeholder="아이디" autocomplete="username" autofocus required>
+          <input type="password" name="password" placeholder="비밀번호" autocomplete="current-password" required>
+          <button type="submit" class="btn" style="width:100%">로그인</button>
+        </form>
+        <p class="lead" style="margin-top:14px">
+          농장이 없나요? <a href="{{ url_for('signup') }}">새 농장 만들기</a>
+        </p>
+      </div>
+
+      <div class="brand-feats">
+        <span><i style="background:var(--green)"></i>농축산</span>
+        <span><i style="background:var(--amber)"></i>태양광</span>
+        <span><i style="background:var(--blue)"></i>재무</span>
+        <span><i style="background:var(--ink-3)"></i>할일·통계</span>
+      </div>
     </div>
   </main>
 </body>

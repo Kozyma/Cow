@@ -108,6 +108,13 @@
         <input name="ekape_key" value="{{ ekape_key }}" placeholder="공공데이터포털에서 발급받은 일반 인증키(Encoding) 붙여넣기" autocomplete="off">
       </label>
     </div>
+    <div class="sec-h" style="margin-top:8px"><h3>📷 이표 사진 자동입력 (Google Vision OCR)</h3></div>
+    <p class="lead">Google Cloud Vision <b>API 키</b>를 붙여넣으면, 이표 입력칸의 <b>📷 사진</b> 버튼으로 이표를 찍어 번호를 자동으로 읽어 넣습니다. (매월 1,000장까지 무료)</p>
+    <div class="grid">
+      <label class="fld full"><span>Google Vision API 키</span>
+        <input name="vision_key" value="{{ vision_key }}" placeholder="Google Cloud → Vision API 사용 설정 후 발급받은 API 키 붙여넣기" autocomplete="off">
+      </label>
+    </div>
     <div class="actions"><button class="btn">축산·사료 설정 저장</button></div>
   </form>
 </section>

@@ -57,8 +57,12 @@ def today_str():
 
 
 class Database:
-    def __init__(self, path):
-        """path: SQLite 파일 경로. 없으면 새로 만든다."""
+    def __init__(self, path, init_admin=True):
+        """path: SQLite 파일 경로. 없으면 새로 만든다.
+
+        init_admin=False 면 기본 관리자(admin/admin1234)를 만들지 않는다.
+        (멀티 농장: 가입자가 직접 첫 관리자가 되므로 새 농장 DB엔 기본 계정을 두지 않음)
+        """
         self.path = path
         # check_same_thread=False: Tkinter 콜백에서 안전하게 쓰기 위함
         self.conn = sqlite3.connect(path, check_same_thread=False)
@@ -67,7 +71,8 @@ class Database:
         self._create_tables()
         self._migrate()
         self._init_settings()
-        self._init_admin()
+        if init_admin:
+            self._init_admin()
 
     # ── 초기화 ───────────────────────────────────────────────────
     def _create_tables(self):
@@ -226,6 +231,16 @@ class Database:
                 note         TEXT,
                 FOREIGN KEY (assignee_id) REFERENCES users(id) ON DELETE CASCADE
             );
+
+            -- 할일 루틴 (순서가 있는 반복 체크리스트) — done_date 가 오늘이면 '오늘 완료'
+            CREATE TABLE IF NOT EXISTS routine_task (
+                id        INTEGER PRIMARY KEY AUTOINCREMENT,
+                position  INTEGER NOT NULL DEFAULT 0,   -- 정렬 순서(작을수록 위)
+                barn      TEXT,                         -- 구역(축사) — 이 단위로 묶어서 체크
+                title     TEXT NOT NULL,
+                done_date TEXT,                         -- 마지막 체크한 날(YYYY-MM-DD) → 매일 자동 리셋
+                created   TEXT
+            );
             """
         )
         self.conn.commit()
@@ -270,6 +285,11 @@ class Database:
         ):
             if col not in ls_cols:
                 self.conn.execute(ddl)
+
+        # 할일 루틴: 구역(축사) 컬럼 보강
+        rt_cols = [r["name"] for r in self.conn.execute("PRAGMA table_info(routine_task)")]
+        if rt_cols and "barn" not in rt_cols:
+            self.conn.execute("ALTER TABLE routine_task ADD COLUMN barn TEXT")
 
         # 사료 구매: 구버전(테이블만 있던 경우) 대비 컬럼 보강
         fp_cols = [r["name"] for r in self.conn.execute("PRAGMA table_info(feed_purchase)")]
@@ -385,6 +405,79 @@ class Database:
         return self.conn.execute(
             "SELECT * FROM reminder WHERE id=?", (row_id,)
         ).fetchone()
+
+    # ── 할일 루틴(순서 있는 체크리스트) ──────────────────────────
+    def list_routine_tasks(self):
+        return self.conn.execute(
+            "SELECT * FROM routine_task ORDER BY position, id"
+        ).fetchall()
+
+    def add_routine_task(self, title, barn=None):
+        p = self.conn.execute(
+            "SELECT COALESCE(MAX(position), 0) + 1 AS p FROM routine_task"
+        ).fetchone()["p"]
+        self.conn.execute(
+            "INSERT INTO routine_task(position, barn, title, created) VALUES (?, ?, ?, ?)",
+            (p, barn or "공통", title, today_str()))
+        self.conn.commit()
+
+    def toggle_routine_task(self, task_id, today):
+        r = self.conn.execute(
+            "SELECT done_date FROM routine_task WHERE id=?", (task_id,)).fetchone()
+        if not r:
+            return
+        new = None if r["done_date"] == today else today
+        self.conn.execute(
+            "UPDATE routine_task SET done_date=? WHERE id=?", (new, task_id))
+        self.conn.commit()
+
+    def toggle_routine_barn(self, barn, today):
+        """구역(축사) 단위로 한꺼번에 체크/해제.
+        그 구역이 모두 오늘 완료면 전부 해제, 아니면 전부 오늘 완료로."""
+        rows = self.conn.execute(
+            "SELECT done_date FROM routine_task WHERE IFNULL(barn,'공통')=?",
+            (barn,)).fetchall()
+        if not rows:
+            return
+        all_done = all(r["done_date"] == today for r in rows)
+        new = None if all_done else today
+        self.conn.execute(
+            "UPDATE routine_task SET done_date=? WHERE IFNULL(barn,'공통')=?",
+            (new, barn))
+        self.conn.commit()
+
+    def move_routine_task(self, task_id, direction):
+        """위/아래 이웃과 순서를 맞바꾼다."""
+        tasks = self.list_routine_tasks()
+        ids = [t["id"] for t in tasks]
+        if task_id not in ids:
+            return
+        i = ids.index(task_id)
+        j = i - 1 if direction == "up" else i + 1
+        if j < 0 or j >= len(tasks):
+            return
+        a, b = tasks[i], tasks[j]
+        self.conn.execute("UPDATE routine_task SET position=? WHERE id=?",
+                          (b["position"], a["id"]))
+        self.conn.execute("UPDATE routine_task SET position=? WHERE id=?",
+                          (a["position"], b["id"]))
+        self.conn.commit()
+
+    def delete_routine_task(self, task_id):
+        self.conn.execute("DELETE FROM routine_task WHERE id=?", (task_id,))
+        self.conn.commit()
+
+    def reset_routine(self):
+        self.conn.execute("UPDATE routine_task SET done_date=NULL")
+        self.conn.commit()
+
+    def routine_progress(self, today):
+        total = self.conn.execute(
+            "SELECT COUNT(*) AS c FROM routine_task").fetchone()["c"]
+        done = self.conn.execute(
+            "SELECT COUNT(*) AS c FROM routine_task WHERE done_date=?",
+            (today,)).fetchone()["c"]
+        return dict(total=total, done=done)
 
     def list_reminders(self, only_active=True):
         where = "WHERE done=0" if only_active else ""

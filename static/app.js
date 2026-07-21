@@ -119,6 +119,61 @@ async function lookupCattle(input, msgEl, btn, onData, resultEl) {
   if (clear) clear.addEventListener('click', () => { input.value = ''; run(); input.focus(); });
 })();
 
+// 이표 사진 촬영 → OCR(구글 Vision) → 개체식별번호 자동입력 + 이력 조회
+(() => {
+  // 업로드 전 사진을 줄인다(속도·비용·용량 절감). 실패하면 원본 사용.
+  function shrink(file, maxDim, quality) {
+    return new Promise((resolve) => {
+      try {
+        const img = new Image();
+        img.onload = () => {
+          const s = Math.min(1, maxDim / Math.max(img.width, img.height));
+          const w = Math.round(img.width * s), h = Math.round(img.height * s);
+          const c = document.createElement('canvas');
+          c.width = w; c.height = h;
+          c.getContext('2d').drawImage(img, 0, 0, w, h);
+          c.toBlob((b) => resolve(b || file), 'image/jpeg', quality);
+          URL.revokeObjectURL(img.src);
+        };
+        img.onerror = () => resolve(file);
+        img.src = URL.createObjectURL(file);
+      } catch (e) { resolve(file); }
+    });
+  }
+  async function ocr(file, input, msgEl, lookupBtn) {
+    if (!file || !input) return;
+    const setMsg = (t, cls) => {
+      if (msgEl) { msgEl.textContent = t; msgEl.className = 'ear-msg' + (cls ? ' ' + cls : ''); }
+    };
+    setMsg('📷 사진에서 이표 번호를 읽는 중…');
+    const img = await shrink(file, 1600, 0.85);
+    const fd = new FormData();
+    fd.append('image', img, 'eartag.jpg');
+    try {
+      const res = await fetch('/api/ocr/eartag', { method: 'POST', body: fd });
+      const d = await res.json();
+      if (!d.ok) { setMsg(d.error || '사진 인식에 실패했습니다.', 'err'); return; }
+      input.value = d.ear_tag;
+      setMsg('사진에서 읽은 번호: ' + d.ear_tag + ' — 다르면 고친 뒤 조회하세요.', 'ok');
+      if (lookupBtn) lookupBtn.click();     // 이어서 이력 자동 조회
+    } catch (e) {
+      setMsg('OCR 요청 실패(인터넷 연결 확인).', 'err');
+    }
+  }
+  function wire(camId, fileId, inputId, msgId, lookupBtnId) {
+    const cam = document.getElementById(camId), file = document.getElementById(fileId);
+    if (!cam || !file) return;
+    cam.addEventListener('click', () => file.click());
+    file.addEventListener('change', () => {
+      ocr(file.files[0], document.getElementById(inputId),
+          document.getElementById(msgId), document.getElementById(lookupBtnId));
+      file.value = '';                      // 같은 사진 다시 선택 가능하게
+    });
+  }
+  wire('itemEarCam', 'itemEarFile', 'itemEar', 'itemEarMsg', 'itemEarBtn');
+  wire('cowEarCam', 'cowEarFile', 'cowEar', 'cowEarMsg', 'cowEarBtn');
+})();
+
 // 글자 크게/작게 — 헤더의 가–/가+ (기기에 저장)
 (() => {
   const KEY = 'fscale';

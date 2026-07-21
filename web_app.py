@@ -9,13 +9,16 @@ web_app.py — 영농형 태양광 관리 프로그램 (웹 버전)
 데이터는 데스크톱판과 동일하게 SQLite 파일(farm_data.db) 하나에 저장된다.
 """
 
+import base64
 import concurrent.futures
 import io
+import json
 import os
 import random
 import re
 import sys
 import tempfile
+import urllib.error
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
@@ -24,10 +27,12 @@ from datetime import datetime, timedelta
 
 from functools import wraps
 
+import sqlite3
 from flask import (
     Flask, render_template, request, redirect, url_for,
-    send_file, abort, flash, Response, session, jsonify,
+    send_file, abort, flash, Response, session, jsonify, g,
 )
+from werkzeug.local import LocalProxy
 
 import exporter
 from database import (
@@ -39,6 +44,33 @@ from database import (
 from web_charts import (
     won, won_short, bar_chart, line_chart, INCOME, EXPENSE, SOLAR,
 )
+
+
+# ── .env 로더 (의존성 없이) ──────────────────────────────────────────
+def _load_dotenv():
+    """스크립트 폴더의 .env 를 읽어 환경변수로 올린다(이미 설정된 값은 유지).
+
+    형식: KEY=VALUE 한 줄에 하나. '#' 주석·빈 줄은 무시, 값의 앞뒤 따옴표는 제거.
+    """
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+    try:
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                s = line.strip()
+                if not s or s.startswith("#") or "=" not in s:
+                    continue
+                key, _, val = s.partition("=")
+                key = key.strip()
+                val = val.strip().strip('"').strip("'")
+                if key and key not in os.environ:   # 실제 환경변수가 우선
+                    os.environ[key] = val
+    except FileNotFoundError:
+        pass
+    except Exception:
+        pass
+
+
+_load_dotenv()
 
 
 # ── 데이터 파일 위치 ─────────────────────────────────────────────────
@@ -141,20 +173,173 @@ app = Flask(
 # 세션/쿠키 서명 키. 클라우드 배포 시 환경변수 SECRET_KEY 로 임의 값을 주세요.
 app.secret_key = os.environ.get("SECRET_KEY", "farm-solar-local-dev-key")
 
+# ── 콘솔 'log' 명령용: 서버 로그(접속·오류)를 메모리에 최근분 보관 ──
+import logging
+from collections import deque
+
+_LOG_BUF = deque(maxlen=1000)
+
+
+class _BufLogHandler(logging.Handler):
+    def emit(self, record):
+        try:
+            _LOG_BUF.append(self.format(record))
+        except Exception:
+            pass
+
+
+def _init_log_capture():
+    h = _BufLogHandler()
+    h.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s", "%m-%d %H:%M:%S"))
+    for name in ("werkzeug", None):        # 접속 로그(werkzeug) + 앱/오류(root)
+        lg = logging.getLogger(name) if name else logging.getLogger()
+        lg.addHandler(h)
+        if lg.level == logging.NOTSET or lg.level > logging.INFO:
+            lg.setLevel(logging.INFO)
+    app.logger.addHandler(h)
+
+
+_init_log_capture()
+
 # 비밀번호 보호:
 #   환경변수 APP_PASSWORD 가 설정돼 있으면(=인터넷 공개 배포) 로그인을 요구한다.
 #   로컬(집/사무실)에서 그냥 실행할 때는 설정하지 않으므로 로그인 없이 바로 쓴다.
 APP_PASSWORD = os.environ.get("APP_PASSWORD", "").strip()
+CONSOLE_KEY = os.environ.get("CONSOLE_KEY", "").strip()   # 개발자/운영 콘솔 접속 키(.env)
 
-db = Database(DB_PATH)
+# ── 멀티 농장(멀티테넌시): 농장별 별도 DB + 중앙 계정 라우팅 ──────────
+#   · master.db     : farms(농장 목록) · account_index(아이디→농장)
+#   · farm_<id>.db  : 농장별 실제 데이터(가축·재무·직원 등) — 기존 코드가 그대로 동작
+#   로그인하면 아이디로 농장을 찾아 그 농장 DB로 연결한다(관리자 1명 = 농장 1개).
+MASTER_PATH = os.path.join(DATA_DIR, "master.db")
+
+
+def _master():
+    conn = sqlite3.connect(MASTER_PATH, check_same_thread=False)
+    conn.row_factory = sqlite3.Row
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS farms(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT, db_path TEXT, created TEXT);
+        CREATE TABLE IF NOT EXISTS account_index(
+            username TEXT PRIMARY KEY, farm_id INTEGER, role TEXT);
+        """
+    )
+    conn.commit()
+    return conn
+
+
+master = _master()
+
+
+def farm_by_username(username):
+    return master.execute(
+        "SELECT * FROM account_index WHERE username=?", (username,)).fetchone()
+
+
+def farm_get(farm_id):
+    return master.execute("SELECT * FROM farms WHERE id=?", (farm_id,)).fetchone()
+
+
+def farm_list():
+    return master.execute("SELECT id, name FROM farms ORDER BY name").fetchall()
+
+
+def index_add(username, farm_id, role):
+    master.execute(
+        "INSERT OR REPLACE INTO account_index(username, farm_id, role) VALUES(?,?,?)",
+        (username, farm_id, role))
+    master.commit()
+
+
+def index_remove(username):
+    master.execute("DELETE FROM account_index WHERE username=?", (username,))
+    master.commit()
+
+
+def farm_set_name(farm_id, name):
+    master.execute("UPDATE farms SET name=? WHERE id=?", (name, farm_id))
+    master.commit()
+
+
+def farm_create(name):
+    """새 농장 등록 → (farm_id, 절대 DB경로). 실제 DB 파일은 호출측에서 만든다."""
+    cur = master.execute(
+        "INSERT INTO farms(name, db_path, created) VALUES(?,?,?)",
+        (name, "", today_str()))
+    fid = cur.lastrowid
+    fname = f"farm_{fid}.db"
+    master.execute("UPDATE farms SET db_path=? WHERE id=?", (fname, fid))
+    master.commit()
+    return fid, os.path.join(DATA_DIR, fname)
+
+
+def farm_db_path(farm_id):
+    row = farm_get(farm_id)
+    if not row:
+        return None
+    p = row["db_path"]
+    return p if os.path.isabs(p) else os.path.join(DATA_DIR, p)
+
+
+_farm_dbs = {}
+
+
+def get_farm_db(farm_id):
+    """농장 id → Database(캐시). 없으면 None."""
+    if not farm_id:
+        return None
+    d = _farm_dbs.get(farm_id)
+    if d is None:
+        path = farm_db_path(farm_id)
+        if not path:
+            return None
+        d = Database(path)
+        _farm_dbs[farm_id] = d
+    return d
+
+
+def _bootstrap_master():
+    """최초 실행: 기존 단일 농장(farm_data.db)을 1번 농장으로 등록."""
+    n = master.execute("SELECT COUNT(*) AS c FROM farms").fetchone()["c"]
+    if n == 0 and os.path.exists(DB_PATH):
+        existing = Database(DB_PATH)
+        name = existing.get_setting("farm_name", "우리 농장")
+        cur = master.execute(
+            "INSERT INTO farms(name, db_path, created) VALUES(?,?,?)",
+            (name, os.path.basename(DB_PATH), today_str()))
+        fid = cur.lastrowid
+        for u in existing.list_users(include_pending=True):
+            master.execute(
+                "INSERT OR IGNORE INTO account_index(username, farm_id, role) VALUES(?,?,?)",
+                (u["username"], fid, u["role"]))
+        master.commit()
+        _farm_dbs[fid] = existing
+
+
+_bootstrap_master()
+
+
+def _current_db():
+    d = getattr(g, "farm_db", None)
+    if d is None:
+        raise RuntimeError("농장이 선택되지 않았습니다. 다시 로그인하세요.")
+    return d
+
+
+# 라우트의 db 는 '현재 로그인한 농장'의 Database 를 가리킨다(요청마다 결정).
+db = LocalProxy(_current_db)
 
 
 # 로그인 없이 접근 가능한 엔드포인트(정적/PWA 자원·로그인·회원가입 화면)
-OPEN_ENDPOINTS = {"login", "signup", "static", "manifest", "service_worker", "assetlinks"}
+OPEN_ENDPOINTS = {"login", "signup", "static", "manifest", "service_worker", "assetlinks",
+                  "console_login", "console", "console_logout", "console_farm_delete",
+                  "console_account_reset", "console_account_delete"}
 # 직원(staff) 역할이 접근 가능한 엔드포인트(그 외는 관리자 전용)
 STAFF_ENDPOINTS = {
     "me", "work_complete", "logout", "account_password",
-    "api_notifications",
+    "api_notifications", "routine_barn_toggle",
 } | OPEN_ENDPOINTS
 
 # 회원가입 아이디에 허용하는 문자(영문·숫자와 . _ -)
@@ -163,7 +348,19 @@ USERNAME_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 
 def current_user():
     uid = session.get("uid")
-    return db.get_user(uid) if uid else None
+    d = getattr(g, "farm_db", None)
+    if not uid or d is None:
+        return None
+    return d.get_user(uid)
+
+
+@app.before_request
+def _load_farm_db():
+    """요청마다 세션의 farm_id 로 현재 농장 DB를 준비한다."""
+    g.farm_db = get_farm_db(session.get("farm_id"))
+    # 예전(단일 농장) 세션 호환: 로그인돼 있는데 농장 정보가 없으면 재로그인 유도
+    if session.get("uid") and g.farm_db is None:
+        session.clear()
 
 
 @app.before_request
@@ -188,12 +385,20 @@ def login():
     notice = ("가입 신청이 접수되었습니다. 관리자 승인이 완료되면 로그인할 수 있습니다."
               if request.args.get("pending") else None)
     if request.method == "POST":
-        u = db.verify_user(_f("username"), request.form.get("password") or "")
+        username = _f("username")
+        pw = request.form.get("password") or ""
+        # 아이디로 소속 농장을 찾고, 그 농장 DB에서 비밀번호를 확인한다.
+        fa = farm_by_username(username)
+        u = None
+        fdb = get_farm_db(fa["farm_id"]) if fa else None
+        if fdb:
+            u = fdb.verify_user(username, pw)
         if u:
             session.clear()
             session["uid"] = u["id"]
             session["role"] = u["role"]
             session["name"] = u["name"]
+            session["farm_id"] = fa["farm_id"]
             session.permanent = True
             nxt = request.args.get("next")
             home = url_for("dashboard") if u["role"] == "admin" else url_for("me")
@@ -204,40 +409,224 @@ def login():
 
 @app.route("/signup", methods=["GET", "POST"])
 def signup():
-    """방문자 자가 회원가입 — 신청 후 관리자 승인이 되면 로그인할 수 있다."""
+    """회원가입 — 가입 유형을 고른다.
+      · 관리자: 새 농장을 만들고 그 농장의 관리자가 되어 바로 로그인.
+      · 직원  : 기존 농장을 골라 합류 신청 → 그 농장 관리자가 승인하면 로그인.
+    """
     if current_user():
         return redirect(url_for("dashboard"))
-    form = {"name": "", "username": "", "phone": ""}
+    form = {"kind": "admin", "name": "", "username": "", "phone": "",
+            "farm_name": "", "join_farm_id": ""}
     error = None
     if request.method == "POST":
+        form["kind"] = "staff" if _f("kind") == "staff" else "admin"
         form["name"] = _f("name")
         form["username"] = _f("username")
         form["phone"] = _f("phone")
+        form["farm_name"] = _f("farm_name")
+        form["join_farm_id"] = _f("join_farm_id")
         pw = request.form.get("password") or ""
         pw2 = request.form.get("password2") or ""
+        # 공통 검증
         if not form["name"]:
             error = "이름을 입력하세요."
         elif len(form["username"]) < 3:
             error = "아이디는 3자 이상이어야 합니다."
         elif not USERNAME_RE.match(form["username"]):
             error = "아이디는 영문·숫자와 . _ - 만 쓸 수 있습니다."
-        elif db.username_exists(form["username"]):
+        elif farm_by_username(form["username"]):
             error = "이미 사용 중인 아이디입니다."
         elif len(pw) < 4:
             error = "비밀번호는 4자 이상이어야 합니다."
         elif pw != pw2:
             error = "비밀번호가 서로 일치하지 않습니다."
-        else:
-            db.register_user(form["username"], pw, form["name"],
-                             phone=form["phone"] or None)
+        # 유형별 검증
+        if not error and form["kind"] == "admin" and not form["farm_name"]:
+            error = "농장 이름을 입력하세요."
+        if not error and form["kind"] == "staff":
+            jid = form["join_farm_id"]
+            if not (jid.isdigit() and farm_get(int(jid))):
+                error = "합류할 농장을 선택하세요."
+
+        if not error and form["kind"] == "admin":
+            # 새 농장 생성 + 관리자 계정 + 바로 로그인
+            fid, path = farm_create(form["farm_name"])
+            fdb = Database(path, init_admin=False)
+            _farm_dbs[fid] = fdb
+            fdb.set_setting("farm_name", form["farm_name"])
+            uid = fdb.add_user(form["username"], pw, form["name"],
+                               role="admin", phone=form["phone"] or None,
+                               active=True, pending=False)
+            index_add(form["username"], fid, "admin")
+            session.clear()
+            session["uid"] = uid
+            session["role"] = "admin"
+            session["name"] = form["name"]
+            session["farm_id"] = fid
+            session.permanent = True
+            flash(f"'{form['farm_name']}' 농장을 만들었습니다. 환영합니다!", "ok")
+            return redirect(url_for("dashboard"))
+        if not error and form["kind"] == "staff":
+            # 기존 농장에 직원으로 합류 신청(승인 대기) — 승인 전엔 로그인 불가
+            fid = int(form["join_farm_id"])
+            fdb = get_farm_db(fid)
+            fdb.register_user(form["username"], pw, form["name"],
+                              phone=form["phone"] or None)
+            index_add(form["username"], fid, "staff")
             return redirect(url_for("login", pending=1))
-    return render_template("signup.html", error=error, form=form)
+    return render_template("signup.html", error=error, form=form, farms=farm_list())
 
 
 @app.route("/logout")
 def logout():
     session.clear()
     return redirect(url_for("login"))
+
+
+# ── 🛠 개발자/운영 콘솔 (.env CONSOLE_KEY 로 잠금) ────────────────────
+def _require_console():
+    return bool(CONSOLE_KEY) and session.get("console") is True
+
+
+def _console_system():
+    """개발자용 시스템·환경설정 상태(값은 노출하지 않고 설정 여부만)."""
+    import platform
+
+    def eset(k):
+        return bool((os.environ.get(k) or "").strip())
+
+    return dict(
+        python=platform.python_version(),
+        now=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        data_dir=DATA_DIR,
+        master_kb=round(os.path.getsize(MASTER_PATH) / 1024) if os.path.exists(MASTER_PATH) else 0,
+        farm_count=master.execute("SELECT COUNT(*) AS c FROM farms").fetchone()["c"],
+        account_count=master.execute("SELECT COUNT(*) AS c FROM account_index").fetchone()["c"],
+        env={
+            "VISION_API_KEY": eset("VISION_API_KEY"),
+            "EKAPE_SERVICE_KEY": eset("EKAPE_SERVICE_KEY"),
+            "CONSOLE_KEY": bool(CONSOLE_KEY),
+            "SECRET_KEY": eset("SECRET_KEY"),
+            "APP_PASSWORD": eset("APP_PASSWORD"),
+            "DATA_DIR": eset("DATA_DIR"),
+        },
+    )
+
+
+def _console_farms():
+    out = []
+    for f in master.execute("SELECT * FROM farms ORDER BY id"):
+        fid = f["id"]
+        path = farm_db_path(fid)
+        size = os.path.getsize(path) if path and os.path.exists(path) else 0
+        d = get_farm_db(fid)
+        accounts, live = [], 0
+        if d:
+            try:
+                accounts = d.list_users(include_pending=True)
+                live = len(d.list_livestock())
+            except Exception:
+                pass
+        out.append(dict(id=fid, name=f["name"], created=f["created"],
+                        size_kb=round(size / 1024), accounts=accounts, livestock=live))
+    return out
+
+
+@app.route("/console/login", methods=["GET", "POST"])
+def console_login():
+    if not CONSOLE_KEY:
+        return render_template("console_login.html", disabled=True, error=None)
+    if _require_console():
+        return redirect(url_for("console"))
+    error = None
+    if request.method == "POST":
+        if (request.form.get("key") or "").strip() == CONSOLE_KEY:
+            session.clear()
+            session["console"] = True
+            session.permanent = True
+            return redirect(url_for("console"))
+        error = "콘솔 키가 올바르지 않습니다."
+    return render_template("console_login.html", disabled=False, error=error)
+
+
+@app.route("/console")
+def console():
+    if not _require_console():
+        return redirect(url_for("console_login"))
+    return render_template("console.html", sysinfo=_console_system(),
+                           farms=_console_farms(), logs=_console_logs(60))
+
+
+@app.route("/console/logout")
+def console_logout():
+    session.pop("console", None)
+    return redirect(url_for("console_login"))
+
+
+def _console_logs(n=60):
+    n = max(1, min(int(n or 60), 400))
+    return list(_LOG_BUF)[-n:]
+
+
+@app.route("/console/farm/<int:farm_id>/delete", methods=["POST"])
+def console_farm_delete(farm_id):
+    if not _require_console():
+        return redirect(url_for("console_login"))
+    row = farm_get(farm_id)
+    if row:
+        path = farm_db_path(farm_id)
+        d = _farm_dbs.pop(farm_id, None)
+        if d:
+            try:
+                d.conn.close()
+            except Exception:
+                pass
+        for p in (path, (path + ".bak") if path else None):
+            try:
+                if p and os.path.exists(p):
+                    os.remove(p)
+            except Exception:
+                pass
+        master.execute("DELETE FROM account_index WHERE farm_id=?", (farm_id,))
+        master.execute("DELETE FROM farms WHERE id=?", (farm_id,))
+        master.commit()
+        flash(f"'{row['name']}' 농장을 삭제했습니다.", "ok")
+    return redirect(url_for("console"))
+
+
+@app.route("/console/account/reset", methods=["POST"])
+def console_account_reset():
+    if not _require_console():
+        return redirect(url_for("console_login"))
+    fid = request.form.get("farm_id", type=int)
+    uid = request.form.get("user_id", type=int)
+    newpw = request.form.get("new_password") or ""
+    d = get_farm_db(fid)
+    if d and uid and len(newpw) >= 4:
+        d.set_password(uid, newpw)
+        flash("비밀번호를 초기화했습니다.", "ok")
+    else:
+        flash("비밀번호는 4자 이상이어야 합니다.", "error")
+    return redirect(url_for("console"))
+
+
+@app.route("/console/account/delete", methods=["POST"])
+def console_account_delete():
+    if not _require_console():
+        return redirect(url_for("console_login"))
+    fid = request.form.get("farm_id", type=int)
+    uid = request.form.get("user_id", type=int)
+    d = get_farm_db(fid)
+    if d and uid:
+        u = d.get_user(uid)
+        if u:
+            if u["role"] == "admin" and len(d.list_users(role="admin")) <= 1:
+                flash("마지막 관리자 계정은 삭제할 수 없습니다(농장 잠김 방지).", "error")
+                return redirect(url_for("console"))
+            index_remove(u["username"])
+            d.delete_user(uid)
+            flash(f"'{u['username']}' 계정을 삭제했습니다.", "ok")
+    return redirect(url_for("console"))
 
 
 @app.route("/account/password", methods=["POST"])
@@ -263,6 +652,8 @@ def rename_farm():
         flash("이름을 입력하세요.", "error")
     else:
         db.set_setting("farm_name", name)
+        if session.get("farm_id"):
+            farm_set_name(session["farm_id"], name)
         flash("이름을 변경했습니다.", "ok")
     return redirect(request.referrer or url_for("dashboard"))
 
@@ -300,9 +691,11 @@ def md_filter(date_str):
 
 @app.context_processor
 def inject_helpers():
+    d = getattr(g, "farm_db", None)      # 로그인 전(로그인·가입 화면)엔 농장이 없다
+    is_admin = (session.get("role") == "admin")
     return dict(
         won=won, won_short=won_short, today=today_str(),
-        farm_name=db.get_setting("farm_name", ""),
+        farm_name=(d.get_setting("farm_name", "") if d else ""),
         CATEGORIES=LIVESTOCK_CATEGORIES, CATTLE_TYPES=CATTLE_TYPES,
         ACTIVITIES=FARM_ACTIVITIES,
         FIN_TYPES=FINANCE_TYPES, FIN_SECTORS=FINANCE_SECTORS,
@@ -312,9 +705,8 @@ def inject_helpers():
         nav_active=request.endpoint or "",
         auth_on=True,
         current_user=current_user(),
-        is_admin=(session.get("role") == "admin"),
-        notif_count=(db.count_completed_unacked()
-                     if session.get("role") == "admin" else 0),
+        is_admin=is_admin,
+        notif_count=(d.count_completed_unacked() if (d and is_admin) else 0),
     )
 
 
@@ -412,6 +804,7 @@ def dashboard():
 
     # 이번 달 발전 목표 대비(오늘까지)
     solar_prog = db.solar_month_progress(year, month, days_elapsed=now.day)
+    routine_groups, routine_prog = _routine_view()
 
     return render_template(
         "dashboard.html", by_cat=by_cat, active=active,
@@ -422,6 +815,8 @@ def dashboard():
         upcoming=upcoming, reminders=reminders, solar_prog=solar_prog,
         work_alerts=db.list_completed_unacked(),
         work_todo=db.list_work_orders(status="지시"),
+        routine_groups=routine_groups, routine_prog=routine_prog,
+        barns=[f["name"] for f in db.list_facility()],
     )
 
 
@@ -464,6 +859,64 @@ def reminder_delete(row_id):
     db.delete_reminder(row_id)
     flash("일정을 삭제했습니다.", "ok")
     return redirect(request.referrer or (url_for("dashboard") + "#sched"))
+
+
+# ── ✅ 할일 루틴 (구역별 반복 체크리스트) ────────────────────────────
+def _routine_home():
+    """관리자 홈이면 할일 탭으로, 직원 홈(/me)이면 직원 홈으로 돌아간다."""
+    if "/me" in (request.referrer or ""):
+        return redirect(url_for("me"))
+    return redirect(url_for("dashboard") + "#routine")
+
+
+def _routine_view():
+    """할일을 구역(축사)별로 묶어 오늘 진행상황과 함께 반환."""
+    today = today_str()
+    order, groups = [], {}
+    for t in db.list_routine_tasks():
+        b = t["barn"] or "공통"
+        if b not in groups:
+            groups[b] = []
+            order.append(b)
+        groups[b].append(t)
+    out = []
+    for b in order:
+        ts = groups[b]
+        done = sum(1 for t in ts if t["done_date"] == today)
+        out.append(dict(barn=b, tasks=ts, total=len(ts), done=done,
+                        all_done=(len(ts) > 0 and done == len(ts))))
+    prog = dict(total=len(out), done=sum(1 for g in out if g["all_done"]))
+    return out, prog
+
+
+@app.route("/routine/add", methods=["POST"])
+def routine_add():
+    title = _f("title")
+    if title:
+        db.add_routine_task(title, _f("barn") or "공통")
+    else:
+        flash("할 일을 입력하세요.", "error")
+    return _routine_home()
+
+
+@app.route("/routine/barn/toggle", methods=["POST"])
+def routine_barn_toggle():
+    """구역(축사) 단위로 한꺼번에 체크/해제 — 직원도 가능."""
+    db.toggle_routine_barn(_f("barn") or "공통", today_str())
+    return _routine_home()
+
+
+@app.route("/routine/<int:row_id>/delete", methods=["POST"])
+def routine_delete(row_id):
+    db.delete_routine_task(row_id)
+    return _routine_home()
+
+
+@app.route("/routine/reset", methods=["POST"])
+def routine_reset():
+    db.reset_routine()
+    flash("오늘 할일 체크를 초기화했습니다.", "ok")
+    return _routine_home()
 
 
 # ── 🐄 농축산 (품목 + 영농일지) ──────────────────────────────────────
@@ -887,6 +1340,82 @@ def cattle_lookup(trace_no):
     )
 
 
+# ── 📷 이표 사진 → OCR(구글 Vision) → 개체식별번호 자동입력 ────────────
+VISION_URL = "https://vision.googleapis.com/v1/images:annotate"
+
+
+def _extract_eartag(text):
+    """OCR 텍스트에서 개체식별번호(보통 12자리 숫자) 후보를 고른다.
+
+    공백·하이픈이 사이에 낀 숫자 묶음을 모아, 12자리에 가장 가까운 것을 택한다.
+    """
+    cands = []
+    for m in re.finditer(r"(?:\d[\s\-]?){9,14}", text or ""):
+        digits = re.sub(r"\D", "", m.group())
+        if 9 <= len(digits) <= 15:
+            cands.append(digits)
+    if not cands:
+        return ""
+    # 12자리 우선 → 그다음 12에 가까운 길이 → 더 긴 것
+    cands.sort(key=lambda d: (abs(len(d) - 12), -len(d)))
+    return cands[0]
+
+
+def _vision_ocr(image_bytes, key):
+    """구글 Vision TEXT_DETECTION 호출 → (개체식별번호, 원문텍스트, 오류)."""
+    body = json.dumps({
+        "requests": [{
+            "image": {"content": base64.b64encode(image_bytes).decode()},
+            "features": [{"type": "TEXT_DETECTION"}],
+        }]
+    }).encode()
+    url = f"{VISION_URL}?key={urllib.parse.quote(key)}"
+    try:
+        req = urllib.request.Request(
+            url, data=body, headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            data = json.loads(resp.read())
+    except urllib.error.HTTPError as e:
+        try:
+            msg = json.loads(e.read()).get("error", {}).get("message", "")
+        except Exception:
+            msg = f"HTTP {e.code}"
+        return "", "", f"OCR 오류: {msg} (인증키 확인)"
+    except Exception:
+        return "", "", "OCR 요청 실패 (인터넷 연결을 확인하세요)."
+    r0 = (data.get("responses") or [{}])[0]
+    if r0.get("error"):
+        return "", "", f"OCR 오류: {r0['error'].get('message', '')}"
+    text = ((r0.get("fullTextAnnotation") or {}).get("text")
+            or (r0.get("textAnnotations") or [{}])[0].get("description", ""))
+    return _extract_eartag(text), text, ""
+
+
+@app.route("/api/ocr/eartag", methods=["POST"])
+def ocr_eartag():
+    """이표 사진을 받아 개체식별번호(숫자)를 읽어 돌려준다."""
+    key = (db.get_setting("vision_key", "")
+           or os.environ.get("VISION_API_KEY", "")).strip()
+    if not key:
+        return jsonify(ok=False,
+                       error="OCR 인증키가 없습니다. 설정 → 축산·사료에서 Google Vision 인증키를 입력하세요.")
+    f = request.files.get("image")
+    if not f:
+        return jsonify(ok=False, error="이미지가 없습니다.")
+    data = f.read()
+    if not data:
+        return jsonify(ok=False, error="빈 이미지입니다.")
+    if len(data) > 8 * 1024 * 1024:
+        return jsonify(ok=False, error="사진이 너무 큽니다(8MB 이하로 찍어주세요).")
+    digits, text, err = _vision_ocr(data, key)
+    if err:
+        return jsonify(ok=False, error=err)
+    if not digits:
+        return jsonify(ok=False,
+                       error="사진에서 번호를 찾지 못했습니다. 이표 숫자가 크고 선명하게 나오도록 다시 찍어주세요.")
+    return jsonify(ok=True, ear_tag=digits, text=text)
+
+
 @app.route("/livestock/<int:row_id>/delete", methods=["POST"])
 def livestock_delete(row_id):
     db.delete_livestock(row_id)
@@ -1101,6 +1630,7 @@ def feed_settings():
         prices[t] = _num(f"price_{t}", 0)
     db.set_feed_prices(prices)
     db.set_setting("ekape_key", _f("ekape_key"))
+    db.set_setting("vision_key", _f("vision_key"))
     flash("축산·사료 설정을 저장했습니다.", "ok")
     return redirect(url_for("settings") + "#feed")
 
@@ -1147,15 +1677,19 @@ def staff_save():
         db.update_user(row_id, name, role, phone, active)
         if password:
             db.set_password(row_id, password)
+        u = db.get_user(row_id)
+        if u:                      # 아이디→농장 매핑의 역할도 갱신
+            index_add(u["username"], session["farm_id"], role)
         flash("직원 정보를 수정했습니다.", "ok")
     else:
         if not username or not password:
             flash("새 계정은 아이디와 비밀번호가 필요합니다.", "error")
             return redirect(url_for("staff"))
-        if db.username_exists(username):
+        if farm_by_username(username):     # 아이디는 전체 농장에서 유일해야 함
             flash("이미 사용 중인 아이디입니다.", "error")
             return redirect(url_for("staff"))
         db.add_user(username, password, name, role=role, phone=phone)
+        index_add(username, session["farm_id"], role)
         flash(f"'{name}' 계정을 만들었습니다.", "ok")
     return redirect(url_for("staff"))
 
@@ -1178,6 +1712,8 @@ def staff_delete(row_id):
     elif u and u["role"] == "admin" and len(db.list_users(role="admin")) <= 1:
         flash("관리자 계정이 최소 1명은 있어야 합니다.", "error")
     else:
+        if u:
+            index_remove(u["username"])
         db.delete_user(row_id)
         flash("계정을 삭제했습니다.", "ok")
     return redirect(url_for("staff"))
@@ -1261,10 +1797,12 @@ def work_ack():
 def me():
     """직원·관리자 공통: 본인에게 배정된 작업 + 본인 급여."""
     u = current_user()
+    routine_groups, routine_prog = _routine_view()
     return render_template(
         "myhome.html",
         orders=db.list_work_orders(assignee_id=u["id"]),
         payrolls=db.list_payroll(user_id=u["id"]),
+        routine_groups=routine_groups, routine_prog=routine_prog, barns=[],
     )
 
 
@@ -1608,18 +2146,19 @@ def export_csv():
 
 @app.route("/backup")
 def backup_db():
-    """데이터베이스 파일(.db) 전체를 통째로 내려받는다(완전 백업)."""
+    """현재 농장의 데이터베이스 파일(.db)을 통째로 내려받는다(완전 백업)."""
     stamp = datetime.now().strftime("%Y%m%d_%H%M")
+    path = farm_db_path(session.get("farm_id"))
     return send_file(
-        DB_PATH, as_attachment=True,
-        download_name=f"farm_data_backup_{stamp}.db",
+        path, as_attachment=True,
+        download_name=f"farm_backup_{stamp}.db",
         mimetype="application/octet-stream",
     )
 
 
 @app.route("/restore", methods=["POST"])
 def restore_db():
-    """백업한 .db 파일을 올려 현재 데이터를 통째로 교체(복원)한다."""
+    """백업한 .db 파일을 올려 현재 농장 데이터를 통째로 교체(복원)한다."""
     f = request.files.get("dbfile")
     if not f or not f.filename:
         flash("복원할 .db 파일을 선택하세요.", "error")
@@ -1628,20 +2167,30 @@ def restore_db():
     if not data.startswith(b"SQLite format 3\x00"):
         flash("올바른 SQLite(.db) 파일이 아닙니다. 백업으로 받은 파일인지 확인하세요.", "error")
         return redirect(url_for("dashboard"))
-    global db
-    try:
-        db.close()
-    except Exception:
-        pass
+    fid = session.get("farm_id")
+    path = farm_db_path(fid)
+    old = _farm_dbs.pop(fid, None)         # 현재 농장 연결을 닫는다
+    if old:
+        try:
+            old.conn.close()
+        except Exception:
+            pass
     import shutil
     try:                                   # 만일을 위해 기존 DB 백업
-        shutil.copy(DB_PATH, DB_PATH + ".bak")
+        shutil.copy(path, path + ".bak")
     except Exception:
         pass
-    with open(DB_PATH, "wb") as out:
+    with open(path, "wb") as out:
         out.write(data)
-    db = Database(DB_PATH)
-    flash("데이터를 복원했습니다. (직전 데이터는 farm_data.db.bak 로 보관)", "ok")
+    g.farm_db = _farm_dbs[fid] = Database(path)
+    # 복원된 DB의 사용자들로 아이디→농장 매핑을 다시 맞춘다(로그인 유지)
+    master.execute("DELETE FROM account_index WHERE farm_id=?", (fid,))
+    for u in g.farm_db.list_users(include_pending=True):
+        master.execute(
+            "INSERT OR REPLACE INTO account_index(username, farm_id, role) VALUES(?,?,?)",
+            (u["username"], fid, u["role"]))
+    master.commit()
+    flash("데이터를 복원했습니다. (직전 데이터는 .bak 로 보관)", "ok")
     return redirect(url_for("dashboard"))
 
 
@@ -1692,6 +2241,7 @@ def settings():
         feed_units=db.get_feed_units(),
         feed_prices=db.get_feed_prices(),
         ekape_key=db.get_setting("ekape_key", ""),
+        vision_key=db.get_setting("vision_key", ""),
     )
 
 
