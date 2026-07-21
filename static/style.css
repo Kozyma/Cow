@@ -232,6 +232,25 @@ a.li{color:var(--ink)}
 .logbox{background:#0e120d; color:#bfe6c2; border:1px solid var(--line); border-radius:12px;
   padding:12px 13px; font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
   font-size:.76rem; line-height:1.5; overflow:auto; max-height:300px; white-space:pre; margin:0}
+
+/* ── 시작화면(로그인) — 깔끔한 미니멀 (이미지 없이) ── */
+.auth.auth-lg{align-items:flex-start; padding-top:48px; padding-bottom:46px}
+.auth-lg .auth-wrap{max-width:376px}
+.mark{width:66px; height:66px; border-radius:20px; margin:0 auto 14px; position:relative;
+  background:linear-gradient(158deg,#3E9058,#2B6E44); box-shadow:0 16px 32px -16px rgba(43,110,68,.65)}
+.mark .mark-sun{position:absolute; top:14px; right:14px; width:20px; height:20px; border-radius:50%;
+  background:#F6C34E; box-shadow:0 0 0 6px rgba(246,195,78,.22)}
+.mark::after{content:""; position:absolute; left:14px; right:14px; bottom:16px; height:3px; border-radius:2px;
+  background:rgba(255,255,255,.82)}
+.brand-tag{max-width:320px; margin-left:auto; margin-right:auto}
+.feat-list{display:flex; flex-direction:column; gap:8px; margin:20px 0}
+.feat{display:flex; gap:12px; align-items:flex-start; background:var(--card);
+  border:1px solid var(--line); border-radius:13px; padding:12px 14px; text-align:left}
+.feat .fdot{flex:none; width:10px; height:10px; border-radius:50%; margin-top:6px}
+.fdot.green{background:var(--green)} .fdot.amber{background:var(--amber)}
+.fdot.blue{background:var(--blue)}   .fdot.gray{background:var(--ink-3)}
+.feat b{font-size:1rem; font-weight:800}
+.feat small{color:var(--ink-2); font-size:.85rem; line-height:1.45; display:block; margin-top:1px}
 .auth-card input{padding:14px; border:1px solid #dcdde1; border-radius:12px; font:inherit; font-size:1rem;
   min-height:52px; text-align:center}
 .auth-card input:focus{outline:none; border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-soft)}

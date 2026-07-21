@@ -8,23 +8,24 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
-  <main class="auth">
+  <main class="auth auth-lg">
     <div class="auth-wrap">
+
       <div class="brand">
-        <div class="brand-mk">
-          <svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <circle cx="32" cy="23" r="9" fill="#C67A12"/>
-            <g stroke="#C67A12" stroke-width="2.6" stroke-linecap="round">
-              <path d="M32 7v4"/><path d="M32 35v4"/><path d="M16 23h4"/><path d="M44 23h4"/>
-              <path d="M20.5 11.5l2.8 2.8"/><path d="M40.7 31.7l2.8 2.8"/>
-              <path d="M43.5 11.5l-2.8 2.8"/><path d="M23.3 31.7l-2.8 2.8"/>
-            </g>
-            <path d="M9 54h46" stroke="#2B6E44" stroke-width="3" stroke-linecap="round"/>
-            <path d="M17 49l5-6M31 49l5-6M45 49l5-6" stroke="#2B6E44" stroke-width="2.6" stroke-linecap="round"/>
-          </svg>
-        </div>
+        <div class="mark"><span class="mark-sun"></span></div>
         <div class="brand-name">영농형 태양광 관리</div>
-        <div class="brand-tag">한 곳에서 관리하는 <b>축산 · 태양광 · 재무</b></div>
+        <p class="brand-tag">축산 · 태양광 · 재무를 <b>한 곳에서</b> 관리하는 우리 농장 스마트 장부</p>
+      </div>
+
+      <div class="feat-list">
+        <div class="feat"><i class="fdot green"></i>
+          <div><b>농축산</b><small>이표 등록 · 사육·판매·마릿수 관리</small></div></div>
+        <div class="feat"><i class="fdot amber"></i>
+          <div><b>태양광</b><small>발전량 기록 · 예상 수익 자동 계산</small></div></div>
+        <div class="feat"><i class="fdot blue"></i>
+          <div><b>재무</b><small>수입·지출·세금·지원사업 정리</small></div></div>
+        <div class="feat"><i class="fdot gray"></i>
+          <div><b>할일 루틴 · 통계</b><small>구역별 체크 · 마릿수·수익 추이</small></div></div>
       </div>
 
       <div class="auth-card">
@@ -41,12 +42,6 @@
         </p>
       </div>
 
-      <div class="brand-feats">
-        <span><i style="background:var(--green)"></i>농축산</span>
-        <span><i style="background:var(--amber)"></i>태양광</span>
-        <span><i style="background:var(--blue)"></i>재무</span>
-        <span><i style="background:var(--ink-3)"></i>할일·통계</span>
-      </div>
     </div>
   </main>
 </body>
