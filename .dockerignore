@@ -1,0 +1,19 @@
+.git
+.github
+__pycache__/
+*.pyc
+*.db
+*.db.bak
+.env
+.DS_Store
+build/
+dist/
+_ui_backup_prev/
+# 데스크톱 빌드 산출물 (웹 배포와 무관)
+build_desktop_macos.sh
+build_desktop_windows.bat
+build_macos.sh
+build_windows.bat
+run_macos.command
+run_windows.bat
+*.spec
