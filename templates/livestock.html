@@ -78,7 +78,7 @@
           <button type="button" class="btn line" id="itemEarCam" title="이표 사진 찍기">📷</button>
           <button type="button" class="btn line" id="itemEarBtn">🔍 조회</button>
         </div>
-        <input type="file" id="itemEarFile" accept="image/*" capture="environment" hidden>
+        <input type="file" id="itemEarFile" accept="image/*" hidden>
         <small class="ear-msg" id="itemEarMsg"></small>
         <div class="trace-result" id="itemTraceResult"></div>
       </div>
@@ -105,6 +105,15 @@
     </div>
   </form>
 </dialog>
+
+<button type="button" class="scan-btn" id="scanEarBtn">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M3 8.5A2 2 0 0 1 5 6.5h2.2L8.5 4.7h7l1.3 1.8H19a2 2 0 0 1 2 2V18a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+    <circle cx="12" cy="13" r="3.4"/>
+  </svg>
+  <span><b>이표 사진으로 소 등록</b><small>사진 찍으면 번호·출생일·성별 자동 입력</small></span>
+</button>
+<input type="file" id="scanFile" accept="image/*" hidden>
 
 <section class="sec">
   <div class="sec-h"><h2>품목 목록</h2>
@@ -510,7 +519,7 @@
           <button type="button" class="btn line" id="cowEarCam" title="이표 사진 찍기">📷</button>
           <button type="button" class="btn line" id="cowEarBtn">🔍 조회</button>
         </div>
-        <input type="file" id="cowEarFile" accept="image/*" capture="environment" hidden>
+        <input type="file" id="cowEarFile" accept="image/*" hidden>
         <small class="ear-msg" id="cowEarMsg"></small>
         <div class="trace-result" id="cowTraceResult"></div></label>
       <label class="fld"><span>출생일</span>

@@ -584,6 +584,15 @@ details[open] > .trace-title::before{transform:rotate(90deg)}
 .searchbar input::placeholder{color:var(--ink-3)}
 .searchbar .sx{flex:none; width:30px; height:30px; border-radius:50%; border:0;
   background:var(--line-2); color:var(--ink-2); font-size:.85rem; cursor:pointer}
+/* 이표 사진 등록 — 눈에 띄는 접근성 버튼(홈·농축산) */
+.scan-btn{display:flex; align-items:center; gap:13px; width:100%; margin:14px 0; padding:15px 16px;
+  border:0; border-radius:16px; background:var(--accent); color:#fff; text-decoration:none;
+  text-align:left; cursor:pointer; font:inherit; box-shadow:0 12px 26px -12px rgba(43,110,68,.55)}
+.scan-btn:active{transform:translateY(1px)}
+.scan-btn svg{width:30px; height:30px; flex:none; stroke:#fff}
+.scan-btn span{display:flex; flex-direction:column; line-height:1.25; min-width:0}
+.scan-btn b{font-size:1.06rem; font-weight:820}
+.scan-btn small{font-size:.82rem; opacity:.9; margin-top:1px}
 
 /* ── 상세(보기): 큰 정보 칸 ── */
 .facts{display:grid; grid-template-columns:1fr 1fr; gap:9px; margin:12px 0}

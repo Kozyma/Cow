@@ -140,38 +140,110 @@ async function lookupCattle(input, msgEl, btn, onData, resultEl) {
       } catch (e) { resolve(file); }
     });
   }
-  async function ocr(file, input, msgEl, lookupBtn) {
-    if (!file || !input) return;
-    const setMsg = (t, cls) => {
-      if (msgEl) { msgEl.textContent = t; msgEl.className = 'ear-msg' + (cls ? ' ' + cls : ''); }
-    };
+  // 사진 → 서버 OCR → 결과(JSON) 반환
+  async function ocrRaw(file, setMsg) {
     setMsg('📷 사진에서 이표 번호를 읽는 중…');
     const img = await shrink(file, 1600, 0.85);
     const fd = new FormData();
     fd.append('image', img, 'eartag.jpg');
     try {
       const res = await fetch('/api/ocr/eartag', { method: 'POST', body: fd });
-      const d = await res.json();
-      if (!d.ok) { setMsg(d.error || '사진 인식에 실패했습니다.', 'err'); return; }
-      input.value = d.ear_tag;
-      setMsg('사진에서 읽은 번호: ' + d.ear_tag + ' — 다르면 고친 뒤 조회하세요.', 'ok');
-      if (lookupBtn) lookupBtn.click();     // 이어서 이력 자동 조회
+      return await res.json();
     } catch (e) {
-      setMsg('OCR 요청 실패(인터넷 연결 확인).', 'err');
+      return { ok: false, error: 'OCR 요청 실패(인터넷 연결 확인).' };
     }
   }
-  function wire(camId, fileId, inputId, msgId, lookupBtnId) {
+  // OCR → 이표칸에 채우고 이력 자동조회
+  async function ocrToInput(file, input, msgEl, lookupBtn) {
+    if (!file || !input) return;
+    const setMsg = (t, cls) => {
+      if (msgEl) { msgEl.textContent = t; msgEl.className = 'ear-msg' + (cls ? ' ' + cls : ''); }
+    };
+    const d = await ocrRaw(file, setMsg);
+    if (!d.ok) { setMsg(d.error || '사진 인식에 실패했습니다.', 'err'); return; }
+    input.value = d.ear_tag;
+    setMsg('사진에서 읽은 번호: ' + d.ear_tag + ' — 다르면 고친 뒤 조회하세요.', 'ok');
+    if (lookupBtn) lookupBtn.click();
+  }
+  // 품목 다이얼로그를 '가축 추가' 빈 모드로 연다
+  function openItemFresh() {
+    const dlg = document.getElementById('itemDialog');
+    if (!dlg) return null;
+    dlg.querySelectorAll('input, select, textarea').forEach((el) => {
+      if (el.type === 'hidden') { if (el.name === 'id') el.value = ''; return; }
+      if (el.type === 'checkbox' || el.type === 'radio') el.checked = el.defaultChecked;
+      else if (el.type === 'date' || el.type === 'month') { /* 기본 유지 */ }
+      else if (el.tagName === 'SELECT') el.selectedIndex = 0;
+      else el.value = '';
+    });
+    const cat = dlg.querySelector('select[name="category"]');
+    if (cat) { cat.value = '가축'; cat.dispatchEvent(new Event('change')); }
+    if (dlg.showModal) dlg.showModal(); else dlg.setAttribute('open', '');
+    return dlg;
+  }
+  // 다이얼로그 이표칸 옆 📷
+  function wireCam(camId, fileId, inputId, msgId, lookupBtnId) {
     const cam = document.getElementById(camId), file = document.getElementById(fileId);
     if (!cam || !file) return;
     cam.addEventListener('click', () => file.click());
     file.addEventListener('change', () => {
-      ocr(file.files[0], document.getElementById(inputId),
-          document.getElementById(msgId), document.getElementById(lookupBtnId));
-      file.value = '';                      // 같은 사진 다시 선택 가능하게
+      ocrToInput(file.files[0], document.getElementById(inputId),
+                 document.getElementById(msgId), document.getElementById(lookupBtnId));
+      file.value = '';
     });
   }
-  wire('itemEarCam', 'itemEarFile', 'itemEar', 'itemEarMsg', 'itemEarBtn');
-  wire('cowEarCam', 'cowEarFile', 'cowEar', 'cowEarMsg', 'cowEarBtn');
+  wireCam('itemEarCam', 'itemEarFile', 'itemEar', 'itemEarMsg', 'itemEarBtn');
+  wireCam('cowEarCam', 'cowEarFile', 'cowEar', 'cowEarMsg', 'cowEarBtn');
+
+  // 농축산: '이표 사진으로 소 등록' → 탭하면 바로 카메라/갤러리 → 사진 뒤 등록창 열려 자동입력
+  (() => {
+    const btn = document.getElementById('scanEarBtn');
+    const file = document.getElementById('scanFile');
+    if (!btn || !file) return;
+    btn.addEventListener('click', () => file.click());
+    file.addEventListener('change', () => {
+      const f = file.files[0]; file.value = '';
+      if (!f) return;
+      openItemFresh();
+      ocrToInput(f, document.getElementById('itemEar'),
+                 document.getElementById('itemEarMsg'), document.getElementById('itemEarBtn'));
+    });
+  })();
+
+  // 홈: '이표 사진으로 소 등록' → 카메라/갤러리 → OCR 후 농축산 등록창으로 이동
+  (() => {
+    const btn = document.getElementById('scanEarHomeBtn');
+    const file = document.getElementById('scanFileHome');
+    if (!btn || !file) return;
+    btn.addEventListener('click', () => file.click());
+    file.addEventListener('change', async () => {
+      const f = file.files[0]; file.value = '';
+      if (!f) return;
+      const label = btn.querySelector('b');
+      const orig = label ? label.textContent : '';
+      if (label) label.textContent = '사진 읽는 중…';
+      btn.style.opacity = '.7'; btn.style.pointerEvents = 'none';
+      const d = await ocrRaw(f, () => {});
+      if (d.ok) {
+        location.href = '/livestock?add_ear=' + encodeURIComponent(d.ear_tag);
+      } else {
+        alert(d.error || '사진에서 번호를 찾지 못했습니다. 다시 찍어주세요.');
+        if (label) label.textContent = orig;
+        btn.style.opacity = ''; btn.style.pointerEvents = '';
+      }
+    });
+  })();
+
+  // 홈에서 넘어옴(?add_ear=...): 등록창을 열고 번호 채워 이력 조회
+  (() => {
+    const ear = new URLSearchParams(location.search).get('add_ear');
+    if (!ear) return;
+    if (!openItemFresh()) return;
+    const input = document.getElementById('itemEar');
+    if (input) input.value = ear;
+    const lb = document.getElementById('itemEarBtn');
+    if (lb) setTimeout(() => lb.click(), 120);
+  })();
 })();
 
 // 글자 크게/작게 — 헤더의 가–/가+ (기기에 저장)

@@ -3,7 +3,7 @@
     "relation": ["delegate_permission/common.handle_all_urls"],
     "target": {
       "namespace": "android_app",
-      "package_name": "여기에_APK_패키지명 (예: com.kozyma.farmsolar.twa)",
+      "package_name": "kr.koreacow.app",
       "sha256_cert_fingerprints": [
         "여기에_PWABuilder가_준_SHA256_지문 (예: AB:CD:...:EF)"
       ]
