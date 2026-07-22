@@ -48,9 +48,12 @@
     <div class="grid">
       <label class="fld"><span>날짜</span>
         <input name="log_date" type="date" value="{{ edit_row['log_date'] if edit_row else today }}"></label>
-      <label class="fld"><span>발전량 (kWh)</span>
-        <input name="generation_kwh" type="number" step="any" inputmode="decimal" required placeholder="0"
-               value="{{ '%g'|format(edit_row['generation_kwh']) if edit_row else '' }}"></label>
+      <label class="fld"><span>발전량 (kWh) <small>(📷로 계기판 사진 인식)</small></span>
+        <div class="ear-lookup">
+          <input name="generation_kwh" id="solarGen" type="number" step="any" inputmode="decimal" required placeholder="0"
+                 value="{{ '%g'|format(edit_row['generation_kwh']) if edit_row else '' }}">
+          <button type="button" class="btn line" id="solarCamBtn" title="계기판 사진으로 입력">📷</button>
+        </div></label>
       <label class="fld full"><span>메모</span>
         <input name="note" placeholder="선택 입력" value="{{ edit_row['note'] if edit_row and edit_row['note'] else '' }}"></label>
     </div>

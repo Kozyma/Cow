@@ -26,10 +26,15 @@
         <select name="status">{% for s in ['진행중','종료'] %}<option value="{{ s }}" {{ 'selected' if edit_row and edit_row['status']==s }}>{{ s }}</option>{% endfor %}</select>
       </label>
       <label class="fld full"><span>품목명</span>
-        <input name="name" required value="{{ edit_row['name'] if edit_row else '' }}" placeholder="한우 / 벼 / 고추 …">
+        <select name="name" id="itemName" required>
+          <option value="">- 선택 -</option>
+          {% for n in item_names %}<option value="{{ n }}" {{ 'selected' if edit_row and edit_row['name']==n }}>{{ n }}</option>{% endfor %}
+          {% if edit_row and edit_row['name'] and edit_row['name'] not in item_names %}<option value="{{ edit_row['name'] }}" selected>{{ edit_row['name'] }}</option>{% endif %}
+        </select>
+        <small class="hint" style="color:var(--ink-3)">목록은 설정 → 축산·사료에서 추가·삭제할 수 있어요.</small>
       </label>
       <label class="fld"><span>수량</span>
-        <input name="quantity" type="number" step="any" inputmode="decimal" value="{{ edit_row['quantity'] if edit_row else '' }}" placeholder="0">
+        <input name="quantity" id="itemQty" type="number" step="any" inputmode="decimal" value="{{ edit_row['quantity'] if edit_row else '' }}" placeholder="0">
       </label>
       <label class="fld"><span>단위</span>
         {% set item_units = ['두','마리','㎡','주','평','kg','포','톤','개'] %}
@@ -78,7 +83,6 @@
           <button type="button" class="btn line" id="itemEarCam" title="이표 사진 찍기">📷</button>
           <button type="button" class="btn line" id="itemEarBtn">🔍 조회</button>
         </div>
-        <input type="file" id="itemEarFile" accept="image/*" hidden>
         <small class="ear-msg" id="itemEarMsg"></small>
         <div class="trace-result" id="itemTraceResult"></div>
       </div>
@@ -113,7 +117,6 @@
   </svg>
   <span><b>이표 사진으로 소 등록</b><small>사진 찍으면 번호·출생일·성별 자동 입력</small></span>
 </button>
-<input type="file" id="scanFile" accept="image/*" hidden>
 
 <section class="sec">
   <div class="sec-h"><h2>품목 목록</h2>
@@ -519,7 +522,6 @@
           <button type="button" class="btn line" id="cowEarCam" title="이표 사진 찍기">📷</button>
           <button type="button" class="btn line" id="cowEarBtn">🔍 조회</button>
         </div>
-        <input type="file" id="cowEarFile" accept="image/*" hidden>
         <small class="ear-msg" id="cowEarMsg"></small>
         <div class="trace-result" id="cowTraceResult"></div></label>
       <label class="fld"><span>출생일</span>

@@ -85,6 +85,9 @@
   <p class="lead">소유주(명의)·단위 목록과 품목별 사료 단가를 관리합니다. 여기서 등록한 값이 농축산의 사료구매·품목 입력 드롭다운에 나타납니다.</p>
   <form method="post" action="{{ url_for('feed_settings') }}" class="form">
     <div class="grid">
+      <label class="fld full"><span>품목명 목록 <small>— 한 줄에 하나씩 (농축산 품목 추가 시 드롭다운)</small></span>
+        <textarea name="item_names" rows="4" placeholder="한우&#10;농사&#10;수산">{{ item_names|join('\n') }}</textarea>
+      </label>
       <label class="fld full"><span>소유주(명의) 목록 <small>— 한 줄에 하나씩</small></span>
         <textarea name="owners" rows="5" placeholder="성기준&#10;성혜진">{{ feed_owners|join('\n') }}</textarea>
       </label>

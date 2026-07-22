@@ -954,6 +954,7 @@ def livestock():
         feeds=db.list_feed_purchase(),
         feed_owners=db.get_owner_list(),
         feed_units=db.get_feed_units(),
+        item_names=db.get_item_names(),
         feed_prices=db.get_feed_prices(),
         ekape_key=db.get_setting("ekape_key", ""),
         feed_summary=db.feed_purchase_summary(),
@@ -1416,6 +1417,44 @@ def ocr_eartag():
     return jsonify(ok=True, ear_tag=digits, text=text)
 
 
+def _extract_number(text):
+    """OCR 텍스트에서 가장 자릿수 많은 숫자(발전량 계기판 읽기용). 콤마 제거·소수점 유지."""
+    best, best_len = "", 0
+    for m in re.finditer(r"\d[\d,]*(?:\.\d+)?", text or ""):
+        tok = m.group()
+        digits = re.sub(r"[^\d]", "", tok)
+        if len(digits) > best_len:
+            best_len = len(digits)
+            best = tok.replace(",", "")
+    return best
+
+
+@app.route("/api/ocr/number", methods=["POST"])
+def ocr_number():
+    """계기판·인버터 사진에서 숫자(발전량 등)를 읽어 돌려준다."""
+    key = (db.get_setting("vision_key", "")
+           or os.environ.get("VISION_API_KEY", "")).strip()
+    if not key:
+        return jsonify(ok=False,
+                       error="OCR 인증키가 없습니다. 설정 → 축산·사료에서 Google Vision 인증키를 입력하세요.")
+    f = request.files.get("image")
+    if not f:
+        return jsonify(ok=False, error="이미지가 없습니다.")
+    data = f.read()
+    if not data:
+        return jsonify(ok=False, error="빈 이미지입니다.")
+    if len(data) > 8 * 1024 * 1024:
+        return jsonify(ok=False, error="사진이 너무 큽니다(8MB 이하로 찍어주세요).")
+    _, text, err = _vision_ocr(data, key)
+    if err:
+        return jsonify(ok=False, error=err)
+    num = _extract_number(text)
+    if not num:
+        return jsonify(ok=False,
+                       error="사진에서 숫자를 찾지 못했습니다. 숫자가 크고 선명하게 다시 찍어주세요.")
+    return jsonify(ok=True, number=num, text=text)
+
+
 @app.route("/livestock/<int:row_id>/delete", methods=["POST"])
 def livestock_delete(row_id):
     db.delete_livestock(row_id)
@@ -1625,6 +1664,8 @@ def feed_settings():
     units = [s.strip() for s in (request.form.get("units") or "").splitlines() if s.strip()]
     db.set_owner_list(owners)
     db.set_feed_units(units)
+    item_names = [s.strip() for s in (request.form.get("item_names") or "").splitlines() if s.strip()]
+    db.set_item_names(item_names)
     prices = {}
     for t in CATTLE_TYPES:
         prices[t] = _num(f"price_{t}", 0)
@@ -2239,6 +2280,7 @@ def settings():
         solar=solar, tax=tax,
         feed_owners=db.get_owner_list(),
         feed_units=db.get_feed_units(),
+        item_names=db.get_item_names(),
         feed_prices=db.get_feed_prices(),
         ekape_key=db.get_setting("ekape_key", ""),
         vision_key=db.get_setting("vision_key", ""),

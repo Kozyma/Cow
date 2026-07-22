@@ -876,6 +876,21 @@ class Database:
                 clean.append(o)
         self.set_setting("feed_owner_list", ",".join(clean))
 
+    def get_item_names(self):
+        """품목명 드롭다운 목록. 기본값: 한우/농사/수산."""
+        raw = self.get_setting("item_name_list", "")
+        names = [s.strip() for s in raw.split(",") if s.strip()] if raw else []
+        return names or ["한우", "농사", "수산"]
+
+    def set_item_names(self, names):
+        clean, seen = [], set()
+        for n in names:
+            n = (n or "").strip()
+            if n and n not in seen:
+                seen.add(n)
+                clean.append(n)
+        self.set_setting("item_name_list", ",".join(clean))
+
     def get_feed_units(self):
         raw = self.get_setting("feed_unit_list", "")
         units = [s.strip() for s in raw.split(",") if s.strip()] if raw else []

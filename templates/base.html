@@ -97,6 +97,24 @@
     {% endfor %}
   </nav>
 
+  {# 이표 사진: 촬영/갤러리 선택 시트 (전 화면 공용) #}
+  <dialog class="modal scan-chooser" id="scanChooser">
+    <div class="modal-h"><h3>이표 사진</h3>
+      <button type="button" class="modal-x" data-close aria-label="닫기">&times;</button></div>
+    <div class="scan-opts">
+      <button type="button" class="scan-opt" id="scanOptCam">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 8.5A2 2 0 0 1 5 6.5h2.2L8.5 4.7h7l1.3 1.8H19a2 2 0 0 1 2 2V18a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><circle cx="12" cy="13" r="3.4"/>
+        </svg><span>사진 촬영</span></button>
+      <button type="button" class="scan-opt" id="scanOptGal">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="5" width="18" height="14" rx="2.5"/><circle cx="8.5" cy="10" r="1.6"/><path d="M21 16l-5-5-4 4-2-2-4 4"/>
+        </svg><span>갤러리에서 선택</span></button>
+    </div>
+  </dialog>
+  <input type="file" id="scanCamInput" accept="image/*" capture="environment" hidden>
+  <input type="file" id="scanGalInput" accept="image/*" hidden>
+
   <script src="{{ url_for('static', filename='app.js') }}"></script>
 </body>
 </html>

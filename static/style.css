@@ -593,6 +593,14 @@ details[open] > .trace-title::before{transform:rotate(90deg)}
 .scan-btn span{display:flex; flex-direction:column; line-height:1.25; min-width:0}
 .scan-btn b{font-size:1.06rem; font-weight:820}
 .scan-btn small{font-size:.82rem; opacity:.9; margin-top:1px}
+/* 촬영/갤러리 선택 시트 */
+.scan-chooser{max-width:360px}
+.scan-opts{display:flex; flex-direction:column; gap:10px; padding:6px 18px 20px}
+.scan-opt{display:flex; align-items:center; gap:13px; width:100%; min-height:60px; padding:0 16px;
+  border:1.5px solid var(--line); border-radius:14px; background:var(--card); font:inherit;
+  font-size:1.06rem; font-weight:750; color:var(--ink); cursor:pointer}
+.scan-opt:active{background:var(--sub)}
+.scan-opt svg{width:26px; height:26px; flex:none; stroke:var(--accent-d); fill:none; stroke-width:1.8}
 
 /* ── 상세(보기): 큰 정보 칸 ── */
 .facts{display:grid; grid-template-columns:1fr 1fr; gap:9px; margin:12px 0}

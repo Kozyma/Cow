@@ -173,7 +173,7 @@ async function lookupCattle(input, msgEl, btn, onData, resultEl) {
       if (el.type === 'hidden') { if (el.name === 'id') el.value = ''; return; }
       if (el.type === 'checkbox' || el.type === 'radio') el.checked = el.defaultChecked;
       else if (el.type === 'date' || el.type === 'month') { /* 기본 유지 */ }
-      else if (el.tagName === 'SELECT') el.selectedIndex = 0;
+      else if (el.tagName === 'SELECT') { el.selectedIndex = 0; el.dispatchEvent(new Event('change')); }
       else el.value = '';
     });
     const cat = dlg.querySelector('select[name="category"]');
@@ -181,69 +181,95 @@ async function lookupCattle(input, msgEl, btn, onData, resultEl) {
     if (dlg.showModal) dlg.showModal(); else dlg.setAttribute('open', '');
     return dlg;
   }
-  // 다이얼로그 이표칸 옆 📷
-  function wireCam(camId, fileId, inputId, msgId, lookupBtnId) {
-    const cam = document.getElementById(camId), file = document.getElementById(fileId);
-    if (!cam || !file) return;
-    cam.addEventListener('click', () => file.click());
-    file.addEventListener('change', () => {
-      ocrToInput(file.files[0], document.getElementById(inputId),
-                 document.getElementById(msgId), document.getElementById(lookupBtnId));
-      file.value = '';
-    });
+  // ── 사진 촬영 / 갤러리 선택 시트 (유저가 직접 고름) ──
+  const chooser = document.getElementById('scanChooser');
+  const camIn = document.getElementById('scanCamInput');   // capture=카메라
+  const galIn = document.getElementById('scanGalInput');   // 갤러리/파일
+  let scanCb = null;                                        // 사진 고른 뒤 실행할 동작
+  const openChooser = (cb) => {
+    scanCb = cb;
+    if (!chooser) return;
+    if (chooser.showModal) chooser.showModal(); else chooser.setAttribute('open', '');
+  };
+  if (chooser && camIn && galIn) {
+    const pick = (input) => { if (chooser.close) chooser.close(); input.click(); };
+    const optCam = document.getElementById('scanOptCam');
+    const optGal = document.getElementById('scanOptGal');
+    if (optCam) optCam.addEventListener('click', () => pick(camIn));
+    if (optGal) optGal.addEventListener('click', () => pick(galIn));
+    const onFile = (input) => { const f = input.files[0]; input.value = ''; if (f && scanCb) scanCb(f); };
+    camIn.addEventListener('change', () => onFile(camIn));
+    galIn.addEventListener('change', () => onFile(galIn));
   }
-  wireCam('itemEarCam', 'itemEarFile', 'itemEar', 'itemEarMsg', 'itemEarBtn');
-  wireCam('cowEarCam', 'cowEarFile', 'cowEar', 'cowEarMsg', 'cowEarBtn');
 
-  // 농축산: '이표 사진으로 소 등록' → 탭하면 바로 카메라/갤러리 → 사진 뒤 등록창 열려 자동입력
-  (() => {
-    const btn = document.getElementById('scanEarBtn');
-    const file = document.getElementById('scanFile');
-    if (!btn || !file) return;
-    btn.addEventListener('click', () => file.click());
-    file.addEventListener('change', () => {
-      const f = file.files[0]; file.value = '';
-      if (!f) return;
+  // 다이얼로그 이표칸 옆 📷 → 선택 시트 → 그 칸에 채우기
+  function wireCam(camId, inputId, msgId, lookupBtnId) {
+    const cam = document.getElementById(camId);
+    if (!cam) return;
+    cam.addEventListener('click', () => openChooser((f) =>
+      ocrToInput(f, document.getElementById(inputId),
+                 document.getElementById(msgId), document.getElementById(lookupBtnId))));
+  }
+  wireCam('itemEarCam', 'itemEar', 'itemEarMsg', 'itemEarBtn');
+  wireCam('cowEarCam', 'cowEar', 'cowEarMsg', 'cowEarBtn');
+
+  // '이표 사진으로 소 등록'(홈·농축산) → 선택 시트 → 등록 플로우
+  function registerFromPhoto(file) {
+    if (!file) return;
+    if (document.getElementById('itemDialog')) {          // 농축산: 등록창 열고 자동입력
       openItemFresh();
-      ocrToInput(f, document.getElementById('itemEar'),
+      ocrToInput(file, document.getElementById('itemEar'),
                  document.getElementById('itemEarMsg'), document.getElementById('itemEarBtn'));
-    });
-  })();
-
-  // 홈: '이표 사진으로 소 등록' → 카메라/갤러리 → OCR 후 농축산 등록창으로 이동
-  (() => {
-    const btn = document.getElementById('scanEarHomeBtn');
-    const file = document.getElementById('scanFileHome');
-    if (!btn || !file) return;
-    btn.addEventListener('click', () => file.click());
-    file.addEventListener('change', async () => {
-      const f = file.files[0]; file.value = '';
-      if (!f) return;
-      const label = btn.querySelector('b');
+    } else {                                              // 홈: OCR 후 농축산 등록창으로 이동
+      const homeBtn = document.getElementById('scanEarHomeBtn');
+      const label = homeBtn && homeBtn.querySelector('b');
       const orig = label ? label.textContent : '';
       if (label) label.textContent = '사진 읽는 중…';
-      btn.style.opacity = '.7'; btn.style.pointerEvents = 'none';
-      const d = await ocrRaw(f, () => {});
-      if (d.ok) {
-        location.href = '/livestock?add_ear=' + encodeURIComponent(d.ear_tag);
-      } else {
-        alert(d.error || '사진에서 번호를 찾지 못했습니다. 다시 찍어주세요.');
-        if (label) label.textContent = orig;
-        btn.style.opacity = ''; btn.style.pointerEvents = '';
-      }
-    });
-  })();
+      ocrRaw(file, () => {}).then((d) => {
+        if (d.ok) { location.href = '/livestock?add_ear=' + encodeURIComponent(d.ear_tag); }
+        else { alert(d.error || '사진에서 번호를 찾지 못했습니다. 다시 시도해 주세요.'); if (label) label.textContent = orig; }
+      });
+    }
+  }
+  const sbL = document.getElementById('scanEarBtn');
+  const sbH = document.getElementById('scanEarHomeBtn');
+  if (sbL) sbL.addEventListener('click', () => openChooser(registerFromPhoto));
+  if (sbH) sbH.addEventListener('click', () => openChooser(registerFromPhoto));
+
+  // 태양광: 발전량 사진 → 선택 시트 → 숫자 OCR → 발전량칸 자동입력
+  async function ocrNumber(file) {
+    const img = await shrink(file, 1600, 0.85);
+    const fd = new FormData();
+    fd.append('image', img, 'meter.jpg');
+    try {
+      const res = await fetch('/api/ocr/number', { method: 'POST', body: fd });
+      return await res.json();
+    } catch (e) {
+      return { ok: false, error: 'OCR 요청 실패(인터넷 연결 확인).' };
+    }
+  }
+  const solarBtn = document.getElementById('solarCamBtn');
+  if (solarBtn) {
+    solarBtn.addEventListener('click', () => openChooser(async (f) => {
+      const inp = document.getElementById('solarGen');
+      if (!inp) return;
+      const ph = inp.placeholder;
+      inp.placeholder = '사진에서 숫자 읽는 중…';
+      const d = await ocrNumber(f);
+      inp.placeholder = ph;
+      if (d.ok) { inp.value = d.number; inp.focus(); }
+      else { alert(d.error || '사진에서 숫자를 찾지 못했습니다. 다시 시도해 주세요.'); }
+    }));
+  }
 
   // 홈에서 넘어옴(?add_ear=...): 등록창을 열고 번호 채워 이력 조회
-  (() => {
-    const ear = new URLSearchParams(location.search).get('add_ear');
-    if (!ear) return;
-    if (!openItemFresh()) return;
+  const ear = new URLSearchParams(location.search).get('add_ear');
+  if (ear && openItemFresh()) {
     const input = document.getElementById('itemEar');
     if (input) input.value = ear;
     const lb = document.getElementById('itemEarBtn');
     if (lb) setTimeout(() => lb.click(), 120);
-  })();
+  }
 })();
 
 // 글자 크게/작게 — 헤더의 가–/가+ (기기에 저장)
@@ -516,7 +542,7 @@ document.addEventListener('click', (e) => {
       if (el.type === 'hidden') { if (el.name === 'id') el.value = ''; return; }
       if (el.type === 'checkbox' || el.type === 'radio') el.checked = el.defaultChecked;
       else if (el.type === 'date' || el.type === 'month') { /* 기본 날짜 유지 */ }
-      else if (el.tagName === 'SELECT') el.selectedIndex = 0;
+      else if (el.tagName === 'SELECT') { el.selectedIndex = 0; el.dispatchEvent(new Event('change')); }
       else el.value = '';
     });
   };
@@ -537,6 +563,25 @@ document.addEventListener('click', (e) => {
   // (하위탭 표시 스크립트가 먼저 패널을 보이게 한 뒤 열리도록 다음 프레임에 실행)
   requestAnimationFrame(() =>
     document.querySelectorAll('dialog[data-autoopen]').forEach(open));
+})();
+
+// 품목명이 '한우'면 수량을 무조건 1로 고정
+(() => {
+  const name = document.getElementById('itemName');
+  const qty = document.getElementById('itemQty');
+  if (!name || !qty) return;
+  const sync = () => {
+    if (name.value === '한우') {
+      qty.value = '1';
+      qty.readOnly = true;
+      qty.style.background = 'var(--line-2)';
+    } else {
+      qty.readOnly = false;
+      qty.style.background = '';
+    }
+  };
+  name.addEventListener('change', sync);
+  sync();
 })();
 
 // 품목 폼: '가축'일 때만 입식 체중(kg) 입력칸 표시
