@@ -333,7 +333,7 @@ db = LocalProxy(_current_db)
 
 
 # 로그인 없이 접근 가능한 엔드포인트(정적/PWA 자원·로그인·회원가입 화면)
-OPEN_ENDPOINTS = {"login", "signup", "static", "manifest", "service_worker", "assetlinks",
+OPEN_ENDPOINTS = {"login", "signup", "static", "manifest", "service_worker", "assetlinks", "cow_game",
                   "console_login", "console", "console_logout", "console_farm_delete",
                   "console_account_reset", "console_account_delete"}
 # 직원(staff) 역할이 접근 가능한 엔드포인트(그 외는 관리자 전용)
@@ -2306,6 +2306,13 @@ def assetlinks():
     if not os.path.exists(path):
         abort(404)
     return send_file(path, mimetype="application/json")
+
+
+@app.route("/game")
+@app.route("/game/")
+def cow_game():
+    """몽글몽글 목장 — 누구나 로그인 없이 즐기는 3D 축사 운영 게임 (static/game)."""
+    return redirect(url_for("static", filename="game/index.html"))
 
 
 @app.route("/sw.js")

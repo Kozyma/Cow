@@ -1,0 +1,1431 @@
+// 차량: 직접 운전(시뮬레이션/간편) + 유압 조작 + 자동 운용 AI
+import * as THREE from 'three';
+import { G, LAYOUT, BALE_FEED, MAX_BALES, BUCKET_CAP, TRUCK_BULK_CAP, COMPOST, INGREDIENTS, RECIPES, MIX_TIME, MIXER_CAP, MIX_UNIT_FEED } from './state.js';
+import { stock, loadIngredient, recipeOf, planRecipe, mixTotal, freeStationSlot, setOnStation, inStation } from './feed.js';
+import { shedAt, allSheds } from './compost.js';
+import { makeTractor, makeBaler, makeForklift, makeSkidLoader, makeTruck1, makeTruck5, makeMixer, makeBaleWagon, glassMat, makeFarmer, seatFigure, PLAYER_LOOK, NPC_LOOKS, LAMP } from './models.js';
+import { mat } from './materials.js';
+import { clamp, wrapAngle, approach, damp, rand, lerp, group } from './util.js';
+import { collideCircle } from './physics.js';
+import { findPath, lineClear } from './pathfinding.js';
+import { spawn, burst } from './particles.js';
+import { toast, floatText } from './ui.js';
+import { sfx } from './audio.js';
+import {
+  spawnBale, baleCount, pickupItem, releaseCarried, supportUnder, itemInFront, freeYardSlot, inYard,
+  freeDockSlot, dockItems, setOnTruck, truckCargo, freeTruckSlot, sellItems, nearMarket,
+  addMuck, takeBulk, hasBulkNear, depositBulk, sellCompost, barnAlleyAt, Item,
+} from './items.js';
+
+export const VEH_DEFS = {
+  tractor: {
+    name: '트랙터', icon: '🚜', maxSpeed: 8, accel: 6, turn: 1.9, radius: 1.45, work: 2.7, build: makeTractor, carries: [], color: '#63b85c',
+    lift: { min: 0, max: 1, rate: 1.3, init: 1, name: '예초기 높이' }, pto: '예초기',
+  },
+  baler: {
+    name: '베일러', icon: '🌀', maxSpeed: 7, accel: 5, turn: 1.8, radius: 1.5, work: 2.2, build: makeBaler, carries: [], color: '#f0705c',
+    lift: { min: 0, max: 1, rate: 1.3, init: 1, name: '픽업 높이' }, tilt: { min: 0, max: 1, rate: 1.3, init: 0, name: '뒷문' }, pto: '수집 릴',
+  },
+  forklift: {
+    name: '지게차', icon: '🏗️', maxSpeed: 8, accel: 7, turn: 2.3, radius: 1.25, work: 1.9, build: makeForklift, carries: ['bale', 'pallet', 'sack'], color: '#f2b134',
+    lift: { min: 0, max: 2.4, rate: 1.1, init: 0.1, name: '포크 높이' }, tilt: { min: -0.12, max: 0.1, rate: 0.35, init: -0.04, name: '마스트 틸트' },
+  },
+  skid: {
+    name: '스키드로더', icon: '🚧', maxSpeed: 7, accel: 7, turn: 2.6, radius: 1.3, work: 2.1, skid: true, build: makeSkidLoader, carries: ['bale'], color: '#f08a2c',
+    lift: { min: 0, max: 1, rate: 0.85, init: 0.12, name: '암 높이' }, tilt: { min: -0.5, max: 1.1, rate: 1.5, init: 0, name: '버킷 각도' },
+  },
+  truck1: {
+    name: '1톤 트럭', icon: '🛻', maxSpeed: 13, accel: 7, turn: 1.6, radius: 1.3, work: 3.0, build: makeTruck1, carries: [], color: '#6fb8e0',
+    circles: [[1.3, 1.15], [-1.0, 1.15]], cargo: true,
+  },
+  truck5: {
+    name: '5톤 트럭', icon: '🚚', maxSpeed: 10.5, accel: 4.5, turn: 1.25, radius: 1.5, work: 4.2, build: makeTruck5, carries: [], color: '#f2b134',
+    circles: [[2.5, 1.35], [0, 1.4], [-2.6, 1.4]], cargo: true, dump: true,
+    lift: { min: 0, max: 0.85, rate: 0.32, init: 0, name: '적재함 각도' },
+  },
+  balewagon: {
+    name: '베일 운반차', icon: '🚛', maxSpeed: 9, accel: 5.5, turn: 1.5, radius: 1.4, work: 3.6, build: makeBaleWagon, carries: ['bale'], color: '#7fa8f0',
+    circles: [[1.7, 1.2], [-0.9, 1.4], [-3.7, 1.4]], wagon: true,
+    lift: { min: 0, max: 1, rate: 0.9, init: 0.3, name: '집게 높이' }, tilt: { min: 0, max: 0.6, rate: 0.4, init: 0, name: '데크 기울기' },
+  },
+  mixer: {
+    name: '사료 배합기', icon: '🥣', maxSpeed: 7.5, accel: 5, turn: 1.8, radius: 1.4, work: 2.2, build: makeMixer, carries: [], color: '#5fc4ae',
+    circles: [[1.2, 1.15], [-1.0, 1.35]], tilt: { min: 0, max: 1, rate: 1.4, init: 0, name: '배출구' }, pto: '오거',
+  },
+};
+
+const _w = new THREE.Vector3();
+const _c = new THREE.Vector3();
+let nextId = 0;
+const keyDown = (...codes) => codes.some((c) => G.input.down(c));
+
+export class Vehicle {
+  constructor(type, index) {
+    this.id = nextId++;
+    this.type = type;
+    this.index = index;
+    this.def = VEH_DEFS[type];
+    this.def.circles ||= [[0, this.def.radius]];
+    this.m = this.def.build();
+    this.group = this.m.group;
+    G.scene.add(this.group);
+    this.park = LAYOUT.parking[index % LAYOUT.parking.length];
+    this.pos = new THREE.Vector3(this.park.x, 0, this.park.z);
+    this.heading = Math.PI;
+    this.speed = 0;
+    this.prevSpeed = 0;
+    this.accSm = 0;
+    this.steerVis = 0;
+    this.auto = true;
+    this.pto = false;
+    this.lift = this.liftT = this.def.lift?.init ?? 0;
+    this.tilt = this.tiltT = this.def.tilt?.init ?? 0;
+    this.prevLift = this.lift;
+    this.boostE = 1;
+    this.boosting = false;
+    this.carrying = null;
+    this.load = 0;           // 스키드로더 버킷 (분뇨/퇴비)
+    this.loadKind = null;
+    this.bulk = 0;           // 트럭 적재함 벌크 (분뇨/퇴비)
+    this.bulkKind = null;
+    this.collected = 0;      // 베일러 챔버
+    this.mix = { hay: 0, corn: 0, soy: 0 };   // 배합기 내용물
+    this.mixT = 0;           // 배합 진행(초)
+    this.dispensed = 0;      // 배출한 사료량
+    this.ejectCD = 0;
+    this.seq = null;
+    this.smokeT = rand(0, 0.5);
+    this.dustT = 0;
+    this.status = '대기 중';
+    this.idleStatus = '대기 중';
+    this.ai = { task: null, path: null, idx: 0, think: rand(0.2, 1.2), stuck: 0, reverseT: 0, revSteer: 0, wait: 0, forBarn: null };
+    this.playerFig = seatFigure(makeFarmer(PLAYER_LOOK));
+    this.npcFig = seatFigure(makeFarmer(NPC_LOOKS[index % NPC_LOOKS.length]));
+    this.m.seat.add(this.playerFig.group, this.npcFig.group);
+    this.playerFig.group.visible = false;
+    this.eye = group(this.m.seat, 0, 0.95, 0.12);
+    this.lampOn = LAMP.on();
+    this.lampOff = LAMP.off();
+    this.beaconOn = mat(0xffb03c, { emissive: 0xff8a00, emissiveIntensity: 1.2 });
+    this.beaconOff = mat(0xff9a3c);
+    this.glass = [];
+    const gm = glassMat();
+    this.group.traverse((o) => { if (o.isMesh && o.material === gm) this.glass.push(o); });
+    this.applyControls();
+    this.syncVisual();
+  }
+
+  get radius() { return this.def.radius; }
+  get isTruck() { return !!this.def.cargo; }
+
+  workPoint() {
+    return { x: this.pos.x + Math.sin(this.heading) * this.def.work, z: this.pos.z + Math.cos(this.heading) * this.def.work };
+  }
+  inField(m = 0) {
+    const p = this.workPoint();
+    return G.field.inside(p.x, p.z, m);
+  }
+
+  setAuto(on) {
+    this.auto = on;
+    if (!on) { this.clearTask(); this.pto = false; this.seq = null; }
+    else this.ai.think = 0;
+  }
+  clearTask() {
+    const t = this.ai.task;
+    if (t?.item && t.item.reservedBy === this) t.item.reservedBy = null;
+    this.ai.task = null;
+    this.ai.path = null;
+  }
+  onEnter() {
+    this.clearTask();
+    this.seq = null;
+    this.ai.reverseT = 0;
+    this.ai.forBarn = null;
+  }
+  onExit() {
+    this.ai.think = 0.6;
+    this.ai.stuck = 0;
+  }
+
+  // ---------------- 수동 조작 ----------------
+  manualControls(dt) {
+    if (this.seq) return;
+    if (this.type === 'mixer') {
+      for (const [code, kind] of [['Digit1', 'hay'], ['Digit2', 'corn'], ['Digit3', 'soy']]) if (G.input.pressed(code)) this.addIngredient(kind);
+    }
+    const d = this.def;
+    const up = keyDown('KeyR') ? 1 : 0, down = keyDown('KeyF') ? 1 : 0;
+    const tb = keyDown('KeyT') ? 1 : 0, tf = keyDown('KeyG') ? 1 : 0;
+    if ((up || down) && d.lift) this.liftT = clamp(this.lift + (up - down) * d.lift.rate * dt * 1.5, d.lift.min, d.lift.max);
+    if ((tb || tf) && d.tilt) {
+      // 포크/버킷: T=뒤로 젖히기, G=앞으로 숙이기(쏟기) · 베일러: T=뒷문 열기, G=닫기
+      const sign = this.type === 'forklift' || this.type === 'skid' ? -1 : 1;
+      this.tiltT = clamp(this.tilt + (tb - tf) * sign * d.tilt.rate * dt * 1.5, d.tilt.min, d.tilt.max);
+    }
+    if ((up || down || tb || tf) && !d.lift && !d.tilt && !this.warnedNoHyd) {
+      this.warnedNoHyd = true;
+      toast(`${d.name}에는 유압 장치가 없어요`, d.icon, 1800);
+    }
+  }
+
+  /** Space 키 */
+  action() {
+    const easy = G.settings.mode === 'easy';
+    const t = this.type;
+    if (t === 'tractor' || t === 'baler') {
+      this.pto = !this.pto;
+      if (easy) this.liftT = this.pto ? 0 : 1;
+      sfx('click');
+      const p = this.workPoint();
+      floatText(p.x, 2.2, p.z, `${this.def.pto} ${this.pto ? 'ON' : 'OFF'}`, this.pto ? 'good' : '');
+      if (!easy && this.pto && this.lift > 0.25) toast('F 키로 작업기를 내려야 작업이 돼요', this.def.icon, 2200);
+      return;
+    }
+    if (this.isTruck) { this.truckAction(); return; }
+    if (t === 'mixer') { this.mixerAction(); return; }
+    if (t === 'balewagon' && easy) { if (!this.seq) this.wagonQuick(); return; }
+    if (!easy) {
+      toast('시뮬레이션 모드: R/F로 올리고 내리고, T/G로 기울여 직접 작업해요 (설정에서 간편 모드 선택 가능)', '⚙️', 3500);
+      sfx('error');
+      return;
+    }
+    if (this.seq) return;
+    this.quickAction();
+  }
+
+  /** 간편 모드: 한 번에 들기/내리기/퍼담기/쏟기 */
+  quickAction() {
+    const t = this.type;
+    if (t === 'skid' && this.load > 0.5) {
+      const fp = this.workPoint();
+      const sp = supportUnder(fp.x, fp.z, this, 1.2);
+      const high = sp.kind === 'truck';
+      const lift = high ? (sp.truck.def.dump ? 0.95 : 0.75) : 0.4;
+      this.seq = [{ lift, tilt: -0.3, dur: high ? 1.1 : 0.6 }, { tilt: 1.05, dur: 0.6 }, { tilt: 0, lift: 0.12, dur: 0.6 }];
+      return;
+    }
+    if (this.carrying) {
+      const anchor = this.m.carry.getWorldPosition(_w);
+      const sp = supportUnder(anchor.x, anchor.z, this);
+      const target = t === 'forklift' ? sp.y - 0.18 : 0;
+      this.seq = [
+        { lift: Math.max(0, target), dur: 0.7, fn: () => { if (this.carrying) releaseCarried(this, sp); } },
+        { lift: t === 'forklift' ? Math.max(0.1, target - 0.05) : 0.12, dur: 0.4 },
+      ];
+      return;
+    }
+    if (t === 'skid') {
+      const fp = this.workPoint();
+      if (hasBulkNear(fp.x, fp.z, 2.4)) {
+        this.seq = [
+          { lift: 0, tilt: 0.1, dur: 0.45 },
+          { fn: () => { this.scoop(fp.x, fp.z, 2.4); sfx('scoop'); }, dur: 0.15 },
+          { tilt: -0.4, lift: 0.2, dur: 0.5 },
+        ];
+        return;
+      }
+    }
+    const it = itemInFront(this, 0.6, 3.4, 1.1);
+    if (it) {
+      const y = it.pos.y;
+      const low = t === 'forklift' ? Math.max(0, y - 0.15) : 0;
+      this.seq = [
+        { lift: low, tilt: 0, dur: 0.6 },
+        { fn: () => { if (!it.carriedBy && !it.removed) pickupItem(this, it); }, dur: 0.1 },
+        { lift: t === 'forklift' ? low + 0.6 : 0.35, tilt: t === 'skid' ? -0.3 : -0.04, dur: 0.5 },
+      ];
+      return;
+    }
+    toast(t === 'skid' ? '앞에 퍼담을 분뇨나 건초가 없어요' : '포크 앞에 들 수 있는 건초나 팔레트가 없어요', this.def.icon, 2000);
+    sfx('error');
+  }
+
+  /** 버킷에 퍼담기 (분뇨/퇴비는 섞이지 않음) */
+  scoop(x, z, r) {
+    const res = takeBulk(x, z, r, BUCKET_CAP - this.load, this.load > 0.01 ? this.loadKind : null);
+    if (res.got > 0) { this.load += res.got; this.loadKind = res.kind; }
+    return res.got;
+  }
+
+  nearShedLoad() {
+    for (const s of allSheds()) if (Math.hypot(this.pos.x - s.loadPos.x, this.pos.z - s.loadPos.z) < 7 || s.zoneAt(this.pos.x, this.pos.z, 2)) return s;
+    return null;
+  }
+
+  /** 퇴비사에서 트럭에 퇴비 싣기 (퇴비사 컨베이어) */
+  loadCompost(shed) {
+    const cap = TRUCK_BULK_CAP[this.type];
+    if (truckCargo(this).length) { toast('적재함에 팔레트/건초가 있어서 퇴비를 실을 수 없어요', this.def.icon); return 0; }
+    if (this.bulk > 0.01 && this.bulkKind !== 'compost') { toast('분뇨가 실려 있어요. 먼저 퇴비사에 내려주세요', this.def.icon); return 0; }
+    const amt = Math.min(cap - this.bulk, shed.compost);
+    if (amt <= 0.5) { toast(shed.compost <= 0.5 ? `${shed.name}에 아직 완성된 퇴비가 없어요 (발효 중 ♨️)` : '적재함이 가득 찼어요', '♻️', 2400); return 0; }
+    shed.compost -= amt;
+    this.bulk += amt;
+    this.bulkKind = 'compost';
+    for (let i = 0; i < 10; i++) {
+      const t = i / 10;
+      spawn('muck', lerp(shed.compostPos.x, this.pos.x, t), 1.5 + Math.sin(t * Math.PI) * 2, lerp(shed.compostPos.z, this.pos.z, t), { vy: 1, grav: 4, life: 0.6 + t * 0.3 });
+    }
+    sfx('scoop');
+    floatText(this.pos.x, 3.6, this.pos.z, `퇴비 ${Math.round(amt)}포 상차! (${Math.round((this.bulk / cap) * 100)}%)`, 'good');
+    return amt;
+  }
+
+  // ---------------- 사료 배합기 ----------------
+  atStation() {
+    const b = LAYOUT.station.bay;
+    return Math.hypot(this.pos.x - b.x, this.pos.z - b.z) < 6;
+  }
+  isMixed() { return mixTotal(this) > 0 && this.mixT >= MIX_TIME; }
+  feedLeft() { return Math.max(0, mixTotal(this) * MIX_UNIT_FEED - this.dispensed); }
+
+  addIngredient(kind) {
+    if (!this.atStation()) { toast('배합장(보라색 원)에서 원료를 넣을 수 있어요', '🥣', 2200); sfx('error'); return false; }
+    if (this.dispensed > 0) { toast('남은 사료를 먼저 다 배출해주세요', '🥣'); sfx('error'); return false; }
+    const r = loadIngredient(this, kind);
+    if (r === 'full') { toast('배합 통이 가득 찼어요', '🥣', 1800); sfx('error'); return false; }
+    if (r === 'none') { toast(kind === 'hay' ? '근처에 건초가 없어요 (건초 보관소/배합장)' : `${INGREDIENTS[kind].name}가 없어요. 트럭으로 사료 가게에서 사 오세요`, INGREDIENTS[kind].icon, 2600); sfx('error'); return false; }
+    sfx('pop');
+    if (G.driving === this) floatText(this.pos.x, 3.4, this.pos.z, `${INGREDIENTS[kind].icon} +1`, 'good');
+    return true;
+  }
+
+  /** 레시피대로 자동 투입 */
+  autoLoad(animal) {
+    const barn = G.barns.find((b) => b.animalType === animal);
+    const units = barn ? Math.ceil((100 - barn.feed) / MIX_UNIT_FEED) + 1 : MIXER_CAP;
+    const need = planRecipe(animal, this.mix, stock(), units);
+    if (!need) return false;
+    const steps = [];
+    for (const k of ['hay', 'corn', 'soy']) for (let i = 0; i < need[k]; i++) steps.push({ fn: () => loadIngredient(this, k), dur: 0.35 });
+    if (!steps.length) return false;
+    steps.push({ fn: () => { this.pto = true; }, dur: 0.1 });
+    this.seq = steps;
+    sfx('pop');
+    return true;
+  }
+
+  pickRecipeTarget(maxFeed = 101) {
+    const st = stock();
+    const list = G.barns.filter((b) => b.animals.length && b.feed < maxFeed).sort((a, b) => a.feed - b.feed);
+    for (const b of list) if (planRecipe(b.animalType, this.mix, st)) return b;
+    return null;
+  }
+
+  mixerAction() {
+    const easy = G.settings.mode === 'easy';
+    if (easy && this.atStation() && mixTotal(this) < MIXER_CAP && this.dispensed === 0) {
+      const rec = recipeOf(this.mix);
+      const target = rec ? G.barns.find((b) => b.animalType === rec) : this.pickRecipeTarget();
+      if (target && this.autoLoad(target.animalType)) { toast(`${RECIPES[target.animalType].name} 배합 시작!`, RECIPES[target.animalType].icon, 2200); return; }
+      if (!mixTotal(this)) { toast('원료가 부족해요. 트럭으로 사료 가게에서 옥수수·대두박을 사 오세요', '🌽', 3000); return; }
+    }
+    if (easy && barnAlleyAt(this.pos.x, this.pos.z) && mixTotal(this) > 0) {
+      this.pto = true;
+      this.tiltT = this.tilt > 0.5 ? 0 : 1;
+      floatText(this.pos.x, 3.2, this.pos.z, this.tiltT ? '배출 시작!' : '배출 멈춤', 'good');
+      return;
+    }
+    this.pto = !this.pto;
+    sfx('click');
+    floatText(this.pos.x, 3.2, this.pos.z, `오거 ${this.pto ? 'ON' : 'OFF'}`, this.pto ? 'good' : '');
+  }
+
+  /** 사료 가게에서 원료 구매 → 트럭 적재 */
+  buyIngredient(kind) {
+    const price = INGREDIENTS[kind].price;
+    if (G.coins < price) { toast('코인이 부족해요', '🪙'); sfx('error'); return false; }
+    if (this.bulk > 0.01) { toast('적재함에 퇴비/분뇨가 있어요', this.def.icon); sfx('error'); return false; }
+    const slot = freeTruckSlot(this);
+    if (slot < 0) { toast('적재함이 가득 찼어요', this.def.icon); sfx('error'); return false; }
+    G.coins -= price;
+    const st = LAYOUT.store;
+    const it = new Item('sack', kind);
+    it.placeAt(st.x - 4, st.z, 0);
+    it.pos.set(st.x - 4, 0, st.z);
+    setOnTruck(it, this, slot, true);
+    sfx('buy');
+    return true;
+  }
+
+  /** 배합장에 원료 내리기 */
+  unloadToStation() {
+    let n = 0;
+    for (const it of truckCargo(this)) {
+      if (it.kind !== 'sack' && it.kind !== 'bale') continue;
+      const slot = freeStationSlot(this);
+      if (!slot) { toast('배합장 보관 칸이 가득 찼어요', '🌽'); break; }
+      it.mesh.getWorldPosition(it.pos);
+      setOnStation(it, slot);
+      it.pop = 0.4;
+      burst('dust', slot.x, 0.6, slot.z, 4, { vy: 1.5, grav: 0, life: 0.5 });
+      n++;
+    }
+    if (n) { sfx('drop'); floatText(this.pos.x, 3.4, this.pos.z, `원료 ${n}개 하차!`, 'good'); }
+    return n;
+  }
+
+  nearStore() {
+    const st = LAYOUT.store;
+    return Math.hypot(this.pos.x - st.x, this.pos.z - st.z) < st.r + 3;
+  }
+
+  truckAction() {
+    if (this.nearStore()) { G.openStore?.(this); return; }
+    if (this.atStation() && truckCargo(this).some((it) => it.kind === 'sack' || it.kind === 'bale')) {
+      if (!this.unloadToStation()) toast('내릴 원료가 없어요', this.def.icon);
+      return;
+    }
+    const bay = LAYOUT.dock.bay;
+    if (Math.hypot(this.pos.x - bay.x, this.pos.z - bay.z) < 6) {
+      if (this.bulk > 0.01) { toast('적재함에 퇴비/분뇨가 있어서 팔레트를 실을 수 없어요', this.def.icon, 2200); return; }
+      const n = this.loadFromDock();
+      if (!n) toast(freeTruckSlot(this) < 0 ? '적재함이 가득 찼어요' : '출하장에 실을 짐이 없어요', this.def.icon, 2000);
+      return;
+    }
+    if (nearMarket(this.pos, 4) || nearMarket(this.workPoint(), 3)) {
+      if (!this.sellCargo()) toast(this.bulkKind === 'manure' && this.bulk > 0 ? '분뇨는 팔 수 없어요. 퇴비사에서 발효시켜 주세요' : '실은 짐이 없어요', this.def.icon, 2200);
+      return;
+    }
+    const shed = this.nearShedLoad();
+    if (shed) {
+      if (this.def.dump && this.bulk > 0.01 && this.bulkKind === 'manure') { this.seq = [{ lift: 0.85, dur: 2.6 }, { lift: 0, dur: 2.2 }]; return; }
+      this.loadCompost(shed);
+      return;
+    }
+    if (this.def.dump && this.bulk > 0.01 && G.settings.mode === 'easy') {
+      this.seq = [{ lift: 0.85, dur: 2.6 }, { lift: 0, dur: 2.2 }];
+      return;
+    }
+    toast('출하장에서 팔레트를, 퇴비사(축사 뒤)에서 퇴비를 싣고 판매소에서 팔아요', this.def.icon, 2800);
+  }
+
+  loadFromDock() {
+    let n = 0;
+    for (const it of dockItems()) {
+      const slot = freeTruckSlot(this);
+      if (slot < 0) break;
+      setOnTruck(it, this, slot, true);
+      it.fly.dur = 0.5 + n * 0.12;
+      n++;
+    }
+    if (n) { sfx('pickup'); floatText(this.pos.x, 3.5, this.pos.z, `📦 ${n}개 상차!`, 'good'); }
+    return n;
+  }
+
+  sellCargo() {
+    const cargo = truckCargo(this).filter((it) => !it.fly);
+    let total = 0;
+    if (cargo.length) total += sellItems(cargo, LAYOUT.market);
+    if (this.bulk > 0.01 && this.bulkKind === 'compost') {
+      total += sellCompost(this.bulk, LAYOUT.market);
+      this.bulk = 0;
+      this.bulkKind = null;
+    }
+    return total;
+  }
+
+  // ---------------- 매 프레임 ----------------
+  update(dt) {
+    const driven = G.driving === this;
+    const def = this.def;
+    let thr = 0, st = 0;
+    if (driven) {
+      thr = (keyDown('KeyW', 'ArrowUp') ? 1 : 0) - (keyDown('KeyS', 'ArrowDown') ? 1 : 0);
+      st = (keyDown('KeyA', 'ArrowLeft') ? 1 : 0) - (keyDown('KeyD', 'ArrowRight') ? 1 : 0);
+      this.status = '직접 운전 중';
+      this.manualControls(dt);
+    } else if (this.auto) {
+      [thr, st] = this.think(dt);
+    } else {
+      this.status = '수동 모드 · 정지';
+      this.pto = false;
+    }
+    if (this.seq) {
+      this.runSeq(dt);
+      if (!driven) { thr = 0; st = 0; }
+    }
+
+    // 부스트 (Shift)
+    this.boosting = driven && thr > 0 && keyDown('ShiftLeft', 'ShiftRight') && this.boostE > 0.02;
+    if (this.boosting) this.boostE = Math.max(0, this.boostE - dt * 0.22);
+    else this.boostE = Math.min(1, this.boostE + dt * 0.12);
+
+    let max = driven ? def.maxSpeed : def.maxSpeed * (0.85 + 0.12 * G.upgrades.autoSpeed) * (G.snackT > 0 ? 1.15 : 1);
+    let accel = def.accel;
+    if (this.boosting) { max *= 1.55; accel *= 1.6; }
+    if (def.dump && this.lift > 0.05) max *= 0.3;
+    if (this.type === 'forklift' && this.lift > 1.2) max *= 0.55;
+    const target = thr >= 0 ? thr * max : thr * max * 0.55;
+    const braking = Math.abs(target) < Math.abs(this.speed) || Math.sign(target) !== Math.sign(this.speed);
+    this.speed = approach(this.speed, target, (braking ? accel * 1.8 : accel) * dt);
+    if (def.skid) {
+      this.heading += st * def.turn * dt;
+    } else {
+      let eff = clamp(Math.abs(this.speed) / 2.2, 0, 1);
+      if (Math.abs(thr) > 0.01) eff = Math.max(eff, 0.4);
+      const dir = this.speed < -0.05 || (Math.abs(this.speed) <= 0.05 && thr < 0) ? -1 : 1;
+      const hi = Math.abs(this.speed) > def.maxSpeed ? 0.75 : 1;
+      this.heading += st * def.turn * eff * dir * hi * dt;
+    }
+    this.heading = wrapAngle(this.heading);
+    const fx = Math.sin(this.heading), fz = Math.cos(this.heading);
+    this.pos.x += fx * this.speed * dt;
+    this.pos.z += fz * this.speed * dt;
+    this.resolveCollisions(fx, fz);
+
+    // 유압
+    this.prevLift = this.lift;
+    if (def.lift) this.lift = approach(this.lift, this.liftT, def.lift.rate * dt);
+    if (def.tilt) this.tilt = approach(this.tilt, this.tiltT, def.tilt.rate * dt);
+    this.applyControls();
+    this.updateTool(dt, driven);
+    this.animate(dt, st);
+  }
+
+  runSeq(dt) {
+    const s = this.seq[0];
+    if (!s.started) {
+      s.started = true;
+      if (s.lift != null && this.def.lift) this.liftT = clamp(s.lift, this.def.lift.min, this.def.lift.max);
+      if (s.tilt != null && this.def.tilt) this.tiltT = clamp(s.tilt, this.def.tilt.min, this.def.tilt.max);
+      s.t = s.dur ?? 0.5;
+    }
+    s.t -= dt;
+    if (s.t <= 0) {
+      this.seq.shift();
+      if (!this.seq.length) this.seq = null;
+      s.fn?.();
+    }
+  }
+
+  resolveCollisions(fx, fz) {
+    let hit = false;
+    for (const [off, r] of this.def.circles) {
+      _c.set(this.pos.x + fx * off, 0, this.pos.z + fz * off);
+      const ox = _c.x, oz = _c.z;
+      if (collideCircle(_c, r, true)) { this.pos.x += _c.x - ox; this.pos.z += _c.z - oz; hit = true; }
+    }
+    if (hit) this.speed *= 0.92;
+    for (const o of G.vehicles) {
+      if (o === this) continue;
+      if (Math.hypot(o.pos.x - this.pos.x, o.pos.z - this.pos.z) > 10) continue;
+      const ofx = Math.sin(o.heading), ofz = Math.cos(o.heading);
+      for (const [a, ra] of this.def.circles) for (const [b, rb] of o.def.circles) {
+        const ax = this.pos.x + fx * a, az = this.pos.z + fz * a;
+        const bx = o.pos.x + ofx * b, bz = o.pos.z + ofz * b;
+        const dx = ax - bx, dz = az - bz, d = Math.hypot(dx, dz), min = ra + rb;
+        if (d < min && d > 1e-4) {
+          const p = (min - d) / 2;
+          this.pos.x += (dx / d) * p; this.pos.z += (dz / d) * p;
+        }
+      }
+    }
+    if (!G.driving) {
+      const p = G.player.pos;
+      for (const [a, r] of this.def.circles) {
+        const ax = this.pos.x + fx * a, az = this.pos.z + fz * a;
+        const dx = p.x - ax, dz = p.z - az, d = Math.hypot(dx, dz), min = r + 0.45;
+        if (d < min && d > 1e-4) { p.x = ax + (dx / d) * min; p.z = az + (dz / d) * min; }
+      }
+    }
+  }
+
+  applyControls() {
+    const m = this.m;
+    switch (this.type) {
+      case 'tractor': m.mower.position.y = lerp(0.3, 0.85, this.lift); break;
+      case 'baler':
+        m.pickup.position.y = lerp(0.38, 0.75, this.lift);
+        m.tailgate.rotation.x = this.tilt * 1.15;
+        break;
+      case 'forklift':
+        m.mast.rotation.x = this.tilt;
+        m.carriage.position.y = 0.08 + this.lift;
+        m.inner.position.y = Math.max(0, this.lift - 1.0) * 0.95;
+        break;
+      case 'skid':
+        m.arms.rotation.x = -this.lift * 0.95;
+        m.bucket.rotation.x = this.lift * 0.95 + this.tilt;
+        break;
+      case 'balewagon': {
+        m.arms.rotation.x = -this.lift * 1.0;
+        m.clamp.rotation.x = this.lift * 1.0;
+        const open = this.carrying ? 0 : 0.35;
+        for (const j of m.jaws) j.g.rotation.y = j.s * open;
+        m.bed.rotation.x = -this.tilt;
+        m.cylinder.scale.y = 1 + this.tilt * 3;
+        break;
+      }
+      case 'truck5':
+        m.bed.rotation.x = -this.lift;
+        m.tailgate.rotation.x = this.lift * 1.3;
+        m.cylinder.scale.y = 1 + this.lift * 2.2;
+        m.cylinder.position.y = 1.0 + this.lift * 1.3;
+        break;
+    }
+  }
+
+  updateTool(dt, driven) {
+    const m = this.m;
+    const moving = Math.abs(this.speed) > 0.3;
+    const easy = G.settings.mode === 'easy';
+    const fp = this.workPoint();
+    if (this.type === 'tractor') {
+      if (this.pto) for (const d of m.discs) d.rotation.y += dt * 22;
+      if (this.pto && moving && this.lift < 0.2) {
+        const cut = G.field.cutAt(fp.x, fp.z, 1.45);
+        for (const t of cut) for (let i = 0; i < 3; i++) spawn('clip', t.x + rand(-0.6, 0.6), 0.5, t.z + rand(-0.6, 0.6), { vy: rand(2, 4), vx: rand(-1.5, 1.5), vz: rand(-1.5, 1.5), grav: 9, life: 0.8, spin: rand(-12, 12) });
+        if (cut.length) sfx('cut');
+      }
+    } else if (this.type === 'baler') {
+      if (this.pto) m.reel.rotation.x -= dt * 9;
+      if (this.pto && moving && this.lift < 0.2 && this.collected < 4) {
+        const got = G.field.collectAt(fp.x, fp.z, 1.35);
+        if (got.length) {
+          this.collected = Math.min(4, this.collected + got.length);
+          for (const t of got) for (let i = 0; i < 3; i++) spawn('hay', t.x + rand(-0.5, 0.5), 0.4, t.z + rand(-0.5, 0.5), { vy: rand(2, 3.5), grav: 9, life: 0.7, spin: rand(-10, 10) });
+          sfx('cut');
+        }
+      }
+      this.ejectCD -= dt;
+      if (this.collected >= 4 && this.tilt > 0.8 && this.ejectCD <= 0) {
+        if (baleCount() < MAX_BALES) {
+          this.collected = 0;
+          this.ejectCD = 1.2;
+          const bx = this.pos.x - Math.sin(this.heading) * 3.0, bz = this.pos.z - Math.cos(this.heading) * 3.0;
+          spawnBale(bx, bz, this.heading);
+          burst('hay', bx, 1.2, bz, 10, { vy: 3 });
+          sfx('bale');
+          if (driven) floatText(bx, 2, bz, '건초 완성! 🌾', 'good');
+        } else if (driven && G.now - (this.fullT || 0) > 4) {
+          this.fullT = G.now;
+          toast('건초가 너무 많아요! 먼저 옮기거나 팔아주세요', '🌾');
+        }
+      }
+      if (this.collected >= 4 && !this.seq && (!driven || easy) && this.tilt < 0.1 && this.ejectCD <= 0) {
+        this.seq = [{ tilt: 1, dur: 0.9 }, { tilt: 0, dur: 0.7 }];
+      }
+      if (driven && !easy && this.collected >= 4 && this.tilt < 0.5 && !this.fullWarned) {
+        this.fullWarned = true;
+        toast('챔버가 가득 찼어요! T 키로 뒷문을 열어 건초를 내보내세요', '🌀', 3200);
+      }
+      if (this.collected < 4) this.fullWarned = false;
+      for (let i = 0; i < 4; i++) m.lamps[i].material = i < this.collected ? this.lampOn : this.lampOff;
+    } else if (this.type === 'forklift') {
+      const forkY = 0.18 + this.lift;
+      if (!this.carrying && this.lift > this.prevLift + 1e-5) {
+        const it = itemInFront(this, 1.0, 2.8, 0.7, forkY - 0.15, 0.3);
+        if (it && forkY > it.pos.y + 0.06 && this.canGrab(it)) pickupItem(this, it);
+      } else if (this.carrying && this.lift < this.prevLift - 1e-5) {
+        const a = m.carry.getWorldPosition(_w);
+        const sp = supportUnder(a.x, a.z, this);
+        if (forkY <= sp.y + 0.2 && !releaseCarried(this, sp)) {
+          this.lift = this.liftT = Math.max(this.lift, sp.y - 0.18 + 0.2);
+        }
+      }
+    } else if (this.type === 'skid') {
+      const by = m.carry.getWorldPosition(_w).y;
+      const level = this.tilt > -0.35 && this.tilt < 0.3;
+      if (!this.carrying && this.load < BUCKET_CAP && this.lift < 0.12 && level && this.speed > 0.15) {
+        const got = this.scoop(fp.x, fp.z, 1.5);
+        if (got > 0) {
+          if (G.now - (this.scoopSfx || 0) > 0.4) { sfx('scoop'); this.scoopSfx = G.now; }
+          if (this.load >= BUCKET_CAP - 0.01 && driven) floatText(fp.x, 2, fp.z, '버킷 가득!', 'good');
+        }
+      }
+      if (this.load > 0.01 && this.tilt > 0.7) this.dumpLoad();
+      if (!this.carrying && this.load < 0.5 && this.lift > this.prevLift + 1e-5 && level) {
+        const it = itemInFront(this, 1.2, 3.0, 0.9, by, 0.45);
+        if (it && by > it.pos.y + 0.05 && this.canGrab(it)) pickupItem(this, it);
+      } else if (this.carrying) {
+        if (this.tilt > 0.75) {
+          const it = this.carrying;
+          if (releaseCarried(this, { kind: 'ground', y: 0 }) && !it.removed && it.support.kind === 'ground') {
+            it.placeAt(fp.x + Math.sin(this.heading) * 0.6, fp.z + Math.cos(this.heading) * 0.6, this.heading);
+          }
+        } else if (this.lift < this.prevLift - 1e-5) {
+          const a = m.carry.getWorldPosition(_w);
+          const sp = supportUnder(a.x, a.z, this);
+          if (by <= sp.y + 0.15 && !releaseCarried(this, sp)) this.lift = this.liftT = this.prevLift;
+        }
+      }
+      m.load.visible = this.load > 0.3;
+      const s = Math.min(1, this.load / BUCKET_CAP);
+      m.load.scale.set(0.6 + s * 0.4, 0.4 + s * 0.8, 0.6 + s * 0.4);
+      this.tintLoad(m.load, this.loadKind);
+    }
+    if (this.type === 'mixer') this.updateMixer(dt, driven);
+    if (this.type === 'balewagon') this.updateWagon(dt, driven);
+    if (this.isTruck) {
+      const cap = TRUCK_BULK_CAP[this.type];
+      m.load.visible = this.bulk > 0.3;
+      const k = Math.min(1, this.bulk / cap);
+      m.load.scale.set(0.5 + k * 0.5, 0.3 + k * 1.2, 0.5 + k * 0.5);
+      this.tintLoad(m.load, this.bulkKind);
+      if (this.def.dump && this.lift > 0.45) {
+        const rx = this.pos.x - Math.sin(this.heading) * 4.6, rz = this.pos.z - Math.cos(this.heading) * 4.6;
+        if (this.bulk > 0.1) {
+          const kind = this.bulkKind;
+          if (kind === 'compost' && G.field.inside(rx, rz, 2) && !shedAt(rx, rz, 3)) {
+            depositBulk('compost', this.bulk, rx, rz, { manual: driven });
+          } else {
+            const sa = shedAt(rx, rz, 3) || shedAt(this.pos.x, this.pos.z, 5.5);
+            const tx = sa ? (kind === 'manure' ? sa.shed.rawPos.x : sa.shed.compostPos.x) : rx;
+            const tz = sa ? (kind === 'manure' ? sa.shed.rawPos.z : sa.shed.compostPos.z) : rz;
+            depositBulk(kind, this.bulk, tx, tz, { manual: driven, pad: 0.6 });
+          }
+          this.bulk = 0;
+          this.bulkKind = null;
+        }
+        const cargo = truckCargo(this);
+        cargo.forEach((it, i) => {
+          const side = (i % 2 ? 1 : -1) * 0.8;
+          const back = 1.2 + Math.floor(i / 2) * 1.4;
+          const lx = Math.cos(this.heading), lz = -Math.sin(this.heading);
+          it.placeAt(rx - Math.sin(this.heading) * back + lx * side, rz - Math.cos(this.heading) * back + lz * side, this.heading + rand(-0.3, 0.3));
+          it.pop = 0.3;
+        });
+        if (cargo.length) sfx('drop');
+      }
+    }
+  }
+
+  updateMixer(dt, driven) {
+    const m = this.m;
+    const total = mixTotal(this);
+    if (this.pto) {
+      m.auger.rotation.y += dt * 10;
+      if (total > 0 && this.mixT < MIX_TIME) {
+        this.mixT = Math.min(MIX_TIME, this.mixT + dt);
+        if (this.mixT >= MIX_TIME && driven) {
+          const rec = recipeOf(this.mix);
+          toast(rec ? `${RECIPES[rec].name} 배합 완성! ✨ 축사 통로에서 배출하세요 (T)` : '잡사료가 됐어요 (레시피와 비율이 달라요)', rec ? RECIPES[rec].icon : '🥣', 3000);
+          sfx('ding');
+        }
+      }
+    }
+    m.door.rotation.z = -this.tilt * 1.2;
+    // 통 안 내용물
+    const left = this.feedLeft() / (MIXER_CAP * MIX_UNIT_FEED);
+    m.fill.scale.y = Math.max(0.001, left * 1.5);
+    const key = total ? `${this.mix.hay}${this.mix.corn}${this.mix.soy}${this.isMixed() ? 1 : 0}` : '';
+    if (key !== this.fillKey) {
+      this.fillKey = key;
+      const c = new THREE.Color(0, 0, 0);
+      for (const k of ['hay', 'corn', 'soy']) c.add(new THREE.Color(INGREDIENTS[k].color).multiplyScalar(this.mix[k] / Math.max(1, total)));
+      if (this.isMixed()) c.lerp(new THREE.Color(0xc9a05a), 0.35);
+      m.fillMesh.material = mat(c.getHex());
+    }
+    // 배출
+    if (this.tilt > 0.6 && total > 0) {
+      if (!this.isMixed()) {
+        if (driven && G.now - (this.mixWarnT || 0) > 4) { this.mixWarnT = G.now; toast('아직 덜 섞였어요! 오거를 돌려(Space) 충분히 배합해주세요', '🥣'); }
+        return;
+      }
+      if (!this.pto) { if (driven && G.now - (this.ptoWarnT || 0) > 4) { this.ptoWarnT = G.now; toast('오거를 돌려야(Space) 사료가 나와요', '🥣'); } return; }
+      const o = m.out.getWorldPosition(_w);
+      const barn = barnAlleyAt(o.x, o.z) || barnAlleyAt(this.pos.x, this.pos.z);
+      const amt = Math.min(this.feedLeft(), 14 * dt);
+      const rec = recipeOf(this.mix);
+      if (Math.random() < 0.6) spawn('hay', o.x + rand(-0.3, 0.3), o.y, o.z + rand(-0.3, 0.3), { vy: 0.5, vx: rand(-1.2, -0.4) * Math.cos(this.heading), vz: rand(-0.4, 0.4), grav: 9, life: 0.7, spin: rand(-8, 8) });
+      if (barn) {
+        const added = barn.addFeed(amt, rec);
+        this.dispensed += added;
+        if (added < amt * 0.5 && driven && G.now - (this.fullWarnT || 0) > 4) { this.fullWarnT = G.now; toast(`${barn.name} 사료가 가득 찼어요`, '🌾'); }
+        if (rec && rec !== barn.animalType && driven && G.now - (this.recWarnT || 0) > 6) { this.recWarnT = G.now; toast(`이 사료는 ${RECIPES[rec].name}예요. 맞춤 효과가 없어요`, RECIPES[rec].icon); }
+      } else {
+        this.dispensed += amt;
+        if (driven && G.now - (this.spillWarnT || 0) > 4) { this.spillWarnT = G.now; toast('사료가 바닥에 쏟아지고 있어요! 축사 통로 안에서 배출하세요', '🥣'); }
+      }
+      if (this.feedLeft() <= 0.01) {
+        this.mix = { hay: 0, corn: 0, soy: 0 };
+        this.mixT = 0;
+        this.dispensed = 0;
+        this.tiltT = 0;
+        if (driven) { toast('배합 사료를 다 배출했어요! 배합장에서 다시 채워요', '🥣', 2400); sfx('ding'); }
+      }
+    }
+  }
+
+  // ---------------- 베일 운반차 ----------------
+  updateWagon(dt, driven) {
+    const m = this.m;
+    const cy = m.carry.getWorldPosition(_w).y;
+    if (!this.carrying && this.lift > this.prevLift + 1e-5 && this.lift < 0.5) {
+      const it = itemInFront(this, 2.7, 4.6, 0.95);
+      if (it && it.support.kind === 'ground' && this.canGrab(it)) pickupItem(this, it);
+    }
+    if (this.carrying && this.lift > 0.9) {
+      const slot = this.tilt < 0.05 ? freeTruckSlot(this) : -1;
+      if (slot >= 0) {
+        const it = this.carrying;
+        this.carrying = null;
+        it.mesh.getWorldPosition(it.pos);
+        setOnTruck(it, this, slot, true);
+        sfx('pickup');
+        if (driven) floatText(this.pos.x, 3.6, this.pos.z, `데크 ${truckCargo(this).length}/${m.slots.length}`, 'good');
+      } else if (driven && G.now - (this.deckWarnT || 0) > 4) {
+        this.deckWarnT = G.now;
+        toast('데크가 가득 찼어요! 축사 통로·건초 보관소·배합장에서 T로 데크를 들어 내려요', '🚛', 3000);
+      }
+    }
+    if (this.carrying && this.lift < this.prevLift - 1e-5 && cy < 0.4) {
+      const a = m.carry.getWorldPosition(_w);
+      releaseCarried(this, supportUnder(a.x, a.z, this));
+    }
+    if (this.tilt > 0.45 && !this.unloaded) { this.unloaded = true; this.unloadDeck(driven); }
+    if (this.tilt < 0.1) this.unloaded = false;
+  }
+
+  /** 데크를 들면 위치에 따라: 축사 통로 → 사료 / 보관소·배합장 → 칸에 정리 / 그 외 → 뒤에 내려놓기 */
+  unloadDeck(driven) {
+    const cargo = truckCargo(this).filter((it) => !it.fly);
+    if (!cargo.length) return;
+    const fx = Math.sin(this.heading), fz = Math.cos(this.heading);
+    const rx = this.pos.x - fx * 6.2, rz = this.pos.z - fz * 6.2;
+    const barn = barnAlleyAt(this.pos.x, this.pos.z) || barnAlleyAt(rx, rz);
+    if (barn) {
+      let n = 0;
+      for (const it of cargo) {
+        if (barn.feed > 100 - BALE_FEED * 0.6) break;
+        barn.addFeed(BALE_FEED, null);
+        it.remove();
+        n++;
+      }
+      burst('hay', rx, 1.0, rz, 10 + n * 6, { vy: 3.5 });
+      if (n) { sfx('pop'); floatText(rx, 2.4, rz, `+사료 🌾 ×${n}`, 'good'); }
+      else if (driven) toast(`${barn.name} 사료가 이미 넉넉해요`, '🌾');
+      this.ai.forBarn = null;
+      return;
+    }
+    const y = LAYOUT.yard;
+    const nearYard = Math.hypot(this.pos.x - y.x, this.pos.z - y.z) < 9 || inYard(rx, rz);
+    const nearStation = Math.hypot(this.pos.x - LAYOUT.station.bay.x, this.pos.z - LAYOUT.station.bay.z) < 7 || inStation(rx, rz, 2);
+    let i = 0;
+    for (const it of cargo) {
+      if (nearStation) {
+        const slot = freeStationSlot(this);
+        if (slot) { setOnStation(it, slot); it.pop = 0.4; continue; }
+      }
+      if (nearYard) {
+        const slot = freeYardSlot(this);
+        if (slot) { it.placeAt(slot.x, slot.z, Math.PI / 2); it.pop = 0.4; continue; }
+      }
+      const lx = Math.cos(this.heading), lz = -Math.sin(this.heading);
+      const back = 1.0 + Math.floor(i / 2) * 1.5, side = (i % 2 ? 1 : -1) * 0.7;
+      it.placeAt(rx - fx * back + lx * side, rz - fz * back + lz * side, this.heading);
+      it.pop = 0.4;
+      i++;
+    }
+    sfx('drop');
+    if (driven) floatText(rx, 2.4, rz, nearStation ? '배합장에 하차!' : nearYard ? '건초 보관소에 하차!' : '건초 하차!', 'good');
+  }
+
+  /** 간편 모드 Space */
+  wagonQuick() {
+    if (this.carrying) { this.seq = [{ lift: 1, dur: 1.2 }, { lift: 0.3, dur: 0.6 }]; return; }
+    const it = itemInFront(this, 2.2, 5.0, 1.3);
+    if (it && it.support.kind === 'ground') {
+      this.seq = [{ lift: 0, tilt: 0, dur: 0.6 }, { fn: () => { if (!it.carriedBy && !it.removed) pickupItem(this, it); }, dur: 0.1 }, { lift: 1, dur: 1.2 }, { lift: 0.3, dur: 0.6 }];
+      return;
+    }
+    if (truckCargo(this).length) { this.seq = [{ tilt: 0.6, dur: 1.7 }, { tilt: 0, dur: 1.5 }]; return; }
+    toast('앞에 건초가 없어요. 건초 더미 앞으로 가서 Space를 눌러요', '🚛', 2200);
+  }
+
+  taskWagon() {
+    const cargo = truckCargo(this).filter((it) => !it.fly).length;
+    const cap = this.m.slots.length;
+    if (this.carrying) { this.liftT = 1; return null; }
+    let best = null, bd = Infinity;
+    for (const it of G.items) {
+      if (it.kind !== 'bale' || it.carriedBy || it.removed || it.support.kind !== 'ground') continue;
+      if (inYard(it.pos.x, it.pos.z) || inStation(it.pos.x, it.pos.z, 1)) continue;
+      if ((it.reservedBy && it.reservedBy !== this) || it.unreachable > G.now) continue;
+      const d = Math.hypot(it.pos.x - this.pos.x, it.pos.z - this.pos.z);
+      if (d < bd) { bd = d; best = it; }
+    }
+    const unloadSeq = () => { this.seq = [{ tilt: 0.6, dur: 1.7 }, { tilt: 0, dur: 1.5 }]; };
+    if (cargo >= cap || (cargo > 0 && (!best || bd > 45))) {
+      const barn = this.neededBarn(65);
+      if (barn) {
+        this.ai.forBarn = barn;
+        return { kind: 'drop', key: 'wfeed' + barn.uid, center: true, x: barn.cx, z: barn.front - 9, arrive: 2.4, label: `${barn.name} 통로에 건초 내리는 중 🌾`, slow: 0.7, prep: () => { this.liftT = 0.3; }, onArrive: unloadSeq };
+      }
+      const st = stock();
+      const S = LAYOUT.station;
+      if (st.hay < 2 && freeStationSlot(this)) return { kind: 'drop', key: 'wstation', center: true, x: S.bay.x, z: S.bay.z + 3, arrive: 2.6, label: '배합장에 건초 내리는 중 🥣', prep: () => { this.liftT = 0.3; }, onArrive: unloadSeq };
+      const y = LAYOUT.yard;
+      if (freeYardSlot(this)) return { kind: 'drop', key: 'wyard', center: true, x: y.x, z: y.z + 7.5, arrive: 2.6, label: '건초 보관소에 내리는 중', prep: () => { this.liftT = 0.3; }, onArrive: unloadSeq };
+      this.idleStatus = '건초를 둘 곳이 없어요';
+      return null;
+    }
+    if (best) {
+      const it = best;
+      return {
+        kind: 'pickup', key: 'witem' + it.id, item: it, x: it.pos.x, z: it.pos.z, arrive: 1.1, label: `밭에서 건초 싣는 중 🚛 (${cargo}/${cap})`,
+        valid: () => !it.carriedBy && !it.removed && it.support.kind === 'ground',
+        prep: () => { this.tiltT = 0; this.liftT = Math.hypot(it.pos.x - this.pos.x, it.pos.z - this.pos.z) < 10 ? 0 : 0.3; },
+        onArrive: () => {
+          const ok = itemInFront(this, 2.2, 5.2, 1.4) === it;
+          if (!ok) { it.unreachable = G.now + 15; return; }
+          this.seq = [{ lift: 0, dur: 0.25 }, { fn: () => { if (!it.carriedBy && !it.removed) pickupItem(this, it); }, dur: 0.05 }, { lift: 1, dur: 1.2 }, { lift: 0.3, dur: 0.5 }];
+        },
+      };
+    }
+    this.idleStatus = '옮길 건초가 없어요';
+    return null;
+  }
+
+  tintLoad(group, kind) {
+    const want = kind === 'compost' ? 'compost' : 'manure';
+    if (group.userData.kind === want) return;
+    group.userData.kind = want;
+    const m = want === 'compost' ? mat(0x4e3828) : mat(0x8b6a4f);
+    group.traverse((o) => { if (o.isMesh) o.material = m; });
+  }
+
+  /** 방금 내려놓은 짐은 잠깐 동안 다시 집지 않는다 (포크를 살짝 올릴 때 재집기 방지) */
+  canGrab(it) {
+    return it !== this.lastDrop || G.now - (this.lastDropT || 0) > 3;
+  }
+
+  dumpLoad() {
+    const a = this.m.carry.getWorldPosition(_w);
+    const x = a.x, z = a.z, y = a.y;
+    const sp = supportUnder(x, z, this, 0.8);
+    const truck = sp.kind === 'truck' && y > sp.y + 0.2 ? sp.truck : null;
+    depositBulk(this.loadKind || 'manure', this.load, x, z, { manual: G.driving === this, truck, y: sp.y + 0.5, pad: 0.6 });
+    this.load = 0;
+    this.loadKind = null;
+  }
+
+  animate(dt, st) {
+    const m = this.m;
+    const driven = G.driving === this;
+    this.group.position.set(this.pos.x, 0, this.pos.z);
+    this.group.rotation.y = this.heading;
+    for (const w of m.wheels) {
+      let v = this.speed;
+      if (this.def.skid) v -= w.side * st * this.def.turn * 0.8;
+      w.spin.rotation.x += (v * dt) / w.r;
+    }
+    this.steerVis = damp(this.steerVis, st * 0.5, 10, dt);
+    for (const s of m.steer) s.rotation.y = m.rearSteer ? -this.steerVis : this.steerVis;
+    const acc = (this.speed - this.prevSpeed) / Math.max(dt, 1e-3);
+    this.prevSpeed = this.speed;
+    this.accSm = damp(this.accSm, acc, 6, dt);
+    m.body.rotation.x = clamp(-this.accSm * 0.008, -0.05, 0.05);
+    const running = driven || (this.auto && (Math.abs(this.speed) > 0.05 || this.ai.task || this.seq));
+    m.body.position.y = running ? Math.sin(G.now * 38 + this.id) * 0.012 + Math.sin(G.now * 12) * 0.01 * Math.min(1, Math.abs(this.speed)) : 0;
+    this.playerFig.group.visible = driven && !G.cam.fp;
+    const hideGlass = driven && G.cam.fp;
+    for (const gl of this.glass) gl.visible = !hideGlass;
+    this.npcFig.group.visible = !driven && this.auto;
+    if (m.beacon) m.beacon.material = running && Math.sin(G.now * 8) > 0 ? this.beaconOn : this.beaconOff;
+    if (running) {
+      this.smokeT -= dt;
+      if (this.smokeT <= 0) {
+        this.smokeT = this.boosting ? 0.05 : 0.12 + (1 - Math.min(1, Math.abs(this.speed) / this.def.maxSpeed)) * 0.3;
+        m.exhaust.getWorldPosition(_w);
+        spawn('smoke', _w.x, _w.y, _w.z, { vy: 1.4, vx: rand(-0.2, 0.2), vz: rand(-0.2, 0.2), life: this.boosting ? 0.8 : 1.1, size: this.boosting ? 1.0 : 0.7 });
+      }
+    }
+    if (Math.abs(this.speed) > 3) {
+      this.dustT -= dt;
+      if (this.dustT <= 0) {
+        this.dustT = this.boosting ? 0.05 : 0.12;
+        const back = this.isTruck ? 3.5 : 1.3;
+        const bx = this.pos.x - Math.sin(this.heading) * back, bz = this.pos.z - Math.cos(this.heading) * back;
+        spawn('dust', bx + rand(-0.6, 0.6), 0.2, bz, { vy: 0.6, life: 0.8, size: this.boosting ? 1.2 : 0.8 });
+      }
+    }
+  }
+
+  syncVisual() {
+    this.group.position.set(this.pos.x, 0, this.pos.z);
+    this.group.rotation.y = this.heading;
+  }
+
+  // ---------------- 자동 운용 AI ----------------
+  think(dt) {
+    const ai = this.ai;
+    if (this.seq) { this.status = ai.task?.label || this.status; return [0, 0]; }
+    if (ai.reverseT > 0 && !ai.task) { ai.reverseT -= dt; return [-0.6, ai.revSteer]; }
+    ai.think -= dt;
+    if (!ai.task) {
+      if (ai.think > 0) { this.status = this.idleStatus; this.idlePose(); return [0, 0]; }
+      this.chooseTask();
+      ai.think = 2.5;
+      if (!ai.task) { this.status = this.idleStatus; this.idlePose(); return [0, 0]; }
+    } else if (ai.think <= 0 || (ai.task.valid && !ai.task.valid())) {
+      this.chooseTask();
+      ai.think = 2.5;
+      if (!ai.task) return [0, 0];
+    }
+    const task = ai.task;
+    this.status = task.label;
+    task.prep?.();
+
+    if (ai.reverseT > 0) {
+      ai.reverseT -= dt;
+      if (ai.reverseT <= 0) ai.path = null;
+      return [-0.6, ai.revSteer];
+    }
+
+    const fp = this.workPoint();
+    const dC = Math.hypot(task.x - this.pos.x, task.z - this.pos.z);
+    const dF = Math.hypot(task.x - fp.x, task.z - fp.z);
+    const arrived = task.center ? dC < (task.arrive ?? 1.4) : dF < task.arrive || dC < 0.9;
+    if (arrived) return this.arrive(task);
+
+    if (!ai.path || ai.pathFor !== task) this.plan(task);
+    const path = ai.path;
+    while (ai.idx < path.length - 1 && Math.hypot(path[ai.idx].x - this.pos.x, path[ai.idx].z - this.pos.z) < 2.2) ai.idx++;
+    const wp = path[ai.idx];
+    const last = ai.idx === path.length - 1;
+    const dx = wp.x - this.pos.x, dz = wp.z - this.pos.z;
+    const d = Math.hypot(dx, dz);
+    if (last && d < 1.0) return this.arrive(task);
+
+    const want = Math.atan2(dx, dz);
+    const diff = wrapAngle(want - this.heading);
+    const steer = clamp(diff * 2.2, -1, 1);
+    let thr;
+    if (this.def.skid) thr = Math.abs(diff) > 0.9 ? 0.05 : 1 - Math.abs(diff) * 0.6;
+    else thr = 1 - Math.min(1, Math.abs(diff) / 1.6) * 0.75;
+    if (last) thr *= clamp(d / 5, 0.35, 1);
+    if (task.slow) thr *= task.slow;
+
+    if (!this.def.skid && Math.abs(diff) > 2.1 && d < 5) {
+      ai.reverseT = this.isTruck ? 1.6 : 1.1; ai.revSteer = -Math.sign(diff);
+      return [-0.6, ai.revSteer];
+    }
+
+    const fx = Math.sin(this.heading), fz = Math.cos(this.heading);
+    let blocked = false, avoid = 0, crawl = false;
+    for (const o of G.vehicles) {
+      if (o === this) continue;
+      const ox = o.pos.x - this.pos.x, oz = o.pos.z - this.pos.z;
+      const od = Math.hypot(ox, oz);
+      if (od > 9) continue;
+      const fwd = ox * fx + oz * fz;
+      if (fwd <= 0) continue;
+      const lat = ox * fz - oz * fx;
+      if (Math.abs(lat) > this.radius + o.radius + 0.5) continue;
+      const movingOther = Math.abs(o.speed) > 0.3 || G.driving === o;
+      if (movingOther) {
+        if (od < this.radius + o.radius + 2.5 + (o.isTruck || this.isTruck ? 2 : 0) && (o.id < this.id || G.driving === o)) blocked = true;
+      } else if (Math.hypot(task.x - o.pos.x, task.z - o.pos.z) > 2.5) {
+        avoid += (lat >= 0 ? -1 : 1) * (1 - od / 9) * 1.6;
+      }
+    }
+    if (!G.driving) {
+      const p = G.player.pos;
+      const ox = p.x - this.pos.x, oz = p.z - this.pos.z, od = Math.hypot(ox, oz);
+      const fwd = ox * fx + oz * fz, lat = ox * fz - oz * fx;
+      if (fwd > 0 && od < 8 && Math.abs(lat) < this.radius + 1.4) {
+        avoid += (lat >= 0 ? -1 : 1) * (1 - od / 8) * 2.2;
+        if (od < this.radius + 2.2) { crawl = true; this.status = '잠깐만요! 지나갈게요'; }
+      }
+    }
+    for (const b of G.barns) {
+      if (!b.contains(this.pos.x, this.pos.z, 2)) continue;
+      for (const a of b.animals) {
+        const ox = a.pos.x - this.pos.x, oz = a.pos.z - this.pos.z;
+        const fwd = ox * fx + oz * fz, lat = ox * fz - oz * fx;
+        if (fwd > 0 && fwd < this.def.work + 2 && Math.abs(lat) < 1.6) { crawl = true; this.status = '동물들아 비켜줘~'; }
+      }
+    }
+    if (blocked) {
+      ai.wait += dt;
+      if (ai.wait > 3) { ai.wait = 0; ai.reverseT = 1.0; ai.revSteer = Math.random() < 0.5 ? -1 : 1; }
+      return [0, steer];
+    }
+    ai.wait = 0;
+    if (crawl) return [Math.min(thr, 0.3), clamp(steer + avoid, -1, 1)];
+    if (avoid) return this.stuckCheck(dt, thr * 0.7, clamp(steer + avoid, -1, 1), diff);
+    return this.stuckCheck(dt, thr, steer, diff);
+  }
+
+  /** 막혔으면 목표 쪽으로 머리를 돌리며 후진 (반복되면 더 길게) */
+  stuckCheck(dt, thr, steer, diff = 0) {
+    const ai = this.ai;
+    if (thr > 0.2 && Math.abs(this.speed) < 0.25) ai.stuck += dt;
+    else ai.stuck = Math.max(0, ai.stuck - dt);
+    if (ai.stuck > 1.4) {
+      ai.stuck = 0;
+      ai.stuckCount = G.now - (ai.lastStuck || 0) < 8 ? (ai.stuckCount || 0) + 1 : 1;
+      ai.lastStuck = G.now;
+      ai.reverseT = Math.min(3, 1.1 + ai.stuckCount * 0.5);
+      ai.revSteer = Math.abs(diff) > 0.2 ? -Math.sign(diff) : (Math.random() < 0.5 ? -1 : 1);
+      ai.path = null;
+    }
+    return [thr, steer];
+  }
+
+  idlePose() {
+    if (this.type === 'mixer') { this.pto = false; this.tiltT = 0; }
+    if (this.type === 'balewagon' && !this.carrying) { this.liftT = 0.3; this.tiltT = 0; }
+    if (this.type === 'tractor' || this.type === 'baler') { this.pto = false; this.liftT = 1; }
+    if (this.type === 'forklift' && !this.carrying) { this.liftT = 0.1; this.tiltT = -0.04; }
+    if (this.type === 'skid' && !this.carrying && this.load < 0.5) { this.liftT = 0.12; this.tiltT = 0; }
+  }
+
+  arrive(task) {
+    const ai = this.ai;
+    ai.task = null;
+    ai.path = null;
+    ai.think = task.kind === 'park' ? 2.5 : 0;
+    task.onArrive?.();
+    return [0, 0];
+  }
+
+  plan(task) {
+    const ai = this.ai;
+    ai.pathFor = task;
+    ai.idx = 0;
+    if (lineClear(this.pos.x, this.pos.z, task.x, task.z)) ai.path = [{ x: task.x, z: task.z }];
+    else ai.path = findPath(this.pos.x, this.pos.z, task.x, task.z) || [{ x: task.x, z: task.z }];
+  }
+
+  chooseTask() {
+    const prev = this.ai.task;
+    let t = null;
+    if (this.type === 'tractor') t = this.taskTractor();
+    else if (this.type === 'baler') t = this.taskBaler();
+    else if (this.isTruck) t = this.taskTruck();
+    else if (this.type === 'mixer') t = this.taskMixer();
+    else if (this.type === 'balewagon') t = this.taskWagon();
+    else t = this.taskHauler();
+    if (!t) {
+      const p = this.park;
+      if (Math.hypot(p.x - this.pos.x, p.z - this.pos.z) > 1.8) {
+        t = { kind: 'park', key: 'park', center: true, x: p.x, z: p.z, label: `주차장으로 · ${this.idleStatus}` };
+      }
+    }
+    if (prev && t && prev.key === t.key) return;
+    if (prev?.item && prev.item.reservedBy === this && prev.item !== t?.item) prev.item.reservedBy = null;
+    if (t?.item) t.item.reservedBy = this;
+    if (t?.kind === 'pickup') this.ai.forBarn = t.forBarn ?? null;
+    this.ai.task = t;
+    this.ai.path = null;
+  }
+
+  // --- 트랙터 / 베일러 ---
+  taskTractor() {
+    const stock = baleCount() + G.field.counts.cut / 4;
+    if (this.resting && stock < 18) this.resting = false;
+    if (!this.resting && stock >= 28) this.resting = true;
+    if (this.resting) { this.idleStatus = '건초가 충분해서 쉬는 중'; return null; }
+    const wp = this.workPoint();
+    const tile = G.field.nearest('tall', wp.x, wp.z, this.heading);
+    if (!tile) { this.idleStatus = '풀이 자라길 기다리는 중'; return null; }
+    return {
+      kind: 'work', key: 'tile' + tile.i, x: tile.x, z: tile.z, arrive: 0.9, label: '풀 베는 중 ✂️', valid: () => tile.state === 'tall',
+      prep: () => { const on = this.inField(1.5); this.pto = on; this.liftT = on ? 0 : 1; }, slow: 0.9,
+    };
+  }
+
+  taskBaler() {
+    if (baleCount() >= MAX_BALES - 4) { this.idleStatus = '건초 보관 공간이 부족해요'; return null; }
+    const wp = this.workPoint();
+    const tile = G.field.nearest('cut', wp.x, wp.z, this.heading);
+    if (!tile) { this.idleStatus = '벤 풀을 기다리는 중'; return null; }
+    return {
+      kind: 'work', key: 'tile' + tile.i, x: tile.x, z: tile.z, arrive: 0.9, label: `건초 만드는 중 (${this.collected}/4)`, valid: () => tile.state === 'cut' && this.collected < 4,
+      prep: () => { const on = this.inField(1.5); this.pto = on; this.liftT = on ? 0 : 1; },
+    };
+  }
+
+  // --- 지게차 / 스키드로더 ---
+  neededBarn(maxFeed) {
+    let best = null, bv = Infinity;
+    for (const b of G.barns) {
+      if (!b.animals.length) continue;
+      let incoming = 0;
+      for (const v of G.vehicles) if (v !== this && v.ai.forBarn === b) incoming++;
+      const eff = b.feed + incoming * BALE_FEED;
+      if (eff < maxFeed && eff < bv) { bv = eff; best = b; }
+    }
+    return best;
+  }
+
+  pickupTask(it, label, forBarn = null) {
+    const low = this.type === 'forklift' ? Math.max(0, it.pos.y - 0.15) : 0;
+    return {
+      kind: 'pickup', key: 'item' + it.id, item: it, x: it.pos.x, z: it.pos.z, arrive: 1.7, label, forBarn,
+      valid: () => !it.carriedBy && !it.removed && it.support.kind !== 'truck',
+      prep: () => {
+        if (Math.hypot(it.pos.x - this.pos.x, it.pos.z - this.pos.z) < 7) { this.liftT = low; this.tiltT = 0; }
+      },
+      onArrive: () => {
+        const fp = this.workPoint();
+        const ok = !it.carriedBy && !it.removed && (Math.hypot(it.pos.x - fp.x, it.pos.z - fp.z) < 2.6 || Math.hypot(it.pos.x - this.pos.x, it.pos.z - this.pos.z) < 2.4);
+        if (!ok) { it.unreachable = G.now + 20; return; }
+        this.seq = [
+          { lift: low, dur: 0.3 },
+          { fn: () => { if (!it.carriedBy && !it.removed) pickupItem(this, it); }, dur: 0.05 },
+          { lift: low + 0.6, tilt: this.type === 'skid' ? -0.3 : -0.06, dur: 0.5 },
+        ];
+      },
+    };
+  }
+
+  fetchBale(barn, label, opts = {}) {
+    let best = null, bd = Infinity;
+    for (const it of G.items) {
+      if (it.kind !== 'bale' || it.carriedBy || it.removed || it.support.kind !== 'ground') continue;
+      if (it.reservedBy && it.reservedBy !== this) continue;
+      if (it.unreachable > G.now) continue;
+      if (opts.notInYard && inYard(it.pos.x, it.pos.z)) continue;
+      const d = Math.hypot(it.pos.x - this.pos.x, it.pos.z - this.pos.z);
+      if (d < bd) { bd = d; best = it; }
+    }
+    return best ? this.pickupTask(best, label, barn) : null;
+  }
+
+  fetchPallet() {
+    let best = null, bd = Infinity;
+    for (const it of G.items) {
+      if (it.kind !== 'pallet' || it.carriedBy || it.removed || it.support.kind !== 'ground') continue;
+      if (it.reservedBy && it.reservedBy !== this) continue;
+      if (it.unreachable > G.now) continue;
+      const d = Math.hypot(it.pos.x - this.pos.x, it.pos.z - this.pos.z);
+      if (d < bd) { bd = d; best = it; }
+    }
+    return best ? this.pickupTask(best, '팔레트 가지러 가는 중 📦') : null;
+  }
+
+  dropTask(x, z, key, label, extra = {}) {
+    return {
+      kind: 'drop', key, x, z, arrive: extra.arrive ?? 1.0, label, ...extra,
+      prep: () => { this.liftT = this.type === 'forklift' ? 0.6 : 0.35; this.tiltT = this.type === 'skid' ? -0.3 : -0.06; },
+      onArrive: () => {
+        const a = this.m.carry.getWorldPosition(_w);
+        const sp = supportUnder(a.x, a.z, this);
+        this.seq = [
+          { lift: this.type === 'forklift' ? Math.max(0, sp.y - 0.18) : 0, tilt: 0, dur: 0.7, fn: () => {
+            if (this.carrying && !releaseCarried(this, sp)) { this.ai.forBarn = null; this.ai.think = 0; return; }
+            this.ai.reverseT = 0.9; this.ai.revSteer = 0;
+          } },
+        ];
+      },
+    };
+  }
+
+  deliverTask() {
+    const it = this.carrying;
+    if (it.kind === 'pallet') {
+      const slot = freeDockSlot(this);
+      if (slot) return this.dropTask(slot.x, slot.z, 'dock' + slot.i, '출하장으로 운반 중 📦', { slot: 'd' + slot.i, arrive: 0.8 });
+      const m = LAYOUT.market;
+      return this.dropTask(m.x, m.z, 'market', '판매소로 직접 운반 중 🏪', { arrive: 2.5 });
+    }
+    let barn = this.ai.forBarn;
+    if (!barn || barn.feed > 100 - BALE_FEED * 0.6) barn = this.neededBarn(100 - BALE_FEED * 0.6);
+    if (barn) {
+      this.ai.forBarn = barn;
+      return this.dropTask(barn.dropPos.x, barn.dropPos.z, 'feed' + barn.uid, `${barn.name} 통로에 건초 배달 중 🌾`, { arrive: 1.5 });
+    }
+    const slot = freeYardSlot(this);
+    if (slot) return this.dropTask(slot.x, slot.z, 'yard' + slot.i, '건초 보관소로 옮기는 중', { slot: 'y' + slot.i, arrive: 0.8 });
+    const d = freeDockSlot(this);
+    if (d) return this.dropTask(d.x, d.z, 'dock' + d.i, '남는 건초 출하장으로', { slot: 'd' + d.i, arrive: 0.8 });
+    this.idleStatus = '건초를 둘 곳이 없어요';
+    return null;
+  }
+
+  taskHauler() {
+    if (this.carrying) return this.deliverTask();
+    if (this.type === 'skid') {
+      if (this.load >= BUCKET_CAP * 0.8) return this.compostTask();
+      let worst = null;
+      for (const b of G.barns) if (b.manure >= (this.load > 0 ? 3 : 18) && (!worst || b.manure > worst.manure)) worst = b;
+      if (worst) {
+        const c = worst.dirtiestCell(this.pos.x, this.pos.z);
+        if (c) {
+          return {
+            kind: 'scoop', key: `cell${worst.uid}-${worst.cells.indexOf(c)}`, x: c.x, z: c.z, arrive: 0.7, label: `${worst.name} 바닥 청소 중 🧹 (${Math.round((this.load / BUCKET_CAP) * 100)}%)`,
+            valid: () => c.amt > 0.3 && this.load < BUCKET_CAP * 0.95,
+            prep: () => { const near = Math.hypot(c.x - this.pos.x, c.z - this.pos.z) < 8; this.liftT = near ? 0 : 0.15; this.tiltT = 0; },
+            slow: 0.75,
+          };
+        }
+      }
+      const pile = G.muck.reduce((best, m) => (!best || m.amount > best.amount ? m : best), null);
+      if (pile && this.load < BUCKET_CAP * 0.9) {
+        return { kind: 'scoop', key: 'muck' + G.muck.indexOf(pile), x: pile.x, z: pile.z, arrive: 0.8, label: '쏟아진 분뇨 치우는 중', valid: () => G.muck.includes(pile), prep: () => { this.liftT = 0; this.tiltT = 0; } };
+      }
+      if (this.load > 1) return this.compostTask();
+      const urgent = this.neededBarn(45);
+      if (urgent) { const t = this.fetchBale(urgent, `${urgent.name} 건초 지원 중`); if (t) return t; }
+      this.idleStatus = '축사가 깨끗해요 ✨';
+      return null;
+    }
+    const urgent = this.neededBarn(40);
+    if (urgent) { const t = this.fetchBale(urgent, `${urgent.name}에 줄 건초 가지러 가는 중`); if (t) return t; }
+    if (freeDockSlot(this)) { const pal = this.fetchPallet(); if (pal) return pal; }
+    const need = this.neededBarn(100 - BALE_FEED * 0.6);
+    if (need) { const t = this.fetchBale(need, `${need.name}에 줄 건초 가지러 가는 중`); if (t) return t; }
+    const wagonOn = G.vehicles.some((v) => v.type === 'balewagon' && v.auto && G.driving !== v);
+    if (freeYardSlot(this) && !wagonOn) {
+      const t = this.fetchBale(null, '흩어진 건초 정리 중', { notInYard: true });
+      if (t) return t;
+    }
+    this.idleStatus = freeDockSlot(this) ? '할 일이 없어요 ☕' : '출하장이 가득 찼어요';
+    return null;
+  }
+
+  /** 분뇨 → 퇴비사 / 퇴비 → 트럭·퇴비사 */
+  compostTask() {
+    let shed = null, bd = Infinity;
+    for (const sh of allSheds()) {
+      if (sh.raw > COMPOST.cap - 5) continue;
+      const d = Math.hypot(sh.rawPos.x - this.pos.x, sh.rawPos.z - this.pos.z) - (sh.barn.manure > 0 ? 0 : 0);
+      if (d < bd) { bd = d; shed = sh; }
+    }
+    if (!shed) { this.idleStatus = '퇴비사가 가득 찼어요'; return null; }
+    const p = shed.rawPos;
+    return {
+      kind: 'drop', key: 'shed' + shed.barn.uid, x: p.x, z: p.z + 0.6, arrive: 1.4, label: `${shed.name}로 운반 중 ♻️`,
+      prep: () => { this.liftT = 0.3; this.tiltT = -0.4; },
+      onArrive: () => { this.seq = [{ lift: 0.45, tilt: -0.2, dur: 0.5 }, { tilt: 1.05, dur: 0.7 }, { tilt: 0, lift: 0.12, dur: 0.6 }]; this.ai.reverseT = 0; },
+    };
+  }
+
+  // --- 트럭 ---
+  taskTruck() {
+    const cargo = truckCargo(this).length;
+    const cap = this.m.slots.length;
+    const bulkCap = TRUCK_BULK_CAP[this.type];
+    const dockN = dockItems().length;
+    const m = LAYOUT.market, bay = LAYOUT.dock.bay;
+    const sellTask = (label) => ({ kind: 'sell', key: 'sell', center: true, x: m.x, z: m.z, arrive: 3.2, label, onArrive: () => { this.sellCargo(); this.ai.think = 0.8; } });
+    // 분뇨가 실려 있으면 퇴비사에 내리기
+    if (this.bulk > 0.5 && this.bulkKind === 'manure') {
+      if (!this.def.dump) { this.idleStatus = '분뇨는 5톤 덤프로 내려야 해요'; return null; }
+      const sh = allSheds().reduce((best, s2) => (!best || s2.raw < best.raw ? s2 : best), null);
+      return {
+        kind: 'dump', key: 'tdump', center: true, x: sh.loadPos.x - 2.9, z: sh.loadPos.z + 1.5, arrive: 2.2, label: `${sh.name}에 분뇨 내리는 중 ♻️`,
+        onArrive: () => { this.seq = [{ lift: 0.85, dur: 2.8 }, { lift: 0, dur: 2.4 }]; },
+      };
+    }
+    if (this.bulk > 0.5 && this.bulkKind === 'compost') {
+      const sh = this.bestCompostShed(5);
+      if (this.bulk < bulkCap - 5 && sh && !this.otherTruckAt(sh)) return this.compostLoadTask(sh);
+      return sellTask(`퇴비 팔러 가는 중 ♻️ (${Math.round((this.bulk / bulkCap) * 100)}%)`);
+    }
+    const S = LAYOUT.station;
+    if (truckCargo(this).some((it) => it.kind === 'sack')) {
+      return { kind: 'unload', key: 'unload', center: true, x: S.bay.x, z: S.bay.z, arrive: 2.6, label: '배합장에 원료 내리는 중 🌽', onArrive: () => { this.unloadToStation(); this.ai.think = 0.8; } };
+    }
+    if (cargo >= cap || (cargo > 0 && dockN === 0)) return sellTask(`판매소로 배송 중 🏪 (${cargo}/${cap})`);
+    const other = G.vehicles.find((v) => v !== this && v.isTruck && v.auto && G.driving !== v && v.ai.task?.kind === 'load');
+    const threshold = this.type === 'truck5' ? 2 : 1;
+    const big = G.vehicles.find((v) => v.type === 'truck5');
+    const bigBusy = !big || !big.auto || G.driving === big || big.ai.task?.kind === 'sell' || big.ai.task?.kind === 'compost' || truckCargo(big).length >= big.m.slots.length;
+    if (!other && dockN >= threshold && (this.type === 'truck5' || bigBusy || dockN < 2)) {
+      return { kind: 'load', key: 'load', center: true, x: bay.x, z: bay.z, arrive: 2.6, label: '출하장에서 짐 싣는 중 📦', onArrive: () => { this.loadFromDock(); this.ai.think = 1.4; } };
+    }
+    if (cargo > 0) return sellTask(`판매소로 배송 중 🏪 (${cargo}/${cap})`);
+    // 사료 원료 구매 (1톤 우선)
+    const buyer = G.vehicles.find((v) => v.type === 'truck1' && v.auto && G.driving !== v) || this;
+    if (buyer === this && cargo === 0 && this.bulk < 0.01) {
+      const st = stock();
+      const free = [0, 1, 2, 3, 4, 5].filter(() => true).length - (st.corn + st.soy + G.items.filter((it) => it.support.kind === 'station' && it.kind === 'bale').length);
+      const wants = [];
+      if (st.corn < 2) wants.push('corn');
+      if (st.soy < 2) wants.push('soy');
+      if (wants.length && free >= 2 && G.coins >= 400 && !G.vehicles.some((v) => v !== this && v.ai.task?.kind === 'buy')) {
+        const store = LAYOUT.store;
+        return {
+          kind: 'buy', key: 'buy', center: true, x: store.x, z: store.z, arrive: 3, label: '사료 가게에 원료 사러 가는 중 🌽',
+          onArrive: () => {
+            const list = [...wants];
+            while (list.length < this.m.slots.length) list.push(list[list.length % wants.length]);
+            for (const k of list.slice(0, this.m.slots.length)) if (!this.buyIngredient(k)) break;
+            this.ai.think = 1.2;
+          },
+        };
+      }
+    }
+    // 퇴비 수거
+    const sh = this.bestCompostShed(this.type === 'truck5' ? 40 : 22);
+    if (sh && !this.otherTruckAt(sh)) return this.compostLoadTask(sh);
+    this.idleStatus = '배송할 짐을 기다리는 중';
+    return null;
+  }
+
+  bestCompostShed(min) {
+    let best = null;
+    for (const s2 of allSheds()) if (s2.compost >= min && (!best || s2.compost > best.compost)) best = s2;
+    return best;
+  }
+
+  otherTruckAt(shed) {
+    return G.vehicles.some((v) => v !== this && v.isTruck && v.ai.task?.shed === shed);
+  }
+
+  compostLoadTask(sh) {
+    return {
+      kind: 'compost', key: 'compost' + sh.barn.uid, shed: sh, center: true, x: sh.loadPos.x, z: sh.loadPos.z, arrive: 2.6, label: `${sh.name}에서 퇴비 싣는 중 ♻️`,
+      onArrive: () => { this.loadCompost(sh); this.ai.think = 1.0; },
+    };
+  }
+
+  // --- 배합기 ---
+  taskMixer() {
+    const total = mixTotal(this);
+    const S = LAYOUT.station;
+    if (total > 0) {
+      const rec = recipeOf(this.mix);
+      let barn = this.ai.feedBarn && this.ai.feedBarn.feed < 95 ? this.ai.feedBarn : null;
+      if (!barn) barn = (rec && G.barns.find((b) => b.animalType === rec && b.feed < 95)) || G.barns.filter((b) => b.feed < 95).sort((a, b) => a.feed - b.feed)[0];
+      if (!barn) { this.idleStatus = '사료통이 모두 가득해요'; return null; }
+      this.ai.feedBarn = barn;
+      const name = rec ? RECIPES[rec].name : '잡사료';
+      if ((this.ai.runBarn === barn && barn.contains(this.pos.x, this.pos.z, 9)) || barnAlleyAt(this.pos.x, this.pos.z) === barn) {
+        return {
+          kind: 'feedrun', key: 'run' + barn.uid, center: true, x: barn.cx, z: barn.back - 4, arrive: 2.2, label: `${barn.name}에 ${name} 급여 중 🥣`,
+          prep: () => { this.pto = true; this.tiltT = this.isMixed() && barnAlleyAt(this.pos.x, this.pos.z) ? 1 : 0; }, slow: 0.4,
+          onArrive: () => { this.tiltT = 0; this.ai.runBarn = null; },
+        };
+      }
+      return {
+        kind: 'toAlley', key: 'alley' + barn.uid, center: true, x: barn.cx, z: barn.front + 4.5, arrive: 2.4, label: `${name} 배합하며 ${barn.name}로 가는 중`,
+        prep: () => { this.pto = true; this.tiltT = 0; },
+        onArrive: () => { this.ai.think = 0; this.ai.runBarn = barn; },
+      };
+    }
+    this.ai.feedBarn = null;
+    this.ai.runBarn = null;
+    const target = this.pickRecipeTarget(70);
+    if (!target) {
+      const st = stock();
+      this.idleStatus = st.corn + st.soy === 0 ? '원료가 없어요 (사료 가게)' : '사료가 넉넉해요 ☕';
+      return null;
+    }
+    return {
+      kind: 'load', key: 'mixload', center: true, x: S.bay.x, z: S.bay.z, arrive: 2.6, label: `배합장에서 ${RECIPES[target.animalType].name} 원료 넣는 중`,
+      onArrive: () => { this.ai.feedBarn = target; this.autoLoad(target.animalType); },
+    };
+  }
+
+  serialize() {
+    return { x: this.pos.x, z: this.pos.z, h: this.heading, auto: this.auto, bulk: this.bulk, bulkKind: this.bulkKind, load: this.load, loadKind: this.loadKind, mix: this.mix, mixT: this.mixT, disp: this.dispensed };
+  }
+}
+
+export const START_FLEET = ['tractor', 'baler', 'forklift', 'skid', 'truck1', 'truck5', 'mixer', 'balewagon'];
+export function createVehicles(types = START_FLEET) {
+  G.vehicles = [];
+  for (const t of types) addVehicle(t);
+}
+export function addVehicle(type) {
+  const v = new Vehicle(type, G.vehicles.length);
+  G.vehicles.push(v);
+  return v;
+}
