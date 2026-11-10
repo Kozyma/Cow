@@ -385,8 +385,9 @@ export class Animal {
         this.fleeing = true;
       }
     }
-    if (!G.driving) {
-      const p = G.player.pos;
+    for (const pl of G.players || [G.player]) {
+      if (!pl || pl.driving || (pl === G.player && G.driving)) continue;
+      const p = pl.pos;
       const dx = this.pos.x - p.x, dz = this.pos.z - p.z;
       const d = Math.hypot(dx, dz), mn = this.type === 'chicken' ? 0.8 : 1.2;
       if (d < mn && d > 1e-4) { this.pos.x += (dx / d) * (mn - d); this.pos.z += (dz / d) * (mn - d); }

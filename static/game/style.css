@@ -461,3 +461,22 @@ body.mobile #drive-panel { top: 104px; }
 body.mobile #house-hud { top: 104px; }
 body.mobile .pill.mode { font-size: 12px; padding: 3px 9px; }
 body.mobile.show-panel #barn-panel { top: 104px; }
+
+/* ---------- 멀티플레이 ---------- */
+.multi { margin: 10px auto 0; max-width: 420px; background: rgba(255, 255, 255, 0.75); border: 3px solid var(--line); border-radius: 18px; padding: 8px 14px; text-align: left; }
+.multi summary { cursor: pointer; font-family: 'Jua'; font-size: 17px; color: var(--ink); list-style: none; text-align: center; }
+.multi summary::-webkit-details-marker { display: none; }
+.multi-body { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+.multi-body label { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--ink2); }
+.multi-body input { flex: 1; min-width: 0; border: 2px solid var(--line); border-radius: 10px; padding: 6px 10px; font: inherit; font-size: 15px; background: #fff; text-transform: none; }
+#mp-room { text-transform: uppercase; }
+.multi-btns { display: flex; gap: 8px; }
+.multi-btns .big { flex: 1; font-size: 16px; padding: 8px 10px; }
+.multi-msg { margin: 0; font-size: 12.5px; color: var(--ink2); line-height: 1.4; }
+.multi-msg.err { color: #d9534f; }
+.pill.net { font-size: 13px; gap: 6px; max-width: 46vw; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.pill.net span { color: var(--ink2); font-size: 12px; }
+
+/* 차량이 많아져도 카드가 화면 밖으로 잘리지 않게: 좁아지면 카드가 줄어들고, 그래도 넘치면 가로 스크롤 */
+body:not(.mobile) #vehicle-dock { max-width: calc(100vw - 24px); overflow-x: auto; overflow-y: visible; padding: 9px 4px 4px; scrollbar-width: thin; }
+body:not(.mobile) .vcard { flex: 0 1 140px; min-width: 112px; }

@@ -1,0 +1,10 @@
+{
+  "name": "monggle-farm",
+  "version": "1.0.0",
+  "private": true,
+  "description": "몽글몽글 목장 — 정적 파일 + 멀티플레이 중계 서버 (외부 패키지 없음)",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js"
+  }
+}

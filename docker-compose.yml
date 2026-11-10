@@ -16,6 +16,21 @@ services:
       # SQLite 파일(farm_data.db)을 named volume에 보관 → 재배포/재빌드에도 데이터 유지
       - cow-data:/app/data
 
+  # 몽글몽글 목장 멀티플레이 중계 서버 (WebSocket). 외부 패키지 없이 Node 기본 모듈만 사용
+  # 게임 파일은 web(Flask)이 /static/game 으로 제공하고, Caddy가 /static/game/ws 만 여기로 넘긴다
+  game-ws:
+    image: node:20-alpine
+    container_name: cow-game-ws
+    restart: unless-stopped
+    working_dir: /game
+    command: ["node", "server.js"]
+    environment:
+      PORT: "8931"
+    expose:
+      - "8931"
+    volumes:
+      - ./static/game:/game:ro
+
   caddy:
     image: caddy:2-alpine
     container_name: cow-caddy
@@ -29,6 +44,7 @@ services:
       - caddy-config:/config
     depends_on:
       - web
+      - game-ws
 
 volumes:
   cow-data:

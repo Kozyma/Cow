@@ -29,6 +29,7 @@
       <div class="pill clock"><span id="clock-ico">☀️</span><span id="clock">1일째</span></div>
       <button class="pill mode" id="mode-pill" title="조작 방식 바꾸기"></button>
       <div class="pill fert hidden" id="fert"></div>
+      <div class="pill net hidden" id="net-pill"></div>
     </div>
     <div id="top-right">
       <button class="round-btn mob-only" id="btn-panel" title="축사 현황"><span class="i">📊</span><span>현황</span></button>
@@ -127,8 +128,9 @@
         <section>
           <h3>🎮 기본 조작</h3>
           <ul class="keys">
-            <li><kbd>W A S D</kbd> / 방향키 — 걷기 · 운전 &nbsp; <kbd>Shift</kbd> — 달리기 · 차량 부스트</li>
+            <li><kbd>W A S D</kbd> / 방향키 — 걷기 · 운전 &nbsp; <kbd>Shift</kbd> — 달리기 · 차량 부스트(무제한)</li>
             <li><kbd>E</kbd> — 차량 타기/내리기 · 동물 쓰다듬기</li>
+            <li><b>아래 차량 목록 카드 더블클릭(더블탭)</b> — 멀리 있어도 그 차량에 바로 타기</li>
             <li><kbd>V</kbd> — 3인칭 ↔ 1인칭 시점 (1인칭에서는 화면 클릭 후 마우스로 둘러보기)</li>
             <li><kbd>1</kbd>~<kbd>8</kbd> / <kbd>Tab</kbd> — 차량 관찰 (걸을 때) · <kbd>C</kbd> 시점 초기화 · 마우스 드래그/휠 — 카메라</li>
             <li><kbd>B</kbd> 상점 · <kbd>L</kbd> 배치 변경 · <kbd>O</kbd> 설정 · <kbd>H</kbd> 도움말</li>
@@ -142,7 +144,7 @@
             <li><kbd>1</kbd>/<kbd>2</kbd>/<kbd>3</kbd> — 배합기: 배합장에서 건초 · 옥수수 · 대두박 넣기</li>
             <li><kbd>Space</kbd> — 트랙터/베일러 작업기 켜기 · 트럭 상차/판매 · (간편 모드) 자동 작업</li>
           </ul>
-          <p><b>시뮬레이션 모드</b>에서는 포크를 바닥까지 내려 짐 아래로 밀어 넣고 들어올려야 하고, 버킷을 바닥에 붙여 밀어야 분뇨가 담겨요. <b>간편 모드</b>에서는 Space 한 번으로 자동 처리돼요. 설정에서 언제든 바꿀 수 있어요.</p>
+          <p><b>시뮬레이션 모드</b>에서는 포크를 바닥까지 내려 짐 아래로 밀어 넣고 들어올려야 하고, 버킷을 바닥에 붙여 밀어야 분뇨가 담겨요. <b>간편 모드</b>에서는 Space 한 번으로 자동 처리돼요. 스키드로더는 Space로 <b>버킷 쏟기 ↔ 수평</b>을 바꾸고, 수평일 때 앞으로 가면 분뇨가 계속 담겨요. 설정에서 언제든 바꿀 수 있어요.</p>
         </section>
         <section>
           <h3>🔁 목장이 돌아가는 방법</h3>
@@ -166,8 +168,10 @@
           <p>집 문 앞에서 <kbd>E</kbd>로 들어가요. 가구 앞에서 <kbd>E</kbd>: 🛏️ 잠자기(아침까지) · 🍳 새참(일꾼 15% 빨라짐) · 💻 장부 · 📺 오늘의 시세 · 🎹 피아노 · 🪴 물 주기 · 🐱 고양이. <b>🎨 꾸미기</b>로 가구를 옮기고(클릭) 돌리고(R) 보관하고(X), 벽지 · 바닥 · 외벽 · 지붕 색을 바꿔요. 가구는 상점 🛋️ 탭에서 사요.</p>
         </section>
         <section>
+          <h3>👥 친구와 함께하기</h3>
+          <p>시작 화면의 <b>친구와 함께하기</b>에서 방장은 <b>방 만들기</b>, 친구는 같은 방 코드로 <b>참여하기</b>를 눌러요. 각자 다른 차를 동시에 운전할 수 있어요. 상점 · 배치 변경 · 건설은 방장만 할 수 있어요.</p>
           <h3>🤖 자동 운용 · 💕 동물 행복</h3>
-          <p>직접 운전하지 않는 차량은 일꾼이 알아서 일해요. 하단 카드의 <b>자동</b> 스위치로 켜고 끌 수 있어요. 사료가 넉넉하고 바닥이 깨끗하고 자주 쓰다듬어 줄수록 동물이 행복해져서 우유 🥛 · 트러플 🍄 · 달걀 🥚 을 더 많이 만들어요.</p>
+          <p>차량은 처음에 모두 멈춰 있어요. 하단 카드의 <b>자동</b> 스위치를 켠 차량만 일꾼이 알아서 일해요. 🚗 자가용은 자유롭게 타고 다니는 차예요 (Space: 경적). 사료가 넉넉하고 바닥이 깨끗하고 자주 쓰다듬어 줄수록 동물이 행복해져서 우유 🥛 · 트러플 🍄 · 달걀 🥚 을 더 많이 만들어요.</p>
         </section>
       </div>
     </div>
@@ -186,6 +190,18 @@
         <button id="btn-start" class="big">시작하기</button>
         <button id="btn-new" class="big ghost hidden">새로 시작</button>
       </div>
+      <details class="multi" id="multi">
+        <summary>👥 친구와 함께하기 (온라인)</summary>
+        <div class="multi-body">
+          <label>내 이름 <input id="mp-name" maxlength="12" placeholder="농부"></label>
+          <label>방 코드 <input id="mp-room" maxlength="12" placeholder="예: FARM7"></label>
+          <div class="multi-btns">
+            <button id="btn-host" class="big">🏠 방 만들기</button>
+            <button id="btn-join" class="big ghost">🚪 참여하기</button>
+          </div>
+          <p class="multi-msg" id="mp-msg">방을 만들면 내 농장으로 친구를 초대해요. 친구는 같은 방 코드로 참여해요.</p>
+        </div>
+      </details>
       <p class="tip"><kbd>WASD</kbd> 이동 · <kbd>E</kbd> 탑승 · <kbd>R</kbd><kbd>F</kbd><kbd>T</kbd><kbd>G</kbd> 유압 · <kbd>V</kbd> 1인칭 · <kbd>H</kbd> 도움말</p>
     </div>
   </div>

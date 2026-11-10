@@ -3,7 +3,7 @@ import { G, LAYOUT, BARN_DEFS } from './state.js';
 import { Item, setOnDock, setOnTruck, dockSlots, addMuck } from './items.js';
 import { stationSlots, setOnStation, relocateStation, stationFootprint } from './feed.js';
 import { addBarn, Barn } from './barns.js';
-import { createVehicles } from './vehicles.js';
+import { createVehicles, addVehicle } from './vehicles.js';
 import { relocateDock, dockFootprint } from './world.js';
 import { clearSite } from './layout.js';
 import { buildGrid } from './pathfinding.js';
@@ -28,9 +28,9 @@ function itemData(it) {
   return { ...base, s: 'g', x: +it.pos.x.toFixed(2), z: +it.pos.z.toFixed(2), h: +it.heading.toFixed(2) };
 }
 
-export function saveGame() {
-  if (!G.started) return;
-  const data = {
+/** 농장 전체 상태 (저장 · 멀티플레이 접속 시 전송에 공용) */
+export function buildSaveData() {
+  return {
     v: 4,
     coins: G.coins, day: G.day, time: G.time, prices: G.prices,
     upgrades: G.upgrades, fertileTimer: G.fertileTimer, stats: G.stats,
@@ -45,14 +45,23 @@ export function saveGame() {
     items: G.items.filter((i) => !i.barn && !i.carriedBy && !i.removed && !i.fly).map(itemData),
     muck: G.muck.map((m) => [+m.x.toFixed(2), +m.z.toFixed(2), +m.amount.toFixed(2)]),
     vehicles: G.vehicles.map((v) => ({ type: v.type, ...v.serialize() })),
+    autoV: 2,   // 자동 운전 기본 꺼짐 이후 저장본
     house: G.house,
   };
-  try { localStorage.setItem(KEY, JSON.stringify(data)); } catch { /* 저장 실패 무시 */ }
+}
+
+export function saveGame() {
+  if (!G.started || G.net?.role === 'guest') return;   // 게스트는 내 농장을 덮어쓰지 않는다
+  try { localStorage.setItem(KEY, JSON.stringify(buildSaveData())); } catch { /* 저장 실패 무시 */ }
 }
 
 export function loadGame() {
   let d;
   try { d = JSON.parse(localStorage.getItem(KEY)); } catch { return false; }
+  return applySaveData(d);
+}
+
+export function applySaveData(d) {
   if (!d || d.v !== 4) return false;
   G.coins = d.coins; G.day = d.day; G.time = d.time;
   Object.assign(G.prices, d.prices || {});
@@ -97,11 +106,14 @@ export function loadGame() {
   (d.vehicles || []).forEach((s, i) => {
     const v = G.vehicles[i];
     if (!v) return;
-    v.pos.set(s.x, 0, s.z); v.heading = s.h; v.auto = s.auto;
+    // 예전 저장본은 모두 기본값(자동 켜짐)이었으므로 꺼서 시작한다
+    v.pos.set(s.x, 0, s.z); v.heading = s.h; v.auto = d.autoV === 2 ? !!s.auto : false;
     v.bulk = s.bulk || 0; v.bulkKind = s.bulkKind || null; v.load = s.load || 0; v.loadKind = s.loadKind || null;
     if (s.mix) { v.mix = s.mix; v.mixT = s.mixT || 0; v.dispensed = s.disp || 0; }
     v.syncVisual();
   });
+  // 예전 세이브에는 자가용이 없으니 한 대 넣어준다
+  if (!G.vehicles.some((v) => v.def.personal)) addVehicle('car');
   const dslots = dockSlots(), sslots = stationSlots();
   for (const o of d.items || []) {
     const it = new Item(o.k, o.p);

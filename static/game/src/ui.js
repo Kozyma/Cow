@@ -93,8 +93,28 @@ export function addVehicleUI(v) {
     </div>`);
   c.style.setProperty('--vc', v.def.color);
   const cb = c.querySelector('input');
-  cb.addEventListener('change', () => { v.setAuto(cb.checked); sfx('click'); toast(`${v.def.name} 자동 운전 ${cb.checked ? '켜짐' : '꺼짐'}`, v.def.icon, 1800); });
+  cb.addEventListener('change', () => { API.setAuto(v, cb.checked); sfx('click'); toast(`${v.def.name} 자동 운전 ${cb.checked ? '켜짐' : '꺼짐'}`, v.def.icon, 1800); });
   c.querySelector('.eye').addEventListener('click', (e) => { e.stopPropagation(); API.view(v); });
+  // 카드 더블클릭(모바일 더블탭) → 바로 탑승. 자동 스위치·보기 버튼은 제외
+  c.title = '더블클릭하면 바로 타요';
+  let lastTap = 0, lastBoard = 0;
+  const board = () => {
+    const now = performance.now();
+    if (now - lastBoard < 600) return;   // 두 방식이 동시에 잡혀도 한 번만
+    lastBoard = now;
+    API.board(v);
+  };
+  c.addEventListener('pointerup', (e) => {
+    if (e.target.closest('.switch, .eye')) { lastTap = 0; return; }
+    const now = performance.now();
+    if (now - lastTap < 400) { lastTap = 0; board(); }
+    else lastTap = now;
+  });
+  // 컴퓨터가 버벅여 손가락 탭 간격 계산이 늦어져도 브라우저의 더블클릭은 잡힌다
+  c.addEventListener('dblclick', (e) => {
+    e.preventDefault();
+    if (!e.target.closest('.switch, .eye')) board();
+  });
   $('#vehicle-dock').appendChild(c);
   v.ui = { card: c, status: c.querySelector('.v-status'), cb };
   addLabel(() => ({ x: v.pos.x, y: v.isTruck ? 4.2 : 3.6, z: v.pos.z }), 'veh-label', () => {
@@ -141,7 +161,7 @@ export function initUI(api) {
   buildSettings();
   $('#drive-panel').addEventListener('pointerdown', (e) => {
     const b = e.target.closest('[data-ing]');
-    if (b && G.driving?.type === 'mixer') { e.preventDefault(); G.driving.addIngredient(b.dataset.ing); }
+    if (b && G.driving?.type === 'mixer') { e.preventDefault(); API.addIngredient(b.dataset.ing); }
   });
 }
 
@@ -244,10 +264,17 @@ function shortStatus(v) {
   return s.length > 16 ? s.slice(0, 15) + '…' : s;
 }
 
-function addLabel(getPos, cls, getHtml) {
+export function addLabel(getPos, cls, getHtml) {
   const e = el('div', `wlabel ${cls}`);
   $('#labels').appendChild(e);
-  labels.push({ e, getPos, getHtml, html: null });
+  const l = { e, getPos, getHtml, html: null };
+  labels.push(l);
+  return l;
+}
+export function removeLabel(l) {
+  const i = labels.indexOf(l);
+  if (i >= 0) labels.splice(i, 1);
+  l?.e.remove();
 }
 
 export function setMode(mode) {
@@ -360,7 +387,7 @@ function updateDrivePanel() {
   const d = v.def, easy = G.settings.mode === 'easy';
   const kmh = Math.round(Math.abs(v.speed) * 3.6);
   const g = [];
-  g.push(gauge('부스트', v.boostE, v.boosting ? '🔥' : `${Math.round(v.boostE * 100)}%`, v.boosting ? 'boost on' : 'boost'));
+  g.push(gauge('부스트', 1, v.boosting ? '🔥 ∞' : '∞', v.boosting ? 'boost on' : 'boost'));
   if (d.lift) {
     const val = v.type === 'forklift' ? `${(v.lift + 0.18).toFixed(1)}m` : v.type === 'truck5' ? `${Math.round((v.lift / d.lift.max) * 50)}°` : v.lift < 0.2 ? '작업' : `${Math.round(v.lift * 100)}%`;
     g.push(gauge(d.lift.name, (v.lift - d.lift.min) / (d.lift.max - d.lift.min), val, 'lift'));
@@ -373,6 +400,7 @@ function updateDrivePanel() {
   const chips = [];
   if (d.pto) chips.push(`<span class="chip ${v.pto ? 'on' : ''}">${d.pto} ${v.pto ? 'ON' : 'OFF'}</span>`);
   if (v.type === 'baler') chips.push(`<span class="chip ${v.collected >= 4 ? 'warn' : ''}">🌾 챔버 ${v.collected}/4</span>`);
+  if (v.type === 'skid' && easy) chips.push(`<span class="chip ${v.skidMode === 'dump' ? 'warn' : 'on'}">${v.skidMode === 'dump' ? '⤵️ 쏟기 모드' : '➖ 수평 모드'}</span>`);
   if (v.type === 'skid') chips.push(`<span class="chip">${v.loadKind === 'compost' ? '🟫 퇴비' : '💩 분뇨'} 버킷 ${Math.round((v.load / BUCKET_CAP) * 100)}%</span>`);
   if (v.carrying) chips.push(`<span class="chip on">${v.carrying.kind === 'bale' ? '🌾 건초' : PRODUCTS[v.carrying.product].icon + ' 팔레트'} 들고 있음</span>`);
   if (v.isTruck) chips.push(`<span class="chip">📦 적재 ${truckCargo(v).length}/${v.m.slots.length}</span>`);
@@ -393,7 +421,8 @@ function updateDrivePanel() {
   else if (v.isTruck) space = '상차(출하장·퇴비사) · 구매(사료 가게) · 하차(배합장) · 판매(판매소)';
   else if (v.type === 'balewagon') space = easy ? '건초 집기·싣기 / 데크 하차 자동' : '';
   else if (v.type === 'mixer') space = easy ? '배합장: 레시피 자동 투입 · 통로: 배출 · 그 외: 오거' : '오거 켜기/끄기 (배합·배출)';
-  else space = easy ? (v.type === 'skid' ? '퍼담기·쏟기·들기 자동' : '들기·내리기 자동') : '';
+  else if (d.personal) space = '경적 울리기';
+  else space = easy ? (v.type === 'skid' ? (v.carrying ? '내려놓기' : v.skidMode === 'dump' ? '버킷 수평으로 (→ 앞으로 가면 퍼담기)' : '버킷 쏟기') : '들기·내리기 자동') : '';
   if (d.lift) {
     const nm = { tractor: '예초기', baler: '픽업', forklift: '포크', skid: '암', truck5: '적재함', balewagon: '집게' }[v.type];
     keys.push(`${kb('R')}${kb('F')} ${nm} 올리기·내리기`);
@@ -427,7 +456,7 @@ function updateDrivePanel() {
     ${v.type === 'mixer' ? mixerButtons(v) : ''}
     <div class="dp-keys">${keys.map((k) => `<span>${k}</span>`).join('')}</div>`;
   if (panel.dataset.html !== html) { panel.innerHTML = html; panel.dataset.html = html; }
-  $('#btn-space').textContent = space ? (v.isTruck ? '상차/판매' : '작업') : '작업';
+  $('#btn-space').textContent = d.personal ? '경적' : space ? (v.isTruck ? '상차/판매' : '작업') : '작업';
   $('#btn-e').textContent = '내리기';
 }
 

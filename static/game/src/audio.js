@@ -73,6 +73,7 @@ export function sfx(name) {
     case 'bale': tone(200, 0.25, { slide: 120, type: 'triangle', vol: 0.3 }); noise(0.2, { vol: 0.15, freq: 800 }); tone(784, 0.15, { vol: 0.12, when: 0.2 }); break;
     case 'scoop': noise(0.3, { vol: 0.25, freq: 400, q: 0.7 }); break;
     case 'dump': noise(0.4, { vol: 0.3, freq: 300, q: 0.6 }); tone(392, 0.15, { vol: 0.12, when: 0.3 }); tone(523, 0.2, { vol: 0.12, when: 0.42 }); break;
+    case 'horn': tone(392, 0.16, { type: 'square', vol: 0.09 }); tone(494, 0.16, { type: 'square', vol: 0.07 }); tone(392, 0.22, { type: 'square', vol: 0.09, when: 0.22 }); tone(494, 0.22, { type: 'square', vol: 0.07, when: 0.22 }); break;
     case 'board': tone(262, 0.1, { type: 'triangle', vol: 0.2 }); tone(392, 0.15, { type: 'triangle', vol: 0.2, when: 0.08 }); break;
     case 'unboard': tone(392, 0.1, { type: 'triangle', vol: 0.2 }); tone(262, 0.15, { type: 'triangle', vol: 0.2, when: 0.08 }); break;
     case 'moo': tone(210, 0.75, { type: 'sawtooth', vol: 0.09, slide: 150, attack: 0.08, vibrato: 4 }); tone(105, 0.75, { type: 'sine', vol: 0.12, slide: 80, attack: 0.08 }); break;

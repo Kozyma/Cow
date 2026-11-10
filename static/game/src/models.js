@@ -433,6 +433,40 @@ export function makeTruck1() {
   return { group: g, body, wheels, steer, bed, tailgate, load, seat, slots, bedY: 1.0, bedHalf: { x: 0.9, z: 1.45 }, exhaust: group(body, -0.55, 0.5, -2.3) };
 }
 
+/** 자가용: 동글동글한 2도어 해치백 */
+export function makeCar() {
+  const g = new THREE.Group(), body = group(g);
+  const C = mat(0xff9eb5), Wt = mat(0xfffaf0), D = mat(COL.dark), glass = glassMat();
+  // 차체 + 흰 띠
+  part(body, rbox(1.9, 0.66, 3.9, 0.3), C, 0, 0.7, 0);
+  part(body, rbox(1.94, 0.1, 3.5, 0.04), Wt, 0, 0.78, 0);
+  part(body, rbox(1.7, 0.2, 1.2, 0.1), C, 0, 1.06, 1.25);      // 보닛
+  // 유리 객실 + 기둥 + 지붕
+  part(body, rbox(1.66, 0.72, 2.0, 0.22), glass, 0, 1.38, -0.3);
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) part(body, rbox(0.1, 0.74, 0.12, 0.04), C, sx * 0.8, 1.38, -0.3 + sz * 0.94);
+  part(body, rbox(1.76, 0.14, 2.1, 0.07), C, 0, 1.78, -0.3);
+  part(body, rbox(1.2, 0.06, 1.3, 0.03), Wt, 0, 1.86, -0.3);
+  // 범퍼 · 그릴 · 라이트
+  for (const z of [1.98, -1.98]) part(body, rbox(1.96, 0.24, 0.24, 0.1), Wt, 0, 0.46, z);
+  part(body, rbox(0.8, 0.2, 0.06, 0.04), D, 0, 0.72, 1.96);
+  for (const sx of [-1, 1]) {
+    part(body, sphere(0.16, 12, 8), glow(0xfff3b0, 0.25), sx * 0.62, 0.82, 1.92, 0, 0, 0, 1, 0.85, 0.5);
+    part(body, rbox(0.3, 0.16, 0.06, 0.04), mat(0xff5a5f), sx * 0.64, 0.84, -1.96);
+    part(body, rbox(0.1, 0.16, 0.22, 0.04), C, sx * 0.98, 1.2, 0.62);      // 사이드미러
+  }
+  // 실내 (1인칭에서 보임)
+  part(body, rbox(1.5, 0.22, 0.36, 0.06), mat(0x6b5a50), 0, 1.08, 0.55);
+  seatMesh(body, -0.38, 0.62, -0.25);
+  const seat = group(body, 0.38, 0.69, -0.25);
+  part(body, rbox(0.58, 0.14, 0.52, 0.06), mat(0x8b5a3c), 0.38, 0.62, -0.25);
+  part(body, rbox(0.58, 0.5, 0.12, 0.05), mat(0x8b5a3c), 0.38, 0.92, -0.52);
+  steeringWheel(body, 0.38, 1.16, 0.25);
+  const wheels = [], steer = [];
+  for (const sx of [-1, 1]) { const w = wheel(body, sx * 0.86, 0.38, 1.25, 0.38, 0.24, 0xfffaf0); wheels.push(w); steer.push(w.steer); }
+  for (const sx of [-1, 1]) wheels.push(wheel(body, sx * 0.86, 0.38, -1.25, 0.38, 0.24, 0xfffaf0));
+  return { group: g, body, wheels, steer, seat, exhaust: group(body, -0.55, 0.38, -2.05) };
+}
+
 export function makeTruck5() {
   const g = new THREE.Group(), body = group(g);
   const C = mat(0xffc94d), O = mat(0xff9f5a), Wt = mat(0xfffaf0), D = mat(COL.dark), M = mat(0x9aa7b8);

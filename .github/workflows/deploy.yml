@@ -45,5 +45,8 @@ jobs:
             # 빌드 & 기동 (기존 컨테이너는 교체, 데이터 볼륨은 유지)
             docker compose up -d --build
 
+            # Caddyfile·게임 중계 서버 코드는 파일 마운트라 재시작해야 바뀐 내용이 반영됨
+            docker compose restart caddy game-ws
+
             # 오래된 이미지 정리 (디스크 절약)
             docker image prune -f

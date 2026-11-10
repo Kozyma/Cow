@@ -20,6 +20,9 @@ import { saveGame, loadGame, hasSave, clearSave } from './save.js';
 import { loadSettings } from './settings.js';
 import { damp, dampAngle, clamp, wrapAngle } from './util.js';
 import { blockedAt } from './physics.js';
+import { net, connect, hostStep, hostEndFrame, guestStep, guestCmd, updatePeersUI } from './net.js';
+const isGuest = () => net.role === 'guest';
+const guestOnly = (what) => { toast(`${what}은(는) 방장만 할 수 있어요`, '👑', 1800); };
 
 loadSettings();
 
@@ -50,6 +53,7 @@ INST.build(scene);
 buildGrid(1.75);
 createVehicles();
 G.player = new Player(scene);
+G.players = [G.player];
 HOUSE.buildHouse(scene);
 rollPrices();
 
@@ -71,11 +75,23 @@ const api = {
     G.viewTarget = G.viewTarget === v ? null : v;
     sfx('click');
   },
+  /** 차량 목록에서 더블클릭: 거리와 상관없이 바로 탑승 (운전 중이면 갈아타기) */
+  board(v) {
+    if (!G.started || G.paused) return;
+    if (isGuest()) { if (v.driver && v !== G.driving) toast(`${v.def.name}은(는) 다른 사람이 운전 중이에요`, v.def.icon, 1600); else guestCmd.board(v); return; }
+    if (G.mode !== 'farm') { toast(G.mode === 'house' ? '집 밖에서 탈 수 있어요' : '배치 변경 중에는 탈 수 없어요', v.def.icon, 1600); return; }
+    if (v === G.driving) return;
+    if (!enterVehicle(v)) return;
+    lookPoint = null;
+    if (!G.cam.fp) G.cam.yaw = v.heading + Math.PI;
+    toast(`${v.def.name}에 탔어요`, v.def.icon, 1600);
+  },
   lookAt(x, z) {
     if (G.cam.fp) return;
     lookPoint = { x, z, t: 3 };
   },
   toggleModal(name) {
+    if (isGuest() && (name === 'shop' || name === 'store')) { guestOnly(name === 'shop' ? '상점 이용' : '사료 구매'); return; }
     const m = document.getElementById(`modal-${name}`);
     const open = m.classList.contains('hidden');
     api.closeModals();
@@ -100,11 +116,13 @@ const api = {
     api.toggleModal('store');
   },
   toggleBuild() {
+    if (isGuest()) { guestOnly('배치 변경'); return; }
     if (G.mode === 'build') exitBuild();
     else if (G.mode === 'farm') { if (G.driving) exitVehicle(); if (G.cam.fp) toggleFP(); enterBuild(); }
     else toast('집 밖에서 배치를 바꿀 수 있어요', '🏗️');
   },
   startBuild(defId) {
+    if (isGuest()) { guestOnly('건설'); return; }
     if (G.mode === 'house') { toast('집 밖에서 지을 수 있어요', '🏗️'); return; }
     if (G.driving) exitVehicle();
     if (G.cam.fp) toggleFP();
@@ -138,6 +156,14 @@ const api = {
   },
 };
 G.openStore = (t) => api.openStore(t);
+api.setAuto = (v, on) => {
+  if (isGuest()) { guestCmd.auto(v, on); return; }
+  v.setAuto(on);
+};
+api.addIngredient = (kind) => {
+  if (isGuest()) guestCmd.ing(kind);
+  else G.driving?.addIngredient(kind);
+};
 applySettings();
 
 function applySettings() {
@@ -183,54 +209,92 @@ function toggleFP() {
 }
 
 // ---------------- 탑승 / 하차 ----------------
-function nearestVehicle(maxD) {
+// p: 로컬 플레이어(G.player) 또는 원격 플레이어 (호스트가 대신 계산)
+const isLocal = (p) => p === G.player;
+const drivingOf = (p) => (isLocal(p) ? G.driving : p.driving);
+function nearestVehicle(maxD, p = G.player) {
   let best = null, bd = maxD;
   for (const v of G.vehicles) {
+    if (v.driver && v.driver !== p) continue;
     const fx = Math.sin(v.heading), fz = Math.cos(v.heading);
     for (const [off, r] of v.def.circles) {
-      const d = Math.hypot(v.pos.x + fx * off - G.player.pos.x, v.pos.z + fz * off - G.player.pos.z) - r;
+      const d = Math.hypot(v.pos.x + fx * off - p.pos.x, v.pos.z + fz * off - p.pos.z) - r;
       if (d < bd) { bd = d; best = v; }
     }
   }
   return best;
 }
-function nearestAnimal(maxD) {
+function nearestAnimal(maxD, p = G.player) {
   let best = null, bd = maxD;
   for (const b of G.barns) for (const a of b.animals) {
-    const d = Math.hypot(a.pos.x - G.player.pos.x, a.pos.z - G.player.pos.z);
+    const d = Math.hypot(a.pos.x - p.pos.x, a.pos.z - p.pos.z);
     if (d < bd) { bd = d; best = a; }
   }
   return best;
 }
 
-function enterVehicle(v) {
-  G.driving = v;
-  G.viewTarget = null;
+function enterVehicle(v, p = G.player) {
+  if (v.driver && v.driver !== p) {
+    if (isLocal(p)) toast(`${v.def.name}은(는) ${v.driver.name || '다른 사람'} 님이 운전 중이에요`, v.def.icon, 1800);
+    return false;
+  }
+  if (drivingOf(p)) exitVehicle(p);
+  v.driver = p;
+  if (isLocal(p)) {
+    G.driving = v;
+    G.viewTarget = null;
+    G.cam.dragT = 0;
+    G.cam.fpOff = 0;
+    G.cam.fpPitch = -0.08;
+    sfx('board');
+  } else {
+    p.driving = v;
+  }
   v.onEnter();
-  G.cam.dragT = 0;
-  G.cam.fpOff = 0;
-  G.cam.fpPitch = -0.08;
-  sfx('board');
   burst('puff', v.pos.x, 1, v.pos.z, 6, { vy: 2, grav: 2, life: 0.6 });
+  return true;
 }
 
-function exitVehicle() {
-  const v = G.driving;
+function exitVehicle(p = G.player) {
+  const v = drivingOf(p);
   if (!v) return;
   const lx = Math.cos(v.heading), lz = -Math.sin(v.heading);
   const fx = Math.sin(v.heading), fz = Math.cos(v.heading);
   const r = (v.isTruck ? 1.6 : v.radius) + 0.9;
   const spots = [[lx * r, lz * r], [-lx * r, -lz * r], [-fx * (r + 2), -fz * (r + 2)], [fx * (r + 2), fz * (r + 2)]];
   const spot = spots.find(([dx, dz]) => !blockedAt(v.pos.x + dx, v.pos.z + dz, 0.5, false)) || spots[0];
-  G.player.pos.set(v.pos.x + spot[0], 0, v.pos.z + spot[1]);
-  G.player.heading = v.heading;
-  G.cam.fpYaw = v.heading + G.cam.fpOff;
-  G.driving = null;
+  p.pos.set(v.pos.x + spot[0], 0, v.pos.z + spot[1]);
+  p.heading = v.heading;
+  v.driver = null;
   v.speed *= 0.3;
   v.onExit();
-  sfx('unboard');
-  if (v.auto) toast(`${v.def.name}은(는) 이제 일꾼이 자동으로 운전해요`, '🤖', 2200);
+  if (isLocal(p)) {
+    G.cam.fpYaw = v.heading + G.cam.fpOff;
+    G.driving = null;
+    sfx('unboard');
+    if (v.auto) toast(`${v.def.name}은(는) 이제 일꾼이 자동으로 운전해요`, '🤖', 2200);
+  } else {
+    p.driving = null;
+  }
 }
+
+/** 호스트: 원격 플레이어가 누른 E / Space 처리 */
+function remoteActions(p) {
+  const k = p.input;
+  if (k.pressed('KeyE')) {
+    if (p.driving) exitVehicle(p);
+    else {
+      const v = nearestVehicle(2.2, p);
+      if (v) enterVehicle(v, p);
+      else { const a = nearestAnimal(2.4, p); if (a) a.pet(); }
+    }
+  }
+  if (k.pressed('Space')) {
+    if (p.driving) p.driving.action();
+    else p.hop();
+  }
+}
+G.hooks = { enterVehicle, exitVehicle, remoteActions, nearestVehicle, nearestAnimal };
 
 function handleInput() {
   const k = G.input;
@@ -247,7 +311,7 @@ function handleInput() {
   if (G.mode === 'house') { houseInput(); return; }
   if (k.pressed('KeyL')) api.toggleBuild();
   if (k.pressed('KeyV')) toggleFP();
-  if (k.pressed('KeyE')) {
+  if (k.pressed('KeyE') && !isGuest()) {
     if (G.driving) exitVehicle();
     else {
       const v = nearestVehicle(2.2);
@@ -259,7 +323,7 @@ function handleInput() {
       }
     }
   }
-  if (k.pressed('Space')) {
+  if (k.pressed('Space') && !isGuest()) {
     if (G.driving) G.driving.action();
     else G.player.hop();
   }
@@ -443,6 +507,7 @@ function step(dt) {
   const gameHours = (dt * G.timeScale) / 60;
 
   G.player.update(dt);
+  hostStep(dt);
   for (const v of G.vehicles) v.update(dt);
   for (const b of G.barns) b.update(gameHours, dt);
   G.field.update(dt);
@@ -458,7 +523,9 @@ function frame() {
   const dt = Math.min(clock.getDelta(), 0.05);
   G.now += dt;
   if (G.started) handleInput();
-  if (G.started && !G.paused) step(dt);
+  if (G.started && !G.paused && !isGuest()) step(dt);
+  if (G.started && isGuest()) { guestStep(dt); updateWorld(dt); updateEngine(); }
+  if (G.started) hostEndFrame(dt);
   if (G.mode === 'build') updateBuild(dt);
   updateParticles(dt);
   updateCamera(dt);
@@ -510,6 +577,74 @@ function start(fresh) {
 btnStart.addEventListener('click', () => start(false));
 btnNew.addEventListener('click', () => start(true));
 window.addEventListener('beforeunload', saveGame);
+
+// ---------------- 멀티플레이 시작 ----------------
+const mpName = document.getElementById('mp-name');
+const mpRoom = document.getElementById('mp-room');
+const mpMsg = document.getElementById('mp-msg');
+try {
+  const saved = JSON.parse(localStorage.getItem('monggle-farm-mp') || '{}');
+  if (saved.name) mpName.value = saved.name;
+  if (saved.room) mpRoom.value = saved.room;
+} catch { /* 무시 */ }
+if (!mpRoom.value) mpRoom.value = 'FARM' + Math.floor(100 + Math.random() * 900);
+const mpSay = (msg, err = false) => { mpMsg.textContent = msg; mpMsg.classList.toggle('err', err); };
+
+async function startMulti(kind) {
+  const name = mpName.value.trim().slice(0, 12) || '농부';
+  const room = mpRoom.value.trim().toUpperCase();
+  if (!/^[A-Z0-9]{3,12}$/.test(room)) { mpSay('방 코드는 영문/숫자 3~12자로 적어 주세요', true); return; }
+  try { localStorage.setItem('monggle-farm-mp', JSON.stringify({ name, room })); } catch { /* 무시 */ }
+  document.getElementById('btn-host').disabled = document.getElementById('btn-join').disabled = true;
+  mpSay(kind === 'host' ? '방을 여는 중…' : '방에 들어가는 중…');
+  try {
+    await connect(kind, name, room);
+  } catch (e) {
+    mpSay(e.message, true);
+    document.getElementById('btn-host').disabled = document.getElementById('btn-join').disabled = false;
+    return;
+  }
+  G.player.name = name;
+  if (kind === 'host') {
+    start(false);
+    updatePeersUI();
+    setTimeout(() => toast(`방 ${room}을(를) 열었어요! 친구에게 방 코드를 알려 주세요`, '🌐', 6000), 1200);
+  } else {
+    mpSay('호스트 농장을 불러오는 중…');
+    G.onNetInit = startGuest;
+  }
+}
+
+function startGuest() {
+  G.onNetInit = null;
+  initAudio();
+  setVolumes(G.settings.music, G.settings.sfx);
+  initUI(api);
+  title.classList.add('out');
+  setTimeout(() => title.remove(), 700);
+  document.getElementById('hud').classList.remove('hidden');
+  document.body.classList.add('net-guest');
+  G.started = true;
+  G.camTarget.set(G.player.pos.x, 0, G.player.pos.z);
+  G.cam.yaw = 0;
+  if (G.settings.fpDefault) toggleFP();
+  updatePeersUI();
+  sfx('day');
+  setTimeout(() => toast(`방 ${net.room}에 들어왔어요! 차량 근처에서 E로 타거나, 아래 차량 카드를 더블클릭해요`, '👋', 5000), 600);
+}
+
+document.getElementById('btn-host').addEventListener('click', () => startMulti('host'));
+document.getElementById('btn-join').addEventListener('click', () => startMulti('join'));
+// 호스트가 배치를 바꿔서 다시 접속하는 경우 자동 참여
+try {
+  const re = JSON.parse(sessionStorage.getItem('mf-rejoin') || 'null');
+  if (re) {
+    sessionStorage.removeItem('mf-rejoin');
+    mpName.value = re.name; mpRoom.value = re.room;
+    document.getElementById('multi').open = true;
+    startMulti('join');
+  }
+} catch { /* 무시 */ }
 
 frame();
 window.G = G;

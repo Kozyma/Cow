@@ -148,25 +148,27 @@ export function buildBigBarn(scene, b) {
     hay.castShadow = false;
     b.hayStrips.push(hay);
   }
-  // 앞/뒤 벽 (통로와 우리 출입문은 비워둠)
+  // 앞/뒤 벽 (통로와 우리 출입문은 앞뒤 모두 비워둠 → 축사를 관통해 퇴비사까지 바로 왕복)
   const wallSeg = (x0, x1, z) => {
     if (x1 - x0 < 0.05) return;
     part(g, sbox(x1 - x0, 1.3, 0.3), wallC, (x0 + x1) / 2, 0.65, z);
     part(g, sbox(x1 - x0 + 0.06, 0.16, 0.36), trim, (x0 + x1) / 2, 1.36, z);
     addBox(x0, x1, z - 0.15, z + 0.15);
   };
-  const frontOpen = [[cx - 3.3, cx + 3.3], ...b.pens.map((p) => [p.gate - p.gateW / 2, p.gate + p.gateW / 2])].sort((a, c) => a[0] - c[0]);
-  let x0 = minX;
-  for (const [o0, o1] of frontOpen) { wallSeg(x0, o0, front); x0 = o1; }
-  wallSeg(x0, maxX, front);
-  wallSeg(minX, cx - 3.3, back);
-  wallSeg(cx + 3.3, maxX, back);
-  // 열려 있는 우리 문짝
+  const openings = [[cx - 3.3, cx + 3.3], ...b.pens.map((p) => [p.gate - p.gateW / 2, p.gate + p.gateW / 2])].sort((a, c) => a[0] - c[0]);
+  for (const z of [front, back]) {
+    let x0 = minX;
+    for (const [o0, o1] of openings) { wallSeg(x0, o0, z); x0 = o1; }
+    wallSeg(x0, maxX, z);
+  }
+  // 열려 있는 우리 문짝 (앞문 · 뒷문)
   for (const p of b.pens) {
-    for (const s of [-1, 1]) {
-      const gx = p.gate + (s * p.gateW) / 2;
-      part(g, box(0.08, 1.1, 2.0), steel, gx, 0.65, front - 1.0);
-      part(g, box(0.1, 0.08, 2.0), trim, gx, 1.2, front - 1.0);
+    for (const z of [front - 1.0, back + 1.0]) {
+      for (const s of [-1, 1]) {
+        const gx = p.gate + (s * p.gateW) / 2;
+        part(g, box(0.08, 1.1, 2.0), steel, gx, 0.65, z);
+        part(g, box(0.1, 0.08, 2.0), trim, gx, 1.2, z);
+      }
     }
   }
   // 박공 (삼각 벽)

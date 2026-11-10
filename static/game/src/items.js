@@ -258,7 +258,7 @@ export function releaseCarried(v, sp = null) {
   it.mesh.getWorldPosition(_v);
   const x = _v.x, z = _v.z;
   sp = sp || supportUnder(x, z, v);
-  const manual = G.driving === v;
+  const manual = !!v.driver;
   v.lastDrop = it;
   v.lastDropT = G.now;
   if (sp.kind === 'truck') {
