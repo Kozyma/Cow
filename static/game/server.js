@@ -132,6 +132,7 @@ const send = (ws, m) => { if (ws?.open) ws.send(typeof m === 'string' ? m : JSON
 function onMessage(ws, raw) {
   let m;
   try { m = JSON.parse(raw); } catch { return; }
+  if (ws.plaza) { onPlaza(ws, m); return; }
   if (!ws.room) { handshake(ws, m); return; }
   const room = rooms.get(ws.room);
   if (!room) return;
@@ -143,6 +144,11 @@ function onMessage(ws, raw) {
       else send(room.guests.get(m.id), data);
     } else if (m.t === 'kick') {
       room.guests.get(m.id)?.close(4000);
+    } else if (m.t === 'public') {
+      // 농장 문 열기: 광장 게시판에 올리기
+      room.public = !!m.on;
+      room.title = clean(m.title, 24) || `${ws.name}의 농장`;
+      farmsChanged();
     }
   } else {
     // 게스트 → 호스트 (보낸 사람 id를 붙여서)
@@ -151,6 +157,7 @@ function onMessage(ws, raw) {
 }
 
 function handshake(ws, m) {
+  if (m.t === 'plaza') { enterPlaza(ws, m); return; }
   const code = clean(m.room, 12).toUpperCase();
   const name = clean(m.name, 12) || '농부';
   if (!/^[A-Z0-9]{3,12}$/.test(code)) return send(ws, { t: 'error', msg: '방 코드는 영문/숫자 3~12자예요' });
@@ -169,24 +176,84 @@ function handshake(ws, m) {
     room.guests.set(id, ws);
     send(ws, { t: 'joined', room: code, id });
     send(room.host, { t: 'join', id, name });
+    if (room.public) farmsChanged();
     console.log(`[방 ${code}] ${name} 님 입장 (${room.guests.size + 1}명)`);
   }
 }
 
 function leave(ws) {
+  if (ws.plaza) { leavePlaza(ws); return; }
   const room = rooms.get(ws.room);
   if (!room) return;
   if (ws.isHost) {
     if (room.host !== ws) return;
     for (const g of room.guests.values()) { send(g, { t: 'hostgone' }); g.close(); }
     rooms.delete(ws.room);
+    if (room.public) farmsChanged();
     console.log(`[방 ${ws.room}] 호스트가 나가서 방이 닫혔어요`);
   } else if (room.guests.get(ws.id) === ws) {
     room.guests.delete(ws.id);
     send(room.host, { t: 'leave', id: ws.id });
+    if (room.public) farmsChanged();
     console.log(`[방 ${ws.room}] ${ws.name} 님 퇴장`);
   }
 }
+
+// ---------------- 마을 광장 ----------------
+// 광장은 농장 계산이 없으니 서버가 직접 운영한다: 위치 · 채팅 · 이모티콘 · 초대/방문 요청 중계 · 열린 농장 게시판
+const PLAZA_MAX = 60;
+const EMOTES = new Set(['👋', '❤️', '😂', '🎉', '👍', '😮', '🐮', '🌾']);
+const plaza = new Map();   // pid → conn
+let plazaNext = 1;
+const num = (v, lo, hi) => (Number.isFinite(+v) ? Math.min(hi, Math.max(lo, +v)) : 0);
+
+function enterPlaza(ws, m) {
+  if (plaza.size >= PLAZA_MAX) { send(ws, { t: 'error', msg: '광장이 가득 찼어요. 잠시 후 다시 와 주세요' }); return; }
+  const pid = plazaNext++;
+  Object.assign(ws, { plaza: true, pid, name: clean(m.name, 12) || '농부', look: num(m.look, 0, 31) | 0, pos: [num(m.x, -40, 40), num(m.z, -40, 40), 0, 0] });
+  plaza.set(pid, ws);
+  send(ws, { t: 'welcome', id: pid, farms: farmList() });
+  plazaAll({ t: 'hello', id: pid, name: ws.name }, ws);
+  console.log(`[광장] ${ws.name} 님 입장 (${plaza.size}명)`);
+}
+function leavePlaza(ws) {
+  if (plaza.get(ws.pid) !== ws) return;
+  plaza.delete(ws.pid);
+  plazaAll({ t: 'bye', id: ws.pid });
+  console.log(`[광장] ${ws.name} 님 퇴장 (${plaza.size}명)`);
+}
+function plazaAll(m, except = null) {
+  const data = JSON.stringify(m);
+  for (const c of plaza.values()) if (c !== except) send(c, data);
+}
+function onPlaza(ws, m) {
+  const to = plaza.get(m.to);
+  switch (m.t) {
+    case 'p': ws.pos = [num(m.p?.[0], -45, 45), num(m.p?.[1], -45, 45), num(m.p?.[2], -7, 7), num(m.p?.[3], 0, 10)]; break;
+    case 'chat': { const msg = clean(m.msg, 80); if (msg) plazaAll({ t: 'chat', id: ws.pid, msg }); break; }
+    case 'emote': if (EMOTES.has(m.e)) plazaAll({ t: 'emote', id: ws.pid, e: m.e }); break;
+    case 'hop': plazaAll({ t: 'hop', id: ws.pid }, ws); break;
+    // 초대 · 방문 요청 · 답장은 상대에게만 전달 (방 코드는 형식만 확인)
+    case 'invite': if (to && /^[A-Z0-9]{3,12}$/.test(m.room)) send(to, { t: 'invite', from: ws.pid, name: ws.name, room: m.room }); break;
+    case 'visit': if (to) send(to, { t: 'visit', from: ws.pid, name: ws.name }); break;
+    case 'reply': if (to) send(to, { t: 'reply', from: ws.pid, name: ws.name, kind: m.kind === 'visit' ? 'visit' : 'invite', ok: !!m.ok, room: /^[A-Z0-9]{3,12}$/.test(m.room) ? m.room : null }); break;
+  }
+}
+function farmList() {
+  const out = [];
+  for (const [code, r] of rooms) if (r.public) out.push({ room: code, title: r.title, owner: r.host.name, n: r.guests.size + 1 });
+  return out;
+}
+let farmsDirty = false;
+function farmsChanged() { farmsDirty = true; }
+// 광장 위치 10회/초, 게시판은 바뀔 때만
+setInterval(() => {
+  if (!plaza.size) return;
+  const p = [];
+  for (const c of plaza.values()) p.push([c.pid, c.name, c.look, ...c.pos]);
+  plazaAll({ t: 'ps', p });
+  if (farmsDirty) { farmsDirty = false; plazaAll({ t: 'farms', list: farmList() }); }
+}, 100);
 
 // 끊긴 연결 정리 (응답 없는 연결은 30초 안에 정리)
 setInterval(() => {

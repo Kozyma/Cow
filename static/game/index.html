@@ -21,6 +21,28 @@
 <body>
   <div id="app"></div>
   <div id="labels"></div>
+  <div id="plaza-layer"></div>
+  <div id="plaza-hud" class="hidden">
+    <div class="p-top">
+      <div class="pill"><b>🏞️ 마을 광장</b> <span><b id="p-count">1</b>명</span></div>
+      <button class="pill p-btn" id="p-home" title="내 농장으로 가기 (초대받은 사람만 들어올 수 있어요)">🏡 내 농장으로</button>
+      <button class="pill p-btn" id="p-open" title="내 농장을 광장 게시판에 올리고 이동해요 (누구나 놀러 올 수 있어요)">🚪 농장 문 열고 가기</button>
+      <button class="pill p-btn mob-only-p" id="p-side-toggle">👥</button>
+    </div>
+    <div class="p-side">
+      <h4>📋 열린 농장</h4>
+      <div id="p-farms"></div>
+      <h4>👥 광장에 있는 사람 <small>💌 초대 · 🚜 구경 부탁</small></h4>
+      <div id="p-people"></div>
+    </div>
+    <div class="p-chat">
+      <div id="p-log"></div>
+      <div class="p-input"><input id="p-say" maxlength="80" placeholder="Enter 눌러 말하기" autocomplete="off"><button id="p-send">💬</button></div>
+      <div id="p-emotes"><button data-e="👋">👋</button><button data-e="❤️">❤️</button><button data-e="😂">😂</button><button data-e="🎉">🎉</button><button data-e="👍">👍</button><button data-e="😮">😮</button><button data-e="🐮">🐮</button><button data-e="🌾">🌾</button></div>
+    </div>
+    <div id="p-pop" class="hidden"></div>
+    <div id="p-invites"></div>
+  </div>
   <div id="crosshair" class="hidden"></div>
 
   <div id="hud" class="hidden">
@@ -30,6 +52,8 @@
       <button class="pill mode" id="mode-pill" title="조작 방식 바꾸기"></button>
       <div class="pill fert hidden" id="fert"></div>
       <div class="pill net hidden" id="net-pill"></div>
+      <button class="pill net-btn hidden" id="btn-open-farm" title="광장 게시판에 내 농장을 올려요">🚪 농장 문 열기</button>
+      <button class="pill net-btn hidden" id="btn-to-plaza" title="마을 광장으로 가요">🏞️ 광장으로</button>
     </div>
     <div id="top-right">
       <button class="round-btn mob-only" id="btn-panel" title="축사 현황"><span class="i">📊</span><span>현황</span></button>
@@ -168,6 +192,8 @@
           <p>집 문 앞에서 <kbd>E</kbd>로 들어가요. 가구 앞에서 <kbd>E</kbd>: 🛏️ 잠자기(아침까지) · 🍳 새참(일꾼 15% 빨라짐) · 💻 장부 · 📺 오늘의 시세 · 🎹 피아노 · 🪴 물 주기 · 🐱 고양이. <b>🎨 꾸미기</b>로 가구를 옮기고(클릭) 돌리고(R) 보관하고(X), 벽지 · 바닥 · 외벽 · 지붕 색을 바꿔요. 가구는 상점 🛋️ 탭에서 사요.</p>
         </section>
         <section>
+          <h3>🏞️ 마을 광장</h3>
+          <p>시작 화면의 <b>마을 광장 가기</b>로 다른 사람들을 만나요. 이름을 누르면 <b>내 농장에 초대</b>하거나 <b>구경 부탁</b>을 할 수 있어요. 농장 위쪽의 <b>🚪 농장 문 열기</b>를 누르면 광장 게시판에 내 농장이 올라가고, <b>🏞️ 광장으로</b>를 누르면 광장으로 돌아가요.</p>
           <h3>👥 친구와 함께하기</h3>
           <p>시작 화면의 <b>친구와 함께하기</b>에서 방장은 <b>방 만들기</b>, 친구는 같은 방 코드로 <b>참여하기</b>를 눌러요. 각자 다른 차를 동시에 운전할 수 있어요. 상점 · 배치 변경 · 건설은 방장만 할 수 있어요.</p>
           <h3>🤖 자동 운용 · 💕 동물 행복</h3>
@@ -195,6 +221,9 @@
         <div class="multi-body">
           <label>내 이름 <input id="mp-name" maxlength="12" placeholder="농부"></label>
           <label>방 코드 <input id="mp-room" maxlength="12" placeholder="예: FARM7"></label>
+          <button id="btn-plaza" class="big plaza-go">🏞️ 마을 광장 가기</button>
+          <p class="multi-msg">광장에서 사람들을 만나고, 이름을 눌러 내 농장에 초대하거나 놀러 갈 수 있어요.</p>
+          <div class="multi-or">또는 방 코드로 바로</div>
           <div class="multi-btns">
             <button id="btn-host" class="big">🏠 방 만들기</button>
             <button id="btn-join" class="big ghost">🚪 참여하기</button>

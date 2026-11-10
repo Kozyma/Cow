@@ -166,7 +166,10 @@ export function initUI(api) {
 }
 
 // ---------------- 모바일 터치 조작 ----------------
-function initTouch() {
+let touchReady = false;
+export function initTouch() {
+  if (touchReady) return;
+  touchReady = true;
   const joy = $('#joy'), knob = $('#joy-knob');
   let id = null, cx = 0, cy = 0;
   const keys = ['KeyW', 'KeyA', 'KeyS', 'KeyD'];

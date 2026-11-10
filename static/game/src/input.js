@@ -8,6 +8,7 @@ export class Input {
     this.keys = new Set();
     this.just = new Set();
     window.addEventListener('keydown', (e) => {
+      if (e.target instanceof HTMLElement && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
       if (BLOCK.has(e.code)) e.preventDefault();
       if (!e.repeat) this.just.add(e.code);
       this.keys.add(e.code);
@@ -40,7 +41,7 @@ export class Input {
     canvas.addEventListener('pointerup', tEnd);
     canvas.addEventListener('pointercancel', tEnd);
     const look = (dx, dy) => {
-      if (G.mode !== 'farm') return;
+      if (G.mode !== 'farm' && G.mode !== 'plaza') return;
       const k = (G.settings?.sensitivity ?? 1);
       if (G.cam.fp) {
         if (G.driving) G.cam.fpOff = clamp(G.cam.fpOff - dx * 0.0028 * k, -2.6, 2.6);
@@ -72,7 +73,7 @@ export class Input {
     canvas.addEventListener('pointercancel', end);
     canvas.addEventListener('wheel', (e) => {
       e.preventDefault();
-      if (G.cam.fp || G.mode !== 'farm') return;
+      if (G.cam.fp || (G.mode !== 'farm' && G.mode !== 'plaza')) return;
       G.cam.dist = clamp(G.cam.dist * (1 + Math.sign(e.deltaY) * 0.08), 10, 75);
     }, { passive: false });
   }

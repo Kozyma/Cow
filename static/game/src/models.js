@@ -31,6 +31,11 @@ export const NPC_LOOKS = [
   { shirt: 0xc9a7ff, overall: 0x6b6f7a, hat: 0xffa14a, hair: 0x7a4b2a, cap: true },
 ];
 
+/** 멀티플레이 · 광장에서 사람마다 다른 옷 색 */
+export const LOOKS = [PLAYER_LOOK, ...NPC_LOOKS.map((l) => ({ ...l, cap: false })),
+  { shirt: 0xffb38a, overall: 0x5f8fd0, hat: 0xff8fab, hair: 0x3a2a20, band: 0x8fd16a },
+  { shirt: 0xb5f0d0, overall: 0x7a5fb0, hat: 0xfff08a, hair: 0x6b3a2a, band: 0xff6b6b }];
+
 function eyes(p, x, y, z, s = 0.075) {
   for (const sx of [-1, 1]) {
     part(p, sphere(s, 12, 10), mat(COL.ink), sx * x, y, z, 0, 0, 0, 1, 1.25, 0.6);

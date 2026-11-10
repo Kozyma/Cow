@@ -4,7 +4,7 @@
 import * as THREE from 'three';
 import { G, LAYOUT } from './state.js';
 import { Player } from './player.js';
-import { NPC_LOOKS, PLAYER_LOOK } from './models.js';
+import { LOOKS } from './models.js';
 import { Item } from './items.js';
 import { addMuck } from './items.js';
 import { buildSaveData, applySaveData } from './save.js';
@@ -12,9 +12,6 @@ import { addLabel, removeLabel, toast, addVehicleUI } from './ui.js';
 import { damp, dampAngle } from './util.js';
 import { sfx } from './audio.js';
 
-const LOOKS = [PLAYER_LOOK, ...NPC_LOOKS.map((l) => ({ ...l, cap: false })),
-  { shirt: 0xffb38a, overall: 0x5f8fd0, hat: 0xff8fab, hair: 0x3a2a20, band: 0x8fd16a },
-  { shirt: 0xb5f0d0, overall: 0x7a5fb0, hat: 0xfff08a, hair: 0x6b3a2a, band: 0xff6b6b }];
 const lookFor = (id) => LOOKS[id % LOOKS.length];
 
 // 호스트로 보내는 입력 키
@@ -66,8 +63,12 @@ function onClose() {
   if (!net.role) return;
   const wasGuest = net.role === 'guest';
   net.role = null;
-  toast(wasGuest ? '호스트와 연결이 끊겼어요. 처음 화면으로 돌아가요' : '서버와 연결이 끊겼어요. 혼자 하기로 계속해요', '📡', 5000);
-  if (wasGuest) setTimeout(() => location.reload(), 2500);
+  toast(wasGuest ? (G.returnToPlaza ? '농장 주인이 떠났어요. 광장으로 돌아가요' : '호스트와 연결이 끊겼어요. 처음 화면으로 돌아가요') : '서버와 연결이 끊겼어요. 혼자 하기로 계속해요', '📡', 5000);
+  if (wasGuest) {
+    // 광장에서 놀러 왔다면 광장으로 돌아간다
+    if (G.returnToPlaza) { try { sessionStorage.setItem('mf-goto-plaza', JSON.stringify({ name: G.returnToPlaza })); } catch { /* 무시 */ } }
+    setTimeout(() => location.reload(), 2500);
+  }
   else for (const id of [...net.remotes.keys()]) removeRemote(id);
   updatePeersUI();
 }
@@ -449,6 +450,13 @@ export const guestCmd = {
   ing: (kind) => sendRaw({ t: 'ing', kind }),
   chat: (msg) => sendRaw({ t: 'chat', msg }),
 };
+
+/** 호스트: 광장 게시판에 내 농장 올리기/내리기 */
+export function setPublic(on) {
+  if (net.role !== 'host') return;
+  net.public = !!on;
+  sendRaw({ t: 'public', on: net.public, title: `${net.name}의 농장` });
+}
 
 /** 호스트: 모두에게 알림 */
 export function hostToast(msg, icon, ms) {

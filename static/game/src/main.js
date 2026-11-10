@@ -20,7 +20,8 @@ import { saveGame, loadGame, hasSave, clearSave } from './save.js';
 import { loadSettings } from './settings.js';
 import { damp, dampAngle, clamp, wrapAngle } from './util.js';
 import { blockedAt } from './physics.js';
-import { net, connect, hostStep, hostEndFrame, guestStep, guestCmd, updatePeersUI } from './net.js';
+import { net, connect, hostStep, hostEndFrame, guestStep, guestCmd, updatePeersUI, setPublic } from './net.js';
+import { plaza, enterPlaza, updatePlaza } from './plaza.js';
 const isGuest = () => net.role === 'guest';
 const guestOnly = (what) => { toast(`${what}은(는) 방장만 할 수 있어요`, '👑', 1800); };
 
@@ -522,6 +523,12 @@ function frame() {
   requestAnimationFrame(frame);
   const dt = Math.min(clock.getDelta(), 0.05);
   G.now += dt;
+  if (G.mode === 'plaza' && plaza.active) {
+    updatePlaza(dt, camera, renderer);
+    updateParticles(dt);
+    G.input.endFrame();
+    return;
+  }
   if (G.started) handleInput();
   if (G.started && !G.paused && !isGuest()) step(dt);
   if (G.started && isGuest()) { guestStep(dt); updateWorld(dt); updateEngine(); }
@@ -566,6 +573,8 @@ function start(fresh) {
   setTimeout(() => title.remove(), 700);
   document.getElementById('hud').classList.remove('hidden');
   G.started = true;
+  G.player.name = G.player.name || myName();
+  refreshNetButtons();
   const s = G.player.pos;
   G.camTarget.set(s.x, 0, s.z);
   G.cam.yaw = 0;
@@ -582,6 +591,9 @@ window.addEventListener('beforeunload', saveGame);
 const mpName = document.getElementById('mp-name');
 const mpRoom = document.getElementById('mp-room');
 const mpMsg = document.getElementById('mp-msg');
+// 시작 화면이 지워진 뒤(광장 → 농장)에도 쓸 수 있게 미리 잡아 둔다
+const btnHostEl = document.getElementById('btn-host');
+const btnJoinEl = document.getElementById('btn-join');
 try {
   const saved = JSON.parse(localStorage.getItem('monggle-farm-mp') || '{}');
   if (saved.name) mpName.value = saved.name;
@@ -590,25 +602,43 @@ try {
 if (!mpRoom.value) mpRoom.value = 'FARM' + Math.floor(100 + Math.random() * 900);
 const mpSay = (msg, err = false) => { mpMsg.textContent = msg; mpMsg.classList.toggle('err', err); };
 
-async function startMulti(kind) {
-  const name = mpName.value.trim().slice(0, 12) || '농부';
-  const room = mpRoom.value.trim().toUpperCase();
+const myName = () => mpName.value.trim().slice(0, 12) || '농부';
+const fromPlaza = { on: false };
+
+/** kind: 'host' | 'join'.  opts: { name, room, retry(방이 열릴 때까지 기다림), open(게시판에 올림), host(주인 이름) } */
+async function startMulti(kind, opts = {}) {
+  const name = opts.name || myName();
+  const room = (opts.room || mpRoom.value).trim().toUpperCase();
   if (!/^[A-Z0-9]{3,12}$/.test(room)) { mpSay('방 코드는 영문/숫자 3~12자로 적어 주세요', true); return; }
-  try { localStorage.setItem('monggle-farm-mp', JSON.stringify({ name, room })); } catch { /* 무시 */ }
-  document.getElementById('btn-host').disabled = document.getElementById('btn-join').disabled = true;
+  try { localStorage.setItem('monggle-farm-mp', JSON.stringify({ name, room: opts.room ? (mpRoom.value || room) : room })); } catch { /* 무시 */ }
+  btnHostEl.disabled = btnJoinEl.disabled = true;
   mpSay(kind === 'host' ? '방을 여는 중…' : '방에 들어가는 중…');
-  try {
-    await connect(kind, name, room);
-  } catch (e) {
-    mpSay(e.message, true);
-    document.getElementById('btn-host').disabled = document.getElementById('btn-join').disabled = false;
-    return;
+  // 광장에서 초대를 수락한 경우: 상대가 농장 문을 여는 동안 잠깐 기다리며 다시 시도
+  const tries = opts.retry ? 15 : 1;
+  for (let i = 0; i < tries; i++) {
+    try {
+      await connect(kind, name, room);
+      break;
+    } catch (e) {
+      const last = i === tries - 1;
+      if (!last && /그런 방이 없어요/.test(e.message)) {
+        if (i === 0 && opts.host) toast(`${opts.host} 님이 농장 문을 여는 중이에요…`, '🚪', 2500);
+        await new Promise((r) => setTimeout(r, 1000));
+        continue;
+      }
+      if (fromPlaza.on) { toast(`농장에 들어가지 못했어요: ${e.message}`, '😢', 3500); setTimeout(() => goPlaza(), 2500); return; }
+      mpSay(e.message, true);
+      btnHostEl.disabled = btnJoinEl.disabled = false;
+      return;
+    }
   }
   G.player.name = name;
   if (kind === 'host') {
     start(false);
+    if (opts.open) setPublic(true);
     updatePeersUI();
-    setTimeout(() => toast(`방 ${room}을(를) 열었어요! 친구에게 방 코드를 알려 주세요`, '🌐', 6000), 1200);
+    refreshNetButtons();
+    setTimeout(() => toast(opts.open ? '농장 문을 열었어요! 광장 게시판에 내 농장이 올라갔어요' : fromPlaza.on ? '내 농장에 왔어요. 초대한 친구가 곧 따라와요' : `방 ${room}을(를) 열었어요! 친구에게 방 코드를 알려 주세요`, '🌐', 5000), 1200);
   } else {
     mpSay('호스트 농장을 불러오는 중…');
     G.onNetInit = startGuest;
@@ -617,6 +647,7 @@ async function startMulti(kind) {
 
 function startGuest() {
   G.onNetInit = null;
+  refreshNetButtons();
   initAudio();
   setVolumes(G.settings.music, G.settings.sfx);
   initUI(api);
@@ -633,8 +664,82 @@ function startGuest() {
   setTimeout(() => toast(`방 ${net.room}에 들어왔어요! 차량 근처에서 E로 타거나, 아래 차량 카드를 더블클릭해요`, '👋', 5000), 600);
 }
 
-document.getElementById('btn-host').addEventListener('click', () => startMulti('host'));
-document.getElementById('btn-join').addEventListener('click', () => startMulti('join'));
+// ---------------- 마을 광장 ----------------
+async function startPlaza(name) {
+  const btn = document.getElementById('btn-plaza');
+  btn.disabled = true;
+  mpSay('광장으로 가는 중…');
+  try { localStorage.setItem('monggle-farm-mp', JSON.stringify({ name, room: mpRoom.value })); } catch { /* 무시 */ }
+  try {
+    await enterPlaza(name);
+  } catch (e) {
+    mpSay(e.message, true);
+    btn.disabled = false;
+    return;
+  }
+  title.classList.add('out');
+  setTimeout(() => title.remove(), 700);
+}
+// 광장 → 농장
+plaza.onGoFarm = (dest) => {
+  fromPlaza.on = true;
+  if (dest.kind === 'host') startMulti('host', { name: plaza.name, room: dest.room, open: dest.open });
+  else { G.returnToPlaza = plaza.name; startMulti('join', { name: plaza.name, room: dest.room, retry: dest.retry, host: dest.host }); }
+};
+// 농장 → 광장: 저장하고 새로 열어서 광장으로
+function goPlaza() {
+  saveGame();
+  try { sessionStorage.setItem('mf-goto-plaza', JSON.stringify({ name: G.player.name || myName() })); } catch { /* 무시 */ }
+  net.role = null;
+  location.reload();
+}
+const btnOpen = document.getElementById('btn-open-farm');
+const btnToPlaza = document.getElementById('btn-to-plaza');
+function refreshNetButtons() {
+  const served = location.protocol.startsWith('http');
+  btnToPlaza.classList.toggle('hidden', !served);
+  btnOpen.classList.toggle('hidden', !served || net.role === 'guest');
+  btnOpen.classList.toggle('on', !!net.public);
+  btnOpen.textContent = net.public ? '🔓 농장 열림 (닫기)' : '🚪 농장 문 열기';
+}
+btnToPlaza.addEventListener('click', () => {
+  if (net.role === 'host' && net.remotes.size && !confirmLeave()) return;
+  goPlaza();
+});
+function confirmLeave() {
+  if (btnToPlaza.dataset.armed) return true;
+  btnToPlaza.dataset.armed = '1';
+  btnToPlaza.textContent = '🏞️ 한 번 더 누르면 이동 (손님들은 나가요)';
+  setTimeout(() => { delete btnToPlaza.dataset.armed; btnToPlaza.textContent = '🏞️ 광장으로'; }, 3000);
+  return false;
+}
+btnOpen.addEventListener('click', async () => {
+  if (net.role === 'guest') return;
+  if (!net.role) {
+    // 혼자 하던 중이면 내 농장을 방으로 열고 게시판에 올린다
+    const room = 'F' + Math.random().toString(36).slice(2, 7).toUpperCase().replace(/[^A-Z0-9]/g, 'X').padEnd(5, '7');
+    try { await connect('host', G.player.name || myName(), room); } catch (e) { toast(e.message, '📡', 3000); return; }
+    G.player.name = G.player.name || myName();
+  }
+  setPublic(!net.public);
+  refreshNetButtons();
+  updatePeersUI();
+  toast(net.public ? '농장 문을 열었어요! 광장 게시판에서 누구나 놀러 올 수 있어요' : '농장 문을 닫았어요. 초대한 사람만 올 수 있어요', net.public ? '🔓' : '🔒', 3000);
+  sfx('click');
+});
+document.getElementById('btn-plaza').addEventListener('click', () => startPlaza(myName()));
+try {
+  const go = JSON.parse(sessionStorage.getItem('mf-goto-plaza') || 'null');
+  if (go) {
+    sessionStorage.removeItem('mf-goto-plaza');
+    if (go.name) mpName.value = go.name;
+    document.getElementById('multi').open = true;
+    startPlaza(go.name || myName());
+  }
+} catch { /* 무시 */ }
+
+btnHostEl.addEventListener('click', () => startMulti('host'));
+btnJoinEl.addEventListener('click', () => startMulti('join'));
 // 호스트가 배치를 바꿔서 다시 접속하는 경우 자동 참여
 try {
   const re = JSON.parse(sessionStorage.getItem('mf-rejoin') || 'null');
