@@ -9,7 +9,7 @@ import { Item } from './items.js';
 import { addMuck } from './items.js';
 import { buildSaveData, applySaveData } from './save.js';
 import { addLabel, removeLabel, toast, addVehicleUI } from './ui.js';
-import { damp, dampAngle } from './util.js';
+import { damp, dampAngle, clamp } from './util.js';
 import { sfx } from './audio.js';
 
 const lookFor = (id) => LOOKS[id % LOOKS.length];
@@ -129,6 +129,9 @@ function onGuestMessage(id, m) {
     p.input.keys = new Set(m.k || []);
     for (const c of m.p || []) if (TAPS.includes(c)) p.input.just.add(c);
     if (m.c) { p.cam.fp = !!m.c[0]; p.cam.yaw = +m.c[1] || 0; p.cam.fpYaw = +m.c[2] || 0; }
+    // 모바일 친구의 조이스틱 아날로그 값
+    if (Array.isArray(m.a)) { p.input.axis.x = clamp(+m.a[0] || 0, -1, 1); p.input.axis.y = clamp(+m.a[1] || 0, -1, 1); p.input.axis.active = true; }
+    else p.input.axis.active = false;
     if (m.mode === 'easy' || m.mode === 'sim') p.mode = m.mode;
   } else if (m.t === 'board') {
     const v = G.vehicles[m.vi];
@@ -172,7 +175,7 @@ export function hostEndFrame(dt) {
 
 /** 축사·차량·시설 배치가 바뀌었는지 (바뀌면 게스트를 통째로 다시 맞춘다) */
 function structSig() {
-  return JSON.stringify([G.barns.map((b) => [b.id, b.cx, b.front, b.capacity]), G.vehicles.map((v) => v.type), LAYOUT.station.x, LAYOUT.station.z, LAYOUT.dock.x, LAYOUT.dock.z]);
+  return JSON.stringify([G.barns.map((b) => [b.id, b.cx, b.front, b.capacity]), G.vehicles.map((v) => v.type), LAYOUT.station.x, LAYOUT.station.z, LAYOUT.dock.x, LAYOUT.dock.z, LAYOUT.parking.length]);
 }
 
 function playerList() {
@@ -419,7 +422,8 @@ export function guestStep(dt) {
   if (inT <= 0) {
     inT = 1 / 20;
     const k = HELD.filter((c) => G.input.down(c));
-    sendRaw({ t: 'in', k, p: [...pressedBuf], c: [G.cam.fp ? 1 : 0, r3(G.cam.yaw), r3(G.cam.fpYaw)], mode: G.settings.mode });
+    const ax = G.input.axis;
+    sendRaw({ t: 'in', k, p: [...pressedBuf], c: [G.cam.fp ? 1 : 0, r3(G.cam.yaw), r3(G.cam.fpYaw)], a: ax.active ? [r3(ax.x), r3(ax.y)] : undefined, mode: G.settings.mode });
     pressedBuf.clear();
   }
   G.time += dt * G.timeScale;

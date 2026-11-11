@@ -65,6 +65,10 @@ export const BARN_DEFS = [
 ];
 
 // 게임 1시간당 수치
+/** 축사 하나에 키울 수 있는 최대 마릿수 (확장 5단계) */
+export const MAX_ANIMALS = 50;
+export const BARN_EXPAND_STEPS = 5;
+
 export const ANIMAL_DEFS = {
   cow: { name: '젖소', eat: 2.0, manure: 1.3, rate: 1.0, speed: 1.0, price: 300 },
   pig: { name: '돼지', eat: 1.5, manure: 1.5, rate: 0.55, speed: 1.2, price: 250 },

@@ -5,7 +5,7 @@ import { stationSlots, setOnStation, relocateStation, stationFootprint } from '.
 import { addBarn, Barn } from './barns.js';
 import { createVehicles, addVehicle } from './vehicles.js';
 import { relocateDock, dockFootprint } from './world.js';
-import { clearSite } from './layout.js';
+import { clearSite, parkRows, setParkingRows } from './layout.js';
 import { buildGrid } from './pathfinding.js';
 import { reloadHouse } from './house.js';
 
@@ -41,6 +41,7 @@ export function buildSaveData() {
     })),
     station: { x: LAYOUT.station.x, z: LAYOUT.station.z },
     dock: { x: LAYOUT.dock.x, z: LAYOUT.dock.z },
+    parkRows: parkRows(),
     field: G.field.serialize(),
     items: G.items.filter((i) => !i.barn && !i.carriedBy && !i.removed && !i.fly).map(itemData),
     muck: G.muck.map((m) => [+m.x.toFixed(2), +m.z.toFixed(2), +m.amount.toFixed(2)]),
@@ -100,6 +101,8 @@ export function applySaveData(d) {
     b.updateVisuals();
   }
   G.field.deserialize(d.field);
+  // 주차장 넓힌 만큼 다시 깔기 (차량 자리보다 먼저)
+  setParkingRows(d.parkRows || 2);
   // 차량
   for (const v of G.vehicles) G.scene.remove(v.group);
   createVehicles((d.vehicles || []).map((v) => v.type));

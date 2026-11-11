@@ -85,14 +85,6 @@ kbd {
 .prod { margin-top: 5px; font-size: 13px; display: flex; align-items: center; gap: 4px; }
 .prod .pal { margin-left: auto; font-family: 'Jua'; color: #5a8fc9; }
 
-#toasts { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 6px; pointer-events: none; width: min(560px, 60vw); }
-.toast {
-  display: flex; align-items: center; gap: 8px; padding: 9px 18px; border-radius: 999px; background: var(--cream);
-  border: 3px solid var(--line); box-shadow: var(--shadow); font-size: 15px; animation: pop-in 0.35s cubic-bezier(.34,1.56,.64,1);
-  transition: opacity 0.35s, transform 0.35s;
-}
-.toast .t-ico { font-size: 20px; }
-.toast.out { opacity: 0; transform: translateY(-10px) scale(0.95); }
 @keyframes pop-in { from { opacity: 0; transform: translateY(-14px) scale(0.85); } to { opacity: 1; transform: none; } }
 
 #prompt {
@@ -414,8 +406,6 @@ body.mobile #vehicle-dock { display: none; position: absolute; left: 8px; right:
 body.mobile.show-dock #vehicle-dock { display: flex; }
 body.mobile .vcard { flex: 0 0 132px; }
 body.mobile .v-status { display: block; height: 28px; font-size: 11px; }
-body.mobile #toasts { top: 60px; width: 92vw; }
-body.mobile .toast { font-size: 12.5px; padding: 6px 12px; border-width: 2px; }
 body.mobile #prompt { bottom: 178px; font-size: 15px; }
 body.mobile #drive-panel { bottom: auto; top: 60px; width: min(560px, 96vw); padding: 6px 10px; border-width: 2px; }
 body.mobile .dp-keys { display: none; }
@@ -456,7 +446,6 @@ body.mobile #top-right { display: grid; grid-template-columns: repeat(4, 42px); 
 body.mobile .round-btn { width: 42px; height: 42px; border-radius: 13px; }
 body.mobile .round-btn span:not(.i) { display: none; }
 body.mobile .round-btn .i { font-size: 19px; }
-body.mobile #toasts { top: 104px; }
 body.mobile #drive-panel { top: 104px; }
 body.mobile #house-hud { top: 104px; }
 body.mobile .pill.mode { font-size: 12px; padding: 3px 9px; }
@@ -482,7 +471,7 @@ body:not(.mobile) #vehicle-dock { max-width: calc(100vw - 24px); overflow-x: aut
 body:not(.mobile) .vcard { flex: 0 1 140px; min-width: 112px; }
 
 /* ---------- 마을 광장 ---------- */
-body.mode-plaza #hud > *:not(#toasts):not(#touch) { display: none !important; }
+body.mode-plaza #hud > *:not(#touch) { display: none !important; }
 body.mode-plaza #labels { display: none; }
 body.mode-plaza #btn-e, body.mode-plaza #touch-hyd, body.mode-plaza #btn-v, body.mode-plaza #btn-boost { display: none !important; }
 #plaza-layer { position: fixed; inset: 0; pointer-events: none; overflow: hidden; z-index: 4; }
@@ -551,6 +540,43 @@ body.mobile .mob-only-p { display: inline-flex; }
 body.mobile .p-chat { bottom: 180px; width: calc(100vw - 180px); }
 body.mobile #p-log { max-height: 90px; }
 
+/* ---------- 🔔 알림: 화면 가운데 팝업 대신 왼쪽 위 한 줄 + 기록함 ---------- */
+/* 오른쪽 미니맵 아래에 작게: 글자는 왼쪽으로 늘어나고 🔔은 오른쪽 끝에 고정 */
+.pill.notice { position: absolute; top: 280px; right: 14px; flex-direction: row-reverse; font-size: 14px; padding: 6px 12px; gap: 6px; cursor: pointer; color: var(--ink); pointer-events: auto;
+  background: rgba(255, 250, 240, 0.82); max-width: min(460px, 46vw); font-family: inherit; transition: background 0.2s; }
+.pill.notice .n-bell { font-size: 16px; opacity: 0.7; }
+.pill.notice .n-count { display: none; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: #ff8a8a; color: #fff;
+  font-family: 'Jua'; font-size: 11px; line-height: 18px; text-align: center; }
+.pill.notice.has-unread .n-count { display: inline-block; }
+.pill.notice.has-unread .n-bell { opacity: 1; }
+.pill.notice .n-text { display: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink2); }
+.pill.notice.show .n-text { display: inline; animation: note-in 0.25s ease-out; }
+.pill.notice.show { background: var(--cream); }
+.pill.notice.ping .n-bell { animation: bell-ping 0.6s ease; }
+@keyframes note-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes bell-ping { 0%, 100% { transform: rotate(0); } 25% { transform: rotate(-18deg); } 60% { transform: rotate(14deg); } }
+#notice-log { position: fixed; z-index: 6; width: min(380px, calc(100vw - 16px)); max-height: min(420px, 60vh); overflow-y: auto;
+  background: var(--cream); border: 3px solid var(--line); border-radius: 18px; box-shadow: var(--shadow); padding: 8px 10px; pointer-events: auto; }
+#notice-log.hidden { display: none; }
+.nl-head { display: flex; align-items: baseline; justify-content: space-between; padding: 2px 4px 6px; border-bottom: 2px dashed var(--line); margin-bottom: 4px; }
+.nl-head b { font-family: 'Jua'; font-size: 15px; }
+.nl-head small, .nl-row small { color: var(--ink2); font-size: 11px; }
+.nl-row { display: grid; grid-template-columns: 22px 1fr auto; gap: 6px; align-items: start; padding: 5px 4px; font-size: 13px; line-height: 1.35; border-bottom: 1px solid rgba(241, 227, 200, 0.6); }
+.nl-row:last-child { border-bottom: none; }
+.nl-row small { white-space: nowrap; padding-top: 1px; }
+.nl-empty { padding: 14px 4px; text-align: center; color: var(--ink2); font-size: 13px; }
+.set-note { margin: 4px 0 0; font-size: 12.5px; color: var(--ink2); }
+body.mobile .pill.notice { top: 106px; right: 8px; font-size: 12px; padding: 4px 9px; max-width: 46vw; }
+body.mobile .pill.notice .n-bell { font-size: 14px; }
+body.mobile .pill.notice .n-text { white-space: normal; display: none; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; }
+body.mobile .pill.notice.show .n-text { display: -webkit-box; }
+
+/* 모바일: 말풍선 안내를 눌러도 행동(타기·들어가기)이 되게, 할 일 없을 땐 행동 버튼을 흐리게 */
+body.mobile #prompt { pointer-events: auto; cursor: pointer; }
+#action-btns button.idle { opacity: 0.55; }
+#btn-e { min-width: 104px; padding: 0 6px; white-space: nowrap; font-size: 13.5px; }
+.pill.notice { z-index: 5; }
+
 /* ---------- 모바일 화면 정리 v2: 알림은 작게, 패널은 얇게, 서로 안 겹치게 ---------- */
 #touch-hyd button.hidden { display: none !important; }
 body.mobile #top-left { flex-direction: row; flex-wrap: wrap; align-items: center; max-width: calc(100vw - 205px); gap: 5px; }
@@ -569,10 +595,6 @@ body.mobile .pill.net { max-width: 44vw; font-size: 11px; padding: 3px 8px; }
 body.mobile .pill.fert { font-size: 11px; padding: 3px 8px; }
 body.mobile #minimap { top: 104px; bottom: auto; right: 8px; width: 88px; height: 88px; }
 
-body.mobile #toasts { top: auto; bottom: 250px; width: 84vw; gap: 4px; }
-body.mobile .toast { font-size: 11.5px; line-height: 1.3; padding: 4px 11px; gap: 5px; border-width: 2px; max-width: 84vw;
-  background: rgba(255, 250, 240, 0.93); box-shadow: 0 2px 0 rgba(160, 120, 80, 0.18); }
-body.mobile .toast .t-ico { font-size: 14px; }
 body.mobile #prompt { bottom: 200px; font-size: 13px; padding: 6px 12px; border-width: 2px; }
 body.mobile .float { font-size: 14px; }
 body.mobile .float.coin { font-size: 17px; }
@@ -597,13 +619,25 @@ body.mobile.show-panel #barn-panel { top: 104px; }
 
 @media (max-height: 500px) {
   /* 가로 화면: 위쪽 한 줄 · 운전 패널은 아래 가운데(조이스틱과 버튼 사이) · 알림은 위 가운데 */
-  body.mobile #top-left { max-width: calc(100vw - 360px); }
-  body.mobile #top-right { grid-template-columns: repeat(7, 40px); }
+  body.mobile #top-left { max-width: calc(100vw - 400px); }
+  body.mobile #top-right { grid-template-columns: repeat(8, 40px); }
   body.mobile .round-btn { width: 40px; height: 40px; }
   body.mobile #minimap { top: 54px; width: 76px; height: 76px; }
-  body.mobile #toasts { bottom: auto; top: 50px; width: 46vw; }
   body.mobile #drive-panel { top: auto; bottom: 8px; left: 150px; right: 240px; }
   body.mobile #prompt { bottom: 120px; }
   body.mobile #house-hud { top: 50px; }
   body.mobile.show-panel #barn-panel { top: 50px; max-height: calc(100vh - 60px); }
+}
+
+/* 🔔 알림은 모바일에서 미니맵 바로 아래 오른쪽 */
+body.mobile .pill.notice { top: 200px; }
+@media (max-height: 500px) {
+  body.mobile .pill.notice { top: 138px; max-width: 40vw; }
+}
+
+/* PC 화면이 좁으면 왼쪽 위 '농장 문 열기·광장으로'는 아이콘만 (오른쪽 위 버튼과 겹치지 않게) */
+@media (max-width: 1360px) {
+  body:not(.mobile) #top-left .pill.net-btn .lbl { display: none; }
+  body:not(.mobile) #top-left .pill.net-btn { padding: 8px 12px; }
+  body:not(.mobile) #top-left .pill.net-btn[data-armed] .lbl { display: inline; font-size: 13px; }
 }

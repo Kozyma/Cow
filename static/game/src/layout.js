@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { G, LAYOUT, BARN_DEFS } from './state.js';
 import { Barn, addBarn } from './barns.js';
 import { stationFootprint, relocateStation, STATION_OWNER } from './feed.js';
-import { dockFootprint, relocateDock, DOCK_OWNER, NATURE } from './world.js';
+import { dockFootprint, relocateDock, DOCK_OWNER, NATURE, strip } from './world.js';
 import { rectBlocked, removeColliders } from './physics.js';
 import { buildGrid } from './pathfinding.js';
 import { INST, clearDecorIn } from './instancer.js';
@@ -33,12 +33,48 @@ function structures() {
   return list;
 }
 
+// ---------------- 주차장 (줄 단위로 넓히기) ----------------
+// 한 줄 = 8칸, 깊이 9m. 처음 2줄(16칸)에서 최대 5줄(40칸)까지 남쪽으로 넓어진다.
+export const PARKING = { cols: 8, x0: -28, dx: 5.5, z0: 24, dz: 9, baseRows: 2, maxRows: 5, prices: [0, 0, 3000, 5000, 8000] };
+export const parkRows = () => Math.ceil(LAYOUT.parking.length / PARKING.cols);
+export const maxVehicles = () => LAYOUT.parking.length;
+export function parkingRect(rows = parkRows()) {
+  return { minX: -31, maxX: 13, minZ: 19.5, maxZ: 19.5 + rows * PARKING.dz };
+}
+function rowRect(r) {
+  return { minX: -31, maxX: 13, minZ: 19.5 + r * PARKING.dz, maxZ: 19.5 + (r + 1) * PARKING.dz };
+}
+/** 다음 줄을 넓힐 자리에 축사 · 배합장 · 출하장이 있으면 그 이름 */
+export function parkingBlocker() {
+  const r = rowRect(parkRows());
+  for (const s of structures()) if (overlap(r, s.rect)) return s.name;
+  return null;
+}
+/** 주차장 한 줄 추가 (바닥 깔기 · 나무 치우기 · 주차 칸 8개) */
+export function addParkingRow(rebuild = true) {
+  const r = parkRows();
+  if (r >= PARKING.maxRows) return false;
+  const rect = rowRect(r);
+  clearSite(rect);
+  const cz = (rect.minZ + rect.maxZ) / 2;
+  strip(G.scene, -9, cz, 44, PARKING.dz + 0.4, 0xeadbb8, 0.03 + r * 0.0005, 0xd8c79c);
+  for (let i = 0; i < PARKING.cols; i++) LAYOUT.parking.push({ x: PARKING.x0 + i * PARKING.dx, z: PARKING.z0 + r * PARKING.dz });
+  if (rebuild) afterChange();
+  return true;
+}
+/** 저장본 불러오기: 저장된 줄 수만큼 넓힌다 */
+export function setParkingRows(n) {
+  let changed = false;
+  while (parkRows() < Math.min(n || 0, PARKING.maxRows)) { addParkingRow(false); changed = true; }
+  return changed;
+}
+
 /** 움직일 수 없는 땅 (목초지, 주차장, 집, 판매소 등) */
 function fixedRects() {
   const f = LAYOUT.field;
   return [
     { minX: f.x0 - 1, maxX: f.x0 + f.cols * f.tile + 1, minZ: f.z0 - 1, maxZ: f.z0 + f.rows * f.tile + 1, name: '목초지' },
-    { minX: -31, maxX: 13, minZ: 19.5, maxZ: 37.5, name: '주차장' },
+    { ...parkingRect(), name: '주차장' },
     { minX: LAYOUT.airfield.runway.x - LAYOUT.airfield.runway.len / 2 - 12, maxX: LAYOUT.airfield.runway.x + LAYOUT.airfield.runway.len / 2 + 12, minZ: LAYOUT.airfield.runway.z - 12, maxZ: LAYOUT.airfield.runway.z + 24, name: '비행장' },
     { minX: LAYOUT.airfield.heli.x - 9, maxX: LAYOUT.airfield.heli.x + 9, minZ: LAYOUT.airfield.heli.z - 9, maxZ: LAYOUT.airfield.heli.z + 9, name: '헬기장' },
     { minX: LAYOUT.yard.x - 4.5, maxX: LAYOUT.yard.x + 4.5, minZ: LAYOUT.yard.z - 3.5, maxZ: LAYOUT.yard.z + 3.5, name: '건초 보관소' },
@@ -77,8 +113,7 @@ function validate(h, rect) {
 // ---------------- 모드 진입/종료 ----------------
 export function enterBuild(newDefId = null) {
   if (G.mode === 'house') return;
-  G.mode = 'build';
-  G.paused = true;
+  G.mode = 'build';   // 배치 중에도 농장은 계속 돌아간다 (일시정지 없음)
   document.exitPointerLock?.();
   const p = G.driving ? G.driving.pos : G.player.pos;
   B.cam.x = p.x * 0.6; B.cam.z = p.z - 28;
@@ -98,7 +133,6 @@ export function exitBuild() {
   B.holding = null;
   if (ghost) ghost.visible = outline.visible = ghostInner.visible = false;
   G.mode = 'farm';
-  G.paused = false;
   setBuildHud(false);
 }
 
@@ -180,11 +214,14 @@ function place() {
   setBuildHud(true, '');
 }
 
-/** 자리 정리: 나무·덤불 치우고 바닥 장식 숨기기 */
-export function clearSite(rect) {
+/** 자리 정리: 나무·덤불 치우고 바닥 장식 숨기기.
+ *  차가 건물 둘레를 돌아다닐 수 있게 나무는 넉넉히(3m) 치우고, 풀·꽃 장식은 가까이만 숨긴다 */
+export function clearSite(rect, treePad = 3) {
   const pad = { minX: rect.minX - 0.8, maxX: rect.maxX + 0.8, minZ: rect.minZ - 0.8, maxZ: rect.maxZ + 0.8 };
-  G.colliders = G.colliders.filter((c) => !(c.owner === NATURE && c.type === 'circle' && c.x > pad.minX && c.x < pad.maxX && c.z > pad.minZ && c.z < pad.maxZ));
-  clearDecorIn(pad, ['tuft', 'stem', 'petal', 'fcenter', 'rock', 'bush', 'bflower', 'trunk', 'crown', 'fruit', 'pine']);
+  const tp = { minX: rect.minX - treePad, maxX: rect.maxX + treePad, minZ: rect.minZ - treePad, maxZ: rect.maxZ + treePad };
+  G.colliders = G.colliders.filter((c) => !(c.owner === NATURE && c.type === 'circle' && c.x > tp.minX && c.x < tp.maxX && c.z > tp.minZ && c.z < tp.maxZ));
+  clearDecorIn(tp, ['rock', 'bush', 'bflower', 'trunk', 'crown', 'fruit', 'pine']);
+  clearDecorIn(pad, ['tuft', 'stem', 'petal', 'fcenter']);
 }
 
 export function afterChange() {

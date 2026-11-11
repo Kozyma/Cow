@@ -42,7 +42,7 @@ function buildGround(scene) {
   scene.add(ground);
 }
 
-function strip(scene, cx, cz, w, d, color, y = 0.02, borderColor = 0xe2c48e) {
+export function strip(scene, cx, cz, w, d, color, y = 0.02, borderColor = 0xe2c48e) {
   const segX = Math.max(1, Math.round(w / 2)), segZ = Math.max(1, Math.round(d / 2));
   const b = new THREE.PlaneGeometry(w + 0.6, d + 0.6, segX, segZ);
   b.rotateX(-Math.PI / 2);
@@ -120,6 +120,8 @@ function isReserved(x, z, m = 0) {
 function setupReserved() {
   for (const b of BARN_DEFS) if (!b.optional) reserve(b.cx - b.width / 2 - 4, b.cx + b.width / 2 + 7, b.front - b.len - 21, b.front + 3);
   reserve(-70, 70, -9, -3);
+  // 축사 앞 작업 마당 · 출하장~판매소 · 배합장~사료 가게 사이 (차들이 자주 지나는 곳)에는 나무를 심지 않는다
+  reserve(-70, 66, -3, 17);
   reserve(-6, 0, -9, 21);
   const f = LAYOUT.field;
   reserve(f.x0 - 3, f.x0 + f.cols * f.tile + 3, f.z0 - 3, f.z0 + f.rows * f.tile + 3);
@@ -145,14 +147,14 @@ function roundTree(x, z, s = 1, collide = true) {
   INST.add('trunk', cyl(0.22, 0.3, 1.6, 8), w, x, 0.8 * s, z, 0, 0, 0, s, s, s, 0x9c6b4a);
   const c = pick(GREENS);
   const shade = new THREE.Color(c).multiplyScalar(0.9).getHex();
-  INST.add('crown', sphere(1, 14, 10), w, x, 2.5 * s, z, 0, 0, 0, 1.5 * s, 1.35 * s, 1.5 * s, c);
-  INST.add('crown', sphere(1, 14, 10), w, x + 0.75 * s, 2.05 * s, z + 0.3 * s, 0, 0, 0, 1.0 * s, 0.95 * s, 1.0 * s, shade);
-  INST.add('crown', sphere(1, 14, 10), w, x - 0.65 * s, 2.15 * s, z - 0.35 * s, 0, 0, 0, 1.05 * s, 1.0 * s, 1.05 * s, shade);
+  INST.add('crown', sphere(1, 10, 7), w, x, 2.5 * s, z, 0, 0, 0, 1.5 * s, 1.35 * s, 1.5 * s, c);
+  INST.add('crown', sphere(1, 10, 7), w, x + 0.75 * s, 2.05 * s, z + 0.3 * s, 0, 0, 0, 1.0 * s, 0.95 * s, 1.0 * s, shade);
+  INST.add('crown', sphere(1, 10, 7), w, x - 0.65 * s, 2.15 * s, z - 0.35 * s, 0, 0, 0, 1.05 * s, 1.0 * s, 1.05 * s, shade);
   if (Math.random() < 0.4) {
     const fc = pick([0xff6b6b, 0xffa94d, 0xffd43b]);
     for (let i = 0; i < 5; i++) {
       const a = rand(0, Math.PI * 2), e = rand(-0.2, 0.6);
-      INST.add('fruit', sphere(0.15, 8, 6), w, x + Math.cos(a) * Math.cos(e) * 1.45 * s, 2.5 * s + Math.sin(e) * 1.3 * s, z + Math.sin(a) * Math.cos(e) * 1.45 * s, 0, 0, 0, 1, 1, 1, fc, false);
+      INST.add('fruit', sphere(0.15, 6, 4), w, x + Math.cos(a) * Math.cos(e) * 1.45 * s, 2.5 * s + Math.sin(e) * 1.3 * s, z + Math.sin(a) * Math.cos(e) * 1.45 * s, 0, 0, 0, 1, 1, 1, fc, false);
     }
   }
   if (collide) addCircle(x, z, 0.45 * s);
@@ -162,18 +164,18 @@ function pineTree(x, z, s = 1, collide = true) {
   INST.add('trunk', cyl(0.22, 0.3, 1.6, 8), w, x, 0.8 * s, z, 0, 0, 0, s, s, s, 0x8a5f3c);
   const c = pick([0x4f9e6a, 0x5aab72, 0x478f61]);
   for (let i = 0; i < 3; i++) {
-    INST.add('pine', cone(1, 1.7, 10), w, x, (1.8 + i * 0.85) * s, z, 0, rand(0, 3), 0, (1.6 - i * 0.38) * s, s, (1.6 - i * 0.38) * s, c);
+    INST.add('pine', cone(1, 1.7, 8), w, x, (1.8 + i * 0.85) * s, z, 0, rand(0, 3), 0, (1.6 - i * 0.38) * s, s, (1.6 - i * 0.38) * s, c);
   }
   if (collide) addCircle(x, z, 0.45 * s);
 }
 function bush(x, z, s = 1) {
   const w = mat(0xffffff);
   const c = pick(GREENS);
-  INST.add('bush', sphere(1, 12, 8), w, x, 0.45 * s, z, 0, 0, 0, 0.8 * s, 0.6 * s, 0.8 * s, c);
-  INST.add('bush', sphere(1, 12, 8), w, x + 0.55 * s, 0.35 * s, z + 0.2 * s, 0, 0, 0, 0.55 * s, 0.45 * s, 0.55 * s, c);
+  INST.add('bush', sphere(1, 9, 6), w, x, 0.45 * s, z, 0, 0, 0, 0.8 * s, 0.6 * s, 0.8 * s, c);
+  INST.add('bush', sphere(1, 9, 6), w, x + 0.55 * s, 0.35 * s, z + 0.2 * s, 0, 0, 0, 0.55 * s, 0.45 * s, 0.55 * s, c);
   if (Math.random() < 0.5) {
     const fc = pick([0xff8fab, 0xffffff, 0xffd34d]);
-    for (let i = 0; i < 4; i++) INST.add('bflower', sphere(0.1, 6, 4), w, x + rand(-0.6, 0.6) * s, 0.75 * s, z + rand(-0.5, 0.5) * s, 0, 0, 0, 1, 1, 1, fc, false);
+    for (let i = 0; i < 4; i++) INST.add('bflower', sphere(0.1, 5, 3), w, x + rand(-0.6, 0.6) * s, 0.75 * s, z + rand(-0.5, 0.5) * s, 0, 0, 0, 1, 1, 1, fc, false);
   }
 }
 function flowerPatch(x, z) {
@@ -185,9 +187,9 @@ function flowerPatch(x, z) {
     INST.add('stem', cyl(0.025, 0.025, 0.3, 4), w, px, 0.15, pz, 0, 0, 0, 1, 1, 1, 0x6cbf5e, false);
     for (let k = 0; k < 5; k++) {
       const a = (k / 5) * Math.PI * 2;
-      INST.add('petal', sphere(0.08, 6, 4), w, px + Math.cos(a) * 0.08, 0.32, pz + Math.sin(a) * 0.08, 0, 0, 0, 1, 0.5, 1, fc, false);
+      INST.add('petal', sphere(0.08, 4, 3), w, px + Math.cos(a) * 0.08, 0.32, pz + Math.sin(a) * 0.08, 0, 0, 0, 1, 0.5, 1, fc, false);
     }
-    INST.add('fcenter', sphere(0.05, 6, 4), w, px, 0.34, pz, 0, 0, 0, 1, 0.7, 1, 0xffd34d, false);
+    INST.add('fcenter', sphere(0.05, 4, 3), w, px, 0.34, pz, 0, 0, 0, 1, 0.7, 1, 0xffd34d, false);
   }
 }
 
@@ -227,13 +229,15 @@ function buildNature(scene) {
   }
   setOwner(null);
   tries = 0; n = 0;
-  while (n < 1000 && tries++ < 20000) {
+  // 맵이 넓어진 만큼 장식도 늘리되, 최적화를 위해 모바일은 줄인다
+  const FLOWERS = G.isMobile ? 420 : 760, TUFTS = G.isMobile ? 3200 : 6000;
+  while (n < FLOWERS && tries++ < 20000) {
     const x = rand(-B - 6, B + 6), z = rand(-B - 6, B + 6);
     if (isReserved(x, z, 0.5)) continue;
     flowerPatch(x, z); n++;
   }
   const w = mat(0xffffff);
-  for (let i = 0; i < 8200; i++) {
+  for (let i = 0; i < TUFTS; i++) {
     const x = rand(-B - 8, B + 8), z = rand(-B - 8, B + 8);
     if (isReserved(x, z, 0.2)) continue;
     const c = pick([0x7cc464, 0x6cb85a, 0x8ad272]);
@@ -334,7 +338,7 @@ function buildCritters(scene) {
     const g = group(scene, rand(-160, 160), rand(24, 32), rand(-160, 120));
     const n = 4 + Math.floor(Math.random() * 3);
     for (let k = 0; k < n; k++) {
-      const m = part(g, sphere(1, 12, 8), mat(0xffffff), k * 1.8 - n * 0.9, rand(-0.3, 0.4), rand(-1, 1), 0, 0, 0, rand(1.6, 2.6), rand(1.2, 1.8), rand(1.5, 2.2));
+      const m = part(g, sphere(1, 9, 6), mat(0xffffff), k * 1.8 - n * 0.9, rand(-0.3, 0.4), rand(-1, 1), 0, 0, 0, rand(1.6, 2.6), rand(1.2, 1.8), rand(1.5, 2.2));
       m.castShadow = false;
     }
     g.userData.speed = rand(0.6, 1.4);

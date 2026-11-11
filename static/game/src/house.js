@@ -181,22 +181,38 @@ function buildFurniture(id) {
   return g;
 }
 
+/** 턱시도 고양이: 까만 몸 + 하얀 가슴(턱받이) · 입 주변 · 발(양말) */
 function makeCat() {
   const g = new THREE.Group(), body = group(g);
-  const O = mat(0xffb36b), W = mat(0xfffaf0);
-  part(body, sphere(0.25, 12, 10), O, 0, 0.25, 0, 0, 0, 0, 0.9, 0.85, 1.25);
-  part(body, sphere(0.15, 10, 8), W, 0, 0.2, 0.2, 0, 0, 0, 1, 0.8, 0.8);
+  const K = mat(0x2b2a30), W = mat(0xfffaf0), Pink = mat(0xffa3b8);
+  part(body, sphere(0.25, 12, 10), K, 0, 0.25, 0, 0, 0, 0, 0.9, 0.85, 1.25);
+  // 하얀 가슴·배 (턱시도 셔츠)
+  part(body, sphere(0.15, 10, 8), W, 0, 0.23, 0.22, 0, 0, 0, 1, 1.05, 0.8);
+  part(body, sphere(0.14, 10, 8), W, 0, 0.13, 0.04, 0, 0, 0, 1.1, 0.55, 1.5);
   const head = group(body, 0, 0.45, 0.28);
-  part(head, sphere(0.2, 12, 10), O);
+  part(head, sphere(0.2, 12, 10), K);
+  // 하얀 입 주변 + 이마에서 내려오는 하얀 줄무늬
+  part(head, sphere(0.1, 10, 8), W, 0, -0.06, 0.13, 0, 0, 0, 1.25, 0.8, 0.8);
+  part(head, sphere(0.05, 8, 6), W, 0, 0.06, 0.17, 0, 0, 0, 0.6, 1.4, 0.5);
   for (const sx of [-1, 1]) {
-    part(head, cone(0.08, 0.14, 4), O, sx * 0.11, 0.18, 0, 0, 0, -sx * 0.3);
-    part(head, sphere(0.03, 6, 4), mat(0x2e2a35), sx * 0.07, 0.03, 0.18, 0, 0, 0, 1, 1.3, 0.5);
+    part(head, cone(0.08, 0.14, 4), K, sx * 0.11, 0.18, 0, 0, 0, -sx * 0.3);
+    part(head, cone(0.045, 0.08, 4), Pink, sx * 0.11, 0.17, 0.025, 0, 0, -sx * 0.3);   // 귀 안쪽
+    // 까만 얼굴에서도 잘 보이게 연두빛 눈 + 동공
+    part(head, sphere(0.035, 8, 6), mat(0xc8e05a), sx * 0.075, 0.035, 0.172, 0, 0, 0, 1, 1.2, 0.5);
+    part(head, sphere(0.018, 6, 4), mat(0x15141a), sx * 0.075, 0.035, 0.19, 0, 0, 0, 0.6, 1.4, 0.5);
+    // 하얀 수염
+    for (const dy of [-0.01, -0.035]) part(head, cyl(0.004, 0.004, 0.16, 3), W, sx * 0.13, -0.04 + dy, 0.15, 0, 0, Math.PI / 2 + sx * dy * 3);
   }
-  part(head, sphere(0.025, 6, 4), mat(0xff8fab), 0, -0.02, 0.2);
+  part(head, sphere(0.025, 6, 4), Pink, 0, -0.02, 0.215);
   const tail = group(body, 0, 0.3, -0.28);
-  part(tail, capsule(0.04, 0.35, 3, 6), O, 0, 0.18, -0.05, -0.4, 0, 0);
+  part(tail, capsule(0.04, 0.35, 3, 6), K, 0, 0.18, -0.05, -0.4, 0, 0);
   const legs = [];
-  for (const [x, z] of [[-0.1, 0.12], [0.1, 0.12], [-0.1, -0.12], [0.1, -0.12]]) { const l = group(body, x, 0.12, z); part(l, cyl(0.04, 0.04, 0.14, 6), O, 0, -0.06, 0); legs.push(l); }
+  for (const [x, z] of [[-0.1, 0.12], [0.1, 0.12], [-0.1, -0.12], [0.1, -0.12]]) {
+    const l = group(body, x, 0.12, z);
+    part(l, cyl(0.04, 0.04, 0.14, 6), K, 0, -0.06, 0);
+    part(l, sphere(0.048, 8, 6), W, 0, -0.12, 0.01, 0, 0, 0, 1, 0.7, 1.15);   // 하얀 양말
+    legs.push(l);
+  }
   return { group: g, body, head, tail, legs };
 }
 

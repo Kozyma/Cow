@@ -11,6 +11,7 @@ import { Item } from './items.js';
 import { emote, burst } from './particles.js';
 import { toast, floatText } from './ui.js';
 import { sfx } from './audio.js';
+import { mergeStatic } from './merge.js';
 
 const _m = new THREE.Matrix4();
 const _q = new THREE.Quaternion();
@@ -96,6 +97,8 @@ export class Barn {
     const keep = this.shed ? { raw: this.shed.raw, compost: this.shed.compost } : null;
     this.shed = new Shed(this, this.root);
     if (keep) Object.assign(this.shed, keep);
+    // 최적화: 축사 건물(기둥·울타리·지붕 등) 정적 부품 합치기. 코드에서 쓰는 부품(지붕·퇴비 더미 등)은 보호
+    mergeStatic(this.root, [built, this.shed, this]);
     setOwner(null);
     this.dirtyManure = true;
   }
@@ -130,6 +133,9 @@ export class Barn {
     for (const c of this.cells) s += c.amt;
     return Math.min(100, s);
   }
+
+  /** 기본 크기 대비 비율 (확장할수록 작아짐, 최대 1) */
+  get sizeScale() { return this.def.cap / Math.max(this.def.cap, this.capacity); }
 
   contains(x, z, m = 0) {
     return x > this.minX - m && x < this.maxX + m && z > this.back - m && z < this.front + m;
@@ -204,11 +210,12 @@ export class Barn {
   update(h, dt) {
     const n = this.animals.length;
     const ad = this.adef;
-    const need = ad.eat * n * h;
+    const k = this.sizeScale;   // 큰 축사는 사료통·바닥도 그만큼 커서, 가득 찬 축사 기준 비우는 속도는 같게
+    const need = ad.eat * n * h * k;
     let fed = n > 0;
     if (this.feed >= need) this.feed -= need;
     else { this.feed = 0; fed = false; }
-    this.addManure(ad.manure * n * h);
+    this.addManure(ad.manure * n * h * k);
     const manure = this.manure;
     this.petBonus = Math.max(0, this.petBonus - 0.08 * h);
     this.boostT = Math.max(0, this.boostT - dt);
@@ -250,10 +257,11 @@ export class Barn {
 
   /** 사료 넣기. recipe가 이 축사 동물용이면 생산량 보너스 */
   addFeed(amount, recipe = null) {
-    const add = Math.min(amount, 100 - this.feed);
+    const k = this.sizeScale;
+    const add = Math.min(amount * k, 100 - this.feed);
     this.feed += add;
     if (recipe === this.animalType) this.boostT = Math.min(300, this.boostT + amount * 1.6);
-    return add;
+    return add / k;   // 넣은 양 (원래 단위)
   }
 
   spawnPallet(quiet = false) {

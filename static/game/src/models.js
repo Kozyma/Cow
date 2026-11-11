@@ -2,6 +2,10 @@
 import * as THREE from 'three';
 import { mat, glow } from './materials.js';
 import { part, group, rbox, box, sphere, cyl, cone, torus, capsule, rand } from './util.js';
+import { mergeStatic } from './merge.js';
+
+/** 모델을 만든 뒤 정적 부품을 합쳐 그리기 호출 줄이기 */
+function merged(m) { mergeStatic(m.group, m); return m; }
 
 export const COL = {
   white: 0xfffdf7,
@@ -91,7 +95,7 @@ export function makeCow(variant = 0) {
   part(tail, cyl(0.035, 0.035, 0.55, 6), W, 0, -0.27, 0);
   part(tail, sphere(0.09, 8, 6), S, 0, -0.56, 0, 0, 0, 0, 1, 1.4, 1);
   tail.rotation.x = 0.25;
-  return { group: g, body, head, legs, tail };
+  return merged({ group: g, body, head, legs, tail });
 }
 
 export function makePig() {
@@ -115,7 +119,7 @@ export function makePig() {
   for (const sx of [-1, 1]) part(head, cone(0.14, 0.24, 4), P, sx * 0.24, 0.38, 0.0, 0.7, 0, -sx * 0.35);
   const tail = group(body, 0, 0.75, -0.56);
   part(tail, torus(0.07, 0.025, 6, 12, Math.PI * 1.6), PD, 0, 0, 0, 0, Math.PI / 2, 0);
-  return { group: g, body, head, legs, tail };
+  return merged({ group: g, body, head, legs, tail });
 }
 
 export function makeChicken(brown = false) {
@@ -144,7 +148,7 @@ export function makeChicken(brown = false) {
     part(leg, sphere(0.06, 8, 6), mat(COL.beak), 0, -0.2, 0.04, 0, 0, 0, 1, 0.35, 1.4);
     legs.push(leg);
   }
-  return { group: g, body, head, legs, wings };
+  return merged({ group: g, body, head, legs, wings });
 }
 
 // ---------------- 농부 ----------------
@@ -192,7 +196,7 @@ export function makeFarmer(o = PLAYER_LOOK) {
     part(hat, cyl(0.33, 0.37, 0.3, 18), mat(o.hat), 0, 0.2, 0);
     part(hat, cyl(0.375, 0.375, 0.08, 18), mat(o.band ?? 0xef6f6c), 0, 0.1, 0);
   }
-  return { group: g, root, head, legs, arms };
+  return merged({ group: g, root, head, legs, arms });
 }
 
 /** 운전석에 앉은 자세로 만들기 */
@@ -263,8 +267,9 @@ export function makeTractor() {
   for (const i of [-1, 0, 1]) part(body, box(0.66, 0.05, 0.06), mat(0x9aa1ad), 0, 1.52 + i * 0.13, 1.74);
   const hl = glow(0xfff3b0, 0.25);
   for (const sx of [-1, 1]) part(body, sphere(0.12, 12, 8), hl, sx * 0.36, 1.82, 1.64, 0, 0, 0, 1, 1, 0.55);
-  part(body, cyl(0.07, 0.07, 0.75, 10), D, 0.32, 2.3, 1.15);
-  part(body, cyl(0.1, 0.08, 0.12, 10), D, 0.32, 2.7, 1.15);
+  // 배기관은 보닛 오른쪽 끝에 (1인칭 시야 가운데를 가리지 않게)
+  part(body, cyl(0.07, 0.07, 0.75, 10), D, 0.5, 2.3, 1.15);
+  part(body, cyl(0.1, 0.08, 0.12, 10), D, 0.5, 2.7, 1.15);
   const seat = seatMesh(body, 0, 1.32, -0.55);
   steeringWheel(body, 0, 1.92, -0.12);
   for (const sx of [-1, 1]) for (const z of [-0.02, -1.02]) part(body, cyl(0.05, 0.05, 1.6, 8), D, sx * 0.7, 2.12, z);
@@ -288,7 +293,7 @@ export function makeTractor() {
     part(d, box(0.86, 0.03, 0.1), D, 0, -0.03, 0);
     discs.push(d);
   }
-  return { group: g, body, wheels, steer, mower, discs, seat, exhaust: group(body, 0.32, 2.8, 1.15) };
+  return { group: g, body, wheels, steer, mower, discs, seat, exhaust: group(body, 0.5, 2.8, 1.15) };
 }
 
 export function makeBaler() {

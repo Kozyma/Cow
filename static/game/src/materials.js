@@ -62,6 +62,18 @@ export function mat(color, opts = {}) {
   if (!m) {
     m = curved(new THREE.MeshToonMaterial({ color, gradientMap: gradientMap(), ...opts }));
     cache.set(key, m);
+    if (!Object.keys(opts).length) m.userData.plain = true;   // 색만 다른 기본 재질 → 정점 색으로 합칠 수 있음
+  }
+  return m;
+}
+
+/** 최적화용: 정점 색(색깔별 재질 대신)을 쓰는 공유 툰 재질 */
+const vcCache = new Map();
+export function vcMat(side = THREE.FrontSide) {
+  let m = vcCache.get(side);
+  if (!m) {
+    m = curved(new THREE.MeshToonMaterial({ color: 0xffffff, vertexColors: true, gradientMap: gradientMap(), side }));
+    vcCache.set(side, m);
   }
   return m;
 }

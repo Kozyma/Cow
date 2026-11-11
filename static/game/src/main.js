@@ -12,7 +12,7 @@ import { buildGrid } from './pathfinding.js';
 import { INST } from './instancer.js';
 import { updateParticles, burst } from './particles.js';
 import { updateItems, spawnBale, setOnDock, dockSlots, Item } from './items.js';
-import { initUI, updateUI, updateLabels, setPrompt, toast, renderShop, syncSettingsUI, renderStore, addVehicleUI } from './ui.js';
+import { initUI, updateUI, updateLabels, setPrompt, setActionLabel, toast, renderShop, syncSettingsUI, renderStore, addVehicleUI } from './ui.js';
 import { enterBuild, exitBuild, updateBuild, buildPointer, buildClick, buildCancel, buildState } from './layout.js';
 import * as HOUSE from './house.js';
 import { initAudio, updateEngine, sfx, setVolumes } from './audio.js';
@@ -28,8 +28,9 @@ const guestOnly = (what) => { toast(`${what}은(는) 방장만 할 수 있어요
 loadSettings();
 
 // ---------------- 렌더러 / 씬 ----------------
-const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
 const IS_MOBILE = matchMedia('(pointer: coarse)').matches || window.innerWidth < 820;
+// 최적화: 모바일은 안티에일리어싱을 끄고(픽셀 비율 1.5로 충분) 그리기 부담을 줄인다
+const renderer = new THREE.WebGLRenderer({ antialias: !IS_MOBILE, powerPreference: 'high-performance' });
 G.isMobile = IS_MOBILE;
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, IS_MOBILE ? 1.5 : 2));
 if (IS_MOBILE) document.body.classList.add('mobile');
@@ -85,7 +86,7 @@ const api = {
     if (!enterVehicle(v)) return;
     lookPoint = null;
     if (!G.cam.fp) G.cam.yaw = v.heading + Math.PI;
-    toast(`${v.def.name}에 탔어요`, v.def.icon, 1600);
+    toast(`${v.def.name}에 탔어요`, v.def.icon, 1600, { quiet: true });
   },
   lookAt(x, z) {
     if (G.cam.fp) return;
@@ -100,18 +101,28 @@ const api = {
       if (name === 'shop') renderShop();
       if (name === 'settings') syncSettingsUI();
       if (name === 'store') renderStore(storeTruck);
-      m.classList.remove('hidden');
-      G.paused = true;
+      m.classList.remove('hidden');   // 상점·설정을 열어도 게임은 멈추지 않는다
       document.exitPointerLock?.();
       sfx('click');
     }
   },
   closeModals() {
     document.querySelectorAll('.modal').forEach((m) => m.classList.add('hidden'));
-    G.paused = G.mode === 'build';
   },
   toggleFP,
   applySettings,
+  lockScreen,
+  /** 🏠 버튼: 어디서든 집으로 들어가기 / 집 안이면 나가기 */
+  toggleHouse() {
+    if (!G.started || G.paused) return;
+    if (isGuest()) { guestOnly('집 들어가기'); return; }
+    if (G.mode === 'house') { HOUSE.exitHouse(); return; }
+    if (G.mode !== 'farm') { toast('배치 변경을 마친 뒤에 들어갈 수 있어요', '🏠', 1600); return; }
+    if (G.driving) exitVehicle();
+    if (G.cam.fp) toggleFP();
+    lookPoint = null;
+    HOUSE.enterHouse();
+  },
   openStore(truck) {
     storeTruck = truck;
     api.toggleModal('store');
@@ -170,7 +181,13 @@ applySettings();
 function applySettings() {
   const s = G.settings;
   const sh = s.shadows;
+  const shadowChanged = sh !== applySettings.lastShadows;   // (함수 속성: 선언 전에 호출돼도 안전)
+  applySettings.lastShadows = sh;
   renderer.shadowMap.enabled = sh !== 'off';
+  // 높음: 부드러운 그림자 / 낮음: 가벼운 그림자 + 2프레임마다 갱신
+  renderer.shadowMap.type = sh === 'high' ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;
+  renderer.shadowMap.autoUpdate = sh !== 'low';
+  renderer.shadowMap.needsUpdate = true;
   const sun = scene.children.find((c) => c.isDirectionalLight);
   if (sun) {
     sun.castShadow = sh !== 'off';
@@ -181,7 +198,8 @@ function applySettings() {
       sun.shadow.map = null;
     }
   }
-  scene.traverse((o) => { if (o.material) o.material.needsUpdate = true; });
+  // 그림자 설정이 바뀔 때만 셰이더 다시 만들기 (볼륨 슬라이더 등을 움직일 때마다 하면 버벅임)
+  if (shadowChanged) scene.traverse((o) => { if (o.material) o.material.needsUpdate = true; });
   setVolumes(s.music, s.sfx);
   G.timeScale = 1440 / (s.dayLength * 60);
 }
@@ -201,7 +219,7 @@ function toggleFP() {
     G.cam.fpOff = 0;
     G.cam.fpPitch = G.driving ? -0.08 : -0.05;
     G.viewTarget = null;
-    toast('1인칭 시점 · 화면을 클릭하면 마우스로 둘러볼 수 있어요 (Esc로 해제)', '👀', 3000);
+    toast(IS_MOBILE ? '1인칭 시점 · 화면을 손가락으로 끌어서 둘러봐요' : '1인칭 시점 · 화면을 클릭하면 마우스로 둘러볼 수 있어요 (Esc로 해제)', '👀', 3000);
   } else {
     document.exitPointerLock?.();
     G.cam.yaw = G.driving ? G.driving.heading + Math.PI : G.cam.yaw;
@@ -343,15 +361,18 @@ G.hooks = { enterVehicle, exitVehicle, remoteActions, nearestVehicle, nearestAni
 function handleInput() {
   const k = G.input;
   const modalOpen = [...document.querySelectorAll('.modal')].some((m) => !m.classList.contains('hidden'));
+  // 창이 열려 있는 동안 게임은 계속 진행되지만, 내 캐릭터·차는 조작하지 않는다
+  k.blocked = modalOpen;
   if (k.pressed('Escape') && modalOpen) api.closeModals();
   if (G.mode === 'build') {
     if (k.pressed('KeyB') && !modalOpen) api.toggleModal('shop');
+    if (k.pressed('KeyL') && !modalOpen) api.toggleBuild();   // L 한 번 더 누르면 배치 변경 끝
     return;
   }
   if (k.pressed('KeyB')) api.toggleModal('shop');
   if (k.pressed('KeyH')) api.toggleModal('help');
   if (k.pressed('KeyO')) api.toggleModal('settings');
-  if (G.paused) return;
+  if (G.paused || modalOpen) return;
   if (G.mode === 'house') { houseInput(); return; }
   if (k.pressed('KeyL')) api.toggleBuild();
   if (k.pressed('KeyV')) toggleFP();
@@ -385,15 +406,19 @@ function handleInput() {
   }
 
   if (G.driving) setPrompt(null);
-  else if (G.riding) setPrompt(`${G.riding.def.icon} 옆자리 동승 중 · 고도 ${Math.round(G.riding.pos.y)}m · <kbd>E</kbd> 내리기 (착륙 후)`);
-  else if (G.viewTarget) setPrompt(`👁 ${G.viewTarget.def.name} 관찰 중 · 움직이면 돌아와요`);
+  else if (G.riding) { setPrompt(`${G.riding.def.icon} 옆자리 동승 중 · 고도 ${Math.round(G.riding.pos.y)}m · <kbd>E</kbd> 내리기 (착륙 후)`); setActionLabel('🚪 내리기'); }
+  else if (G.viewTarget) { setPrompt(`👁 ${G.viewTarget.def.name} 관찰 중 · 움직이면 돌아와요`); setActionLabel(null); }
   else {
     const v = nearestVehicle(2.2);
-    const a = !v && nearestAnimal(2.4);
+    const door = !v && !isGuest() && HOUSE.nearHouseDoor(G.player.pos);
+    const a = !v && !door && nearestAnimal(2.4);
+    const icon = a && ({ cow: '🐮', hanwoo: '🐂', pig: '🐷', chicken: '🐔' })[a.type];
     if (v) setPrompt(`<kbd>E</kbd> ${v.def.icon} ${v.def.name} 타기`);
-    else if (HOUSE.nearHouseDoor(G.player.pos)) setPrompt('<kbd>E</kbd> 🏠 집에 들어가기');
-    else if (a) setPrompt(`<kbd>E</kbd> ${({ cow: '🐮', hanwoo: '🐂', pig: '🐷', chicken: '🐔' })[a.type]} 쓰다듬기`);
+    else if (door) setPrompt('<kbd>E</kbd> 🏠 집에 들어가기');
+    else if (a) setPrompt(`<kbd>E</kbd> ${icon} 쓰다듬기`);
     else setPrompt(null);
+    // 모바일 행동 버튼 글자도 상황에 맞게
+    setActionLabel(v ? `${v.def.icon} 타기` : door ? '🏠 들어가기' : a ? `${icon} 쓰다듬기` : null);
   }
 }
 
@@ -407,6 +432,7 @@ function houseInput() {
   if (k.pressed('KeyE') && a) HOUSE.doActivity(a);
   if (k.pressed('Space') && !H.decor) G.player.hop();
   setPrompt(a ? `<kbd>E</kbd> ${a.name}` : null);
+  setActionLabel(a ? (a.door ? '🚪 나가기' : '✋ ' + (a.name.length > 6 ? '하기' : a.name)) : null);
 }
 
 // ---------------- 카메라 ----------------
@@ -492,7 +518,8 @@ function updateCamera(dt) {
   G.cam.dragT -= dt;
   const follow = G.driving || G.riding || G.viewTarget;
   if (follow && G.settings.camFollow && G.cam.dragT <= 0 && follow.speed > 0.6) {
-    G.cam.yaw = dampAngle(G.cam.yaw, follow.heading + Math.PI, G.driving ? 1.6 : 0.8, dt);
+    // 모바일은 화면이 덜 휙휙 돌도록 조금 더 느긋하게 따라감
+    G.cam.yaw = dampAngle(G.cam.yaw, follow.heading + Math.PI, G.driving ? (G.isMobile ? 1.0 : 1.6) : 0.8, dt);
   }
   place(tgt, G.cam.yaw, G.cam.pitch, G.cam.dist);
 }
@@ -570,6 +597,7 @@ function step(dt) {
 }
 
 function frame() {
+  frame.n ??= 0;
   requestAnimationFrame(frame);
   const dt = Math.min(clock.getDelta(), 0.05);
   G.now += dt;
@@ -594,6 +622,8 @@ function frame() {
     if (uiT <= 0) { uiT = 0.12; updateUI(0.12); }
   }
   G.input.endFrame();
+  // 그림자 "낮음": 그림자 지도는 2프레임에 한 번만 다시 그린다
+  if (!renderer.shadowMap.autoUpdate) renderer.shadowMap.needsUpdate = (++frame.n & 1) === 0;
   renderer.render(scene, camera);
 }
 
@@ -613,6 +643,21 @@ document.querySelectorAll('#title .mode-pick button').forEach((b) => {
     localStorage.setItem('monggle-farm-settings-v1', JSON.stringify(G.settings));
   });
 });
+/** 모바일: 전체화면 + 지금 방향(가로/세로)으로 화면 회전 고정.
+ *  폰을 조금 기울일 때마다 화면이 가로↔세로로 돌아가는 것을 막는다 (안드로이드 크롬 등 지원 브라우저만). */
+function lockScreen() {
+  if (!IS_MOBILE || !G.settings.lockScreen) return;
+  const want = window.innerWidth >= window.innerHeight ? 'landscape' : 'portrait';
+  const lock = () => { try { screen.orientation?.lock?.(want)?.catch?.(() => {}); } catch { /* 미지원 */ } };
+  const el = document.documentElement;
+  try {
+    if (!document.fullscreenElement && el.requestFullscreen) el.requestFullscreen({ navigationUI: 'hide' }).then(lock, lock);
+    else lock();
+  } catch { lock(); }
+}
+// 시작 화면 버튼을 누르는 순간(사용자 동작이 있어야 전체화면 가능) 회전 고정
+document.getElementById('title').addEventListener('click', (e) => { if (e.target.closest('button.big')) lockScreen(); }, true);
+
 function start(fresh) {
   initAudio();
   setVolumes(G.settings.music, G.settings.sfx);
@@ -630,7 +675,7 @@ function start(fresh) {
   G.cam.yaw = 0;
   if (G.settings.fpDefault) toggleFP();
   sfx('day');
-  setTimeout(() => toast('몽글몽글 목장에 오신 걸 환영해요! 차량 근처에서 E를 눌러 타보세요', '🌼', 5000), 600);
+  setTimeout(() => toast(IS_MOBILE ? '몽글몽글 목장에 오신 걸 환영해요! 차량 근처에서 오른쪽 아래 [타기] 버튼을 눌러 보세요' : '몽글몽글 목장에 오신 걸 환영해요! 차량 근처에서 E를 눌러 타보세요', '🌼', 5000), 600);
   setTimeout(() => toast(G.settings.mode === 'sim' ? '시뮬레이션 모드: R/F/T/G로 유압을 직접 조작해요 · 설정(O)에서 바꿀 수 있어요' : '간편 모드: Space 한 번으로 작업해요 · 설정(O)에서 바꿀 수 있어요', '⚙️', 5000), 2500);
 }
 btnStart.addEventListener('click', () => start(false));

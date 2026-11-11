@@ -7,10 +7,11 @@ import { makeTractor, makeBaler, makeForklift, makeSkidLoader, makeTruck1, makeT
 import { mat } from './materials.js';
 import { clamp, wrapAngle, approach, damp, dampAngle, rand, lerp, group, part, sphere, torus } from './util.js';
 import { collideCircle, blockedAt } from './physics.js';
-import { findPath, lineClear, isFree } from './pathfinding.js';
+import { findPath, lineClear, isFree, clearanceAt, nearestOpenSpot } from './pathfinding.js';
 import { spawn, burst } from './particles.js';
 import { toast, floatText } from './ui.js';
 import { sfx } from './audio.js';
+import { mergeStatic } from './merge.js';
 import {
   spawnBale, baleCount, pickupItem, releaseCarried, supportUnder, itemInFront, freeYardSlot, inYard,
   freeDockSlot, dockItems, setOnTruck, truckCargo, freeTruckSlot, sellItems, nearMarket,
@@ -57,7 +58,7 @@ export const VEH_DEFS = {
     circles: [[1.0, 1.05], [-1.0, 1.05]], personal: true,
   },
   heli: {
-    name: '헬기', icon: '🚁', maxSpeed: 20, accel: 6, turn: 1.6, radius: 1.6, work: 2.2, build: makeHelicopter, carries: ['pallet', 'bale', 'sack'], color: '#ffd36e',
+    name: '헬기', icon: '🚁', maxSpeed: 26, accel: 6, turn: 1.6, radius: 1.6, work: 2.2, build: makeHelicopter, carries: ['pallet', 'bale', 'sack'], color: '#ffd36e',
     circles: [[0.2, 1.3], [-2.3, 0.6]], air: 'heli', seats: 2,
   },
   plane: {
@@ -87,6 +88,7 @@ export class Vehicle {
     this.def = VEH_DEFS[type];
     this.def.circles ||= [[0, this.def.radius]];
     this.m = this.def.build();
+    mergeStatic(this.m.group, this.m);   // 최적화: 차체의 정적 부품 합치기
     this.group = this.m.group;
     G.scene.add(this.group);
     this.park = this.def.air ? LAYOUT.airfield[this.def.air] : LAYOUT.parking[index % LAYOUT.parking.length];
@@ -157,6 +159,12 @@ export class Vehicle {
   key(...codes) { const i = this.driver?.input; return !!i && codes.some((c) => i.down(c)); }
 
   get radius() { return this.def.radius; }
+  /** 자동 운전 경로가 장애물에서 떨어지고 싶은 거리 (차체 폭 + 여유) */
+  get navNeed() { return Math.max(...this.def.circles.map(([, r]) => r)) + 0.85; }
+  /** 차 중심에서 앞 범퍼까지 */
+  get frontReach() { return Math.max(...this.def.circles.map(([o, r]) => o + r)); }
+  /** 차 중심에서 뒤 범퍼까지 */
+  get backReach() { return Math.max(...this.def.circles.map(([o, r]) => r - o)); }
   /** 하늘에 떠 있으면 땅 위 차·동물·건물과 부딪히지 않는다 */
   get airborne() { return this.pos.y > 0.6; }
   get isTruck() { return !!this.def.cargo; }
@@ -537,10 +545,17 @@ export class Vehicle {
     if (driven) {
       thr = (this.key('KeyW', 'ArrowUp') ? 1 : 0) - (this.key('KeyS', 'ArrowDown') ? 1 : 0);
       st = (this.key('KeyA', 'ArrowLeft') ? 1 : 0) - (this.key('KeyD', 'ArrowRight') ? 1 : 0);
+      // 모바일 조이스틱: 기울인 만큼만 부드럽게 조향 (살짝 빗나가도 핸들을 끝까지 꺾지 않게)
+      const ax = this.driver?.input?.axis;
+      if (ax?.active) {
+        const a = Math.abs(ax.x);
+        st = a < 0.12 ? 0 : -Math.sign(ax.x) * Math.pow((a - 0.12) / 0.88, 1.6);
+      }
       this.status = '직접 운전 중';
       this.manualControls(dt);
     } else if (this.auto || this.ai.task?.kind === 'yield') {
       [thr, st] = this.think(dt);
+      if (!this.def.air) this.watchdog(dt);
     } else {
       this.status = '수동 모드 · 정지';
       this.pto = false;
@@ -549,10 +564,12 @@ export class Vehicle {
       this.runSeq(dt);
       if (!driven) { thr = 0; st = 0; }
     }
+    if (this.ai.ghostT > 0) this.ai.ghostT -= dt;
     this.yieldScanT = (this.yieldScanT || 0) - dt;
     if (this.yieldScanT <= 0) {
       this.yieldScanT = 0.3;
-      if (driven || (this.auto && this.ai.task && this.ai.task.kind !== 'yield' && this.ai.task.kind !== 'park')) this.askYield();
+      // 자동 일꾼 차는 다른 차를 그냥 통과하므로 비켜 달라고 할 필요가 없다
+      if (driven) this.askYield();
     }
 
     // 부스트 (Shift) — 게이지 소모 없이 무제한
@@ -609,7 +626,9 @@ export class Vehicle {
 
   resolveCollisions(fx, fz) {
     let hit = false;
-    for (const [off, r] of this.def.circles) {
+    const ghost = this.passThrough();
+    // 자동 일꾼 차가 자꾸 막히면 잠깐 동안 장애물도 통과해서 빠져나간다
+    if (!(ghost && this.ai.ghostT > 0)) for (const [off, r] of this.def.circles) {
       _c.set(this.pos.x + fx * off, 0, this.pos.z + fz * off);
       const ox = _c.x, oz = _c.z;
       if (collideCircle(_c, r, true)) { this.pos.x += _c.x - ox; this.pos.z += _c.z - oz; hit = true; }
@@ -622,6 +641,7 @@ export class Vehicle {
     const dir = Math.sign(this.speed) || 0;
     for (const o of G.vehicles) {
       if (o === this || o.airborne) continue;
+      if (ghost || o.passThrough()) continue;   // 자동 일꾼 차는 차끼리 서로 통과
       if (Math.hypot(o.pos.x - this.pos.x, o.pos.z - this.pos.z) > 10) continue;
       const ofx = Math.sin(o.heading), ofz = Math.cos(o.heading);
       const share = o.pushPriority() / (myP + o.pushPriority());
@@ -653,7 +673,7 @@ export class Vehicle {
         if (collideCircle(_c, r, true)) { this.pos.x += _c.x - ox; this.pos.z += _c.z - oz; }
       }
     }
-    if (!G.driving) {
+    if (!G.driving && !ghost) {
       const p = G.player.pos;
       for (const [a, r] of this.def.circles) {
         const ax = this.pos.x + fx * a, az = this.pos.z + fz * a;
@@ -1078,6 +1098,9 @@ export class Vehicle {
     }
   }
 
+  /** 자동 모드로 일하는 차 (사람이 운전하지 않음): 다른 차·사람과 부딪히지 않고 통과한다 */
+  passThrough() { return this.auto && !this.driver; }
+
   /** 부딪혔을 때 덜 밀리는 정도 (직접 운전 > 일하는 일꾼 차 > 쉬는 차) */
   pushPriority() {
     if (!!this.driver) return 4;
@@ -1180,7 +1203,20 @@ export class Vehicle {
 
     if (!ai.path || ai.pathFor !== task) this.plan(task);
     const path = ai.path;
-    while (ai.idx < path.length - 1 && Math.hypot(path[ai.idx].x - this.pos.x, path[ai.idx].z - this.pos.z) < 2.2) ai.idx++;
+    // 다음 지점으로 넘어가기: 출입구 지점(tight)은 거의 밟아야, 일반 지점은 다음 지점이 곧게 보일 때만 (모서리 깎기 방지)
+    while (ai.idx < path.length - 1) {
+      const p = path[ai.idx], dd = Math.hypot(p.x - this.pos.x, p.z - this.pos.z);
+      const nx = path[ai.idx + 1];
+      // 이미 지나쳤으면(다음 지점 쪽으로 넘어섰으면) 되돌아가 맴돌지 말고 다음으로 — 긴 차가 지점을 살짝 놓쳐 빙빙 도는 것 방지
+      const sx = nx.x - p.x, sz = nx.z - p.z, sl = Math.hypot(sx, sz) || 1;
+      const ox = this.pos.x - p.x, oz = this.pos.z - p.z;
+      const lateral = Math.abs(ox * sz - oz * sx) / sl;   // 출입 지점은 옆으로 많이 벗어난 채 지나치면 인정하지 않음 (곧게 들어가야 하므로)
+      const passed = dd < (p.tight ? 3.5 : 4) && ox * sx + oz * sz > 0 && (!p.tight || lateral < 1.6);
+      if (passed) { ai.idx++; continue; }
+      if (dd >= (p.tight ? 1.4 : 2.2)) break;
+      if (!p.tight && dd > 0.9 && !lineClear(this.pos.x, this.pos.z, nx.x, nx.z, 1.3)) break;
+      ai.idx++;
+    }
     const wp = path[ai.idx];
     const last = ai.idx === path.length - 1;
     const dx = wp.x - this.pos.x, dz = wp.z - this.pos.z;
@@ -1196,14 +1232,57 @@ export class Vehicle {
     if (last) thr *= clamp(d / 5, 0.35, 1);
     if (task.slow) thr *= task.slow;
 
+    // 통로·주차 칸 출구(tight 지점)가 뒤쪽이면 그 안에서 돌지 말고 곧게 후진해서 빠져나온다
+    if (!this.def.skid && wp.tight && Math.abs(diff) > 1.9 && d < 12) {
+      const want = Math.abs(wrapAngle(this.heading)) < Math.PI / 2 ? 0 : Math.PI;   // 통로 방향(남북)에 맞춰
+      const err = wrapAngle(want - this.heading);
+      return this.stuckCheckRev(dt, [-0.55, clamp(-err * 2.5, -1, 1)]);
+    }
     if (!this.def.skid && Math.abs(diff) > 2.1 && d < 5) {
       ai.reverseT = this.isTruck ? 1.6 : 1.1; ai.revSteer = -Math.sign(diff);
       return [-0.6, ai.revSteer];
     }
+    // 크게 돌아야 하는데 돌 쪽이 좁으면: 제자리에서 크게 돌다 꽁무니로 기둥을 치지 말고 '세 번 꺾어 돌기'(후진하며 방향 틀기)
+    if (!this.def.skid && Math.abs(diff) > 1.7 && this.speed > -0.1 && G.now > (ai.kTurnCD || 0) && !G.barns.some((bb) => bb.contains(this.pos.x, this.pos.z, 2))) {
+      const sgn = Math.sign(diff), R = this.frontReach + 1.6;
+      const turnSide = clearanceAt(this.pos.x + Math.sin(this.heading + sgn * 0.9) * R, this.pos.z + Math.cos(this.heading + sgn * 0.9) * R);
+      const rear = clearanceAt(this.pos.x - Math.sin(this.heading) * (this.backReach + 1.2), this.pos.z - Math.cos(this.heading) * (this.backReach + 1.2));
+      if (turnSide < this.navNeed + 0.6 && rear > this.navNeed) {
+        ai.kTurnCD = G.now + 4;
+        ai.reverseT = this.isTruck || this.def.wagon ? 1.5 : 1.1; ai.revSteer = -sgn;
+        return [-0.6, ai.revSteer];
+      }
+    }
 
     const fx = Math.sin(this.heading), fz = Math.cos(this.heading);
     let blocked = false, avoid = 0, crawl = false, oncoming = null, blockLat = 0;
-    for (const o of G.vehicles) {
+    // 앞 감지: 진행 방향에 나무·벽 모서리가 있으면 미리 비어 있는 쪽으로 핸들을 튼다
+    // (목적지 바로 앞이나 축사 안처럼 일부러 가까이 가는 곳에서는 끔)
+    const reach = this.frontReach;
+    const inBarn = G.barns.some((bb) => bb.contains(this.pos.x, this.pos.z, 7));   // 축사 근처(출입·팔레트 자리)에서는 정해 둔 길만 따른다
+    if (!inBarn && this.speed > 0.2 && dC > reach + 4 && !(last && d < reach + 2.5)) {
+      const look = reach + 0.6 + Math.min(3, this.speed * 0.35);
+      const probe = (a, L = look) => clearanceAt(this.pos.x + Math.sin(this.heading + a) * L, this.pos.z + Math.cos(this.heading + a) * L);
+      const rF = this.def.circles.reduce((m, [o, r]) => (o + r >= reach - 0.01 ? Math.max(m, r) : m), 0.8);
+      const want0 = rF + 0.45;
+      const c0 = Math.min(probe(0), probe(0, look * 0.6));
+      if (c0 < want0) {
+        const cl = probe(0.6) + probe(0.3) * 0.5, cr = probe(-0.6) + probe(-0.3) * 0.5;
+        const side = cl === cr ? (diff >= 0 ? 1 : -1) : cl > cr ? 1 : -1;
+        avoid += side * Math.min(1.4, 0.5 + (want0 - c0) * 1.2);
+        if (c0 < rF + 0.1) crawl = true;   // 거의 닿을 듯하면 천천히
+      }
+    }
+    // 꽁무니 휘두름 확인: 차는 가운데를 축으로 돌아서, 꺾는 반대쪽으로 꽁무니가 밀려 나간다 (긴 트럭·베일 운반차)
+    if (!this.def.skid && Math.abs(steer + avoid) > 0.35 && this.speed > 0.2 && !G.barns.some((bb) => bb.contains(this.pos.x, this.pos.z, 0))) {
+      const sgn = Math.sign(steer + avoid), bk = this.backReach - 0.3;
+      const rx = this.pos.x - Math.sin(this.heading) * bk, rz = this.pos.z - Math.cos(this.heading) * bk;
+      const sx = -Math.cos(this.heading) * sgn * 0.9, sz = Math.sin(this.heading) * sgn * 0.9;   // 꽁무니가 밀려 가는 쪽
+      const rB = this.def.circles.reduce((m, [o, r]) => (r - o >= this.backReach - 0.01 ? Math.max(m, r) : m), 0.8);
+      const cRear = clearanceAt(rx + sx, rz + sz);
+      if (cRear < rB + 0.25) { avoid -= (steer + avoid) * 0.6; crawl = true; }   // 덜 꺾고 천천히
+    }
+    for (const o of (this.passThrough() ? [] : G.vehicles)) {
       if (o === this || o.airborne) continue;
       const ox = o.pos.x - this.pos.x, oz = o.pos.z - this.pos.z;
       const od = Math.hypot(ox, oz);
@@ -1259,6 +1338,46 @@ export class Vehicle {
     return this.stuckCheck(dt, thr, steer, diff);
   }
 
+  /**
+   * 끼임 감시 장치: 같은 일을 붙잡은 채 오래 못 움직이면 단계적으로 빼낸다
+   * 8초: 길 다시 찾기 + 넓은 쪽으로 후진 → 14초: 잠깐 장애물 통과 → 20초: 가장 가까운 빈 자리로 옮기기
+   * (작업 동작 중이거나 일거리를 기다리며 서 있는 건 끼임이 아님)
+   */
+  watchdog(dt) {
+    const ai = this.ai, w = (ai.wd ||= { x: this.pos.x, z: this.pos.z, t: 0, key: null, stage: 0 });
+    const key = ai.task?.key ?? null;
+    if (!key || this.seq || key !== w.key || Math.hypot(this.pos.x - w.x, this.pos.z - w.z) > 1.5) {
+      w.x = this.pos.x; w.z = this.pos.z; w.t = 0; w.key = key; w.stage = 0;
+      return;
+    }
+    w.t += dt;
+    if (w.stage === 0 && w.t > 8) {
+      w.stage = 1;
+      ai.path = null;
+      const back = this.backReach + 1.2, lx = Math.cos(this.heading) * 1.5, lz = -Math.sin(this.heading) * 1.5;
+      const bx = this.pos.x - Math.sin(this.heading) * back, bz = this.pos.z - Math.cos(this.heading) * back;
+      const cL = clearanceAt(bx + lx, bz + lz), cR = clearanceAt(bx - lx, bz - lz);
+      ai.reverseT = 1.6; ai.revSteer = (cL >= cR ? 1 : -1) * (this.def.skid ? -1 : 1);
+    } else if (w.stage === 1 && w.t > 14) {
+      w.stage = 2;
+      ai.ghostT = 3; ai.reverseT = 0; ai.path = null;
+    } else if (w.stage === 2 && w.t > 20) {
+      // 정말 좁은 곳에 끼었을 때만 옮긴다 (넓은 곳이면 길만 다시 찾기)
+      const spot = clearanceAt(this.pos.x, this.pos.z) < this.navNeed ? nearestOpenSpot(this.pos.x, this.pos.z, this.navNeed) : null;
+      if (spot) { this.pos.x = spot.x; this.pos.z = spot.z; this.speed = 0; this.syncVisual?.(); }
+      ai.path = null; ai.ghostT = 0;
+      w.x = this.pos.x; w.z = this.pos.z; w.t = 0; w.stage = 0;
+    }
+  }
+
+  /** 곧게 후진하는 중에 뒤가 막혀 못 움직이면: 길을 다시 찾게 한다 */
+  stuckCheckRev(dt, out) {
+    const ai = this.ai;
+    if (Math.abs(this.speed) < 0.2) ai.revStuck = (ai.revStuck || 0) + dt; else ai.revStuck = 0;
+    if (ai.revStuck > 1.5) { ai.revStuck = 0; ai.path = null; ai.reverseT = 0; return [0.5, out[1]]; }
+    return out;
+  }
+
   /** 막혔으면 목표 쪽으로 머리를 돌리며 후진 (반복되면 더 길게) */
   stuckCheck(dt, thr, steer, diff = 0) {
     const ai = this.ai;
@@ -1269,7 +1388,16 @@ export class Vehicle {
       ai.stuckCount = G.now - (ai.lastStuck || 0) < 8 ? (ai.stuckCount || 0) + 1 : 1;
       ai.lastStuck = G.now;
       ai.reverseT = Math.min(3, 1.1 + ai.stuckCount * 0.5);
+      if (this.passThrough() && ai.stuckCount >= 3) { ai.ghostT = 2.5; ai.reverseT = 0; }   // 세 번 이상 연속으로 막히면 잠깐 통과해서 빠져나가기
       ai.revSteer = Math.abs(diff) > 0.2 ? -Math.sign(diff) : (Math.random() < 0.5 ? -1 : 1);
+      {
+        // 후진할 때 차 뒤쪽 좌우 중 더 넓은 쪽으로 (후진은 핸들 방향이 반대로 먹으므로 그만큼 고려)
+        const back = this.backReach + 1.2;
+        const bx = this.pos.x - Math.sin(this.heading) * back, bz = this.pos.z - Math.cos(this.heading) * back;
+        const lx = Math.cos(this.heading) * 1.5, lz = -Math.sin(this.heading) * 1.5;
+        const cL = clearanceAt(bx + lx, bz + lz), cR = clearanceAt(bx - lx, bz - lz);
+        if (Math.abs(cL - cR) > 0.4) ai.revSteer = (cL > cR ? 1 : -1) * (this.def.skid ? -1 : 1);
+      }
       const fx = Math.sin(this.heading), fz = Math.cos(this.heading);
       let near = null, nd = 6;
       for (const o of G.vehicles) {
@@ -1308,8 +1436,85 @@ export class Vehicle {
     const ai = this.ai;
     ai.pathFor = task;
     ai.idx = 0;
-    if (lineClear(this.pos.x, this.pos.z, task.x, task.z)) ai.path = [{ x: task.x, z: task.z }];
-    else ai.path = findPath(this.pos.x, this.pos.z, task.x, task.z) || [{ x: task.x, z: task.z }];
+    const need = this.navNeed;
+    const pos = this.pos;
+    // 배합기 급여: 통로 한가운데를 따라 앞에서 뒤로 곧게 (이미 통로 안이면 남은 구간만)
+    if (task.through) {
+      const b = task.through;
+      const lane = [{ x: b.cx, z: b.front + 2, tight: true }, { x: b.cx, z: b.back + 1, tight: true }].filter((q) => q.z < pos.z - 0.5);
+      const inAlley = barnAlleyAt(pos.x, pos.z) === b;
+      const first = lane[0] || task;
+      const lead = inAlley || lineClear(pos.x, pos.z, first.x, first.z, need) ? [] : (findPath(pos.x, pos.z, first.x, first.z, need) || []).slice(0, -1);
+      ai.path = [...lead, ...lane, { x: task.x, z: task.z }];
+      return;
+    }
+    // 축사 통로·우리, 주차 칸은 '곧게 들어가고 곧게 나오기': 문 밖까지 일직선으로 뺀 다음에 꺾는다
+    // (긴 차가 바로 꺾으면 차 꽁무니가 벽 끝·기둥을 긁기 때문)
+    const out = 3.5 + this.backReach;
+    const from = this.laneAt(pos.x, pos.z), to = this.laneAt(task.x, task.z);
+    const same = from && to && from.b === to.b && Math.abs(from.x - to.x) < 0.5;
+    const pre = [], post = [];
+    const hyp = (a, b) => Math.hypot(a.x - b.x, a.z - b.z);
+    const ends = (L) => [{ edge: L.front, dir: 1 }, { edge: L.back, dir: -1 }];
+    const outAt = (x, edge, dir) => {
+      let best = out, bc = -1;
+      for (const k of [0, 1, -1, 2, 3, -2]) {
+        const o = out + k, c = clearanceAt(x, edge + dir * o);
+        if (c >= need + 0.4) return o;
+        if (c > bc) { bc = c; best = o; }
+      }
+      return best;
+    };
+    if (to && !same) {
+      const hint = from ? { x: from.x, z: (from.front + from.back) / 2 } : pos;
+      const e = ends(to).map((q) => ({ ...q, o: { x: to.x, z: q.edge + q.dir * out } })).sort((a, b) => hyp(hint, a.o) + hyp(a.o, task) - hyp(hint, b.o) - hyp(b.o, task))[0];
+      post.push({ x: to.x, z: e.edge + e.dir * outAt(to.x, e.edge, e.dir), tight: true }, { x: to.x, z: e.edge - e.dir * 1.5, tight: true });
+    }
+    if (from && !same) {
+      const goal = post[0] || task;
+      const fz = Math.cos(this.heading);
+      const turnCost = (q) => (Math.sign(fz) !== q.dir && Math.abs(fz) > 0.3 ? 25 + this.backReach * 6 : 0);   // 뒤돌아 나가려면 통로 안에서 돌아야 함
+      const e = ends(from).map((q) => ({ ...q, o: { x: from.x, z: q.edge + q.dir * out } })).sort((a, b) => hyp(pos, a.o) + hyp(a.o, goal) + turnCost(a) - hyp(pos, b.o) - hyp(b.o, goal) - turnCost(b))[0];
+      pre.push({ x: from.x, z: e.edge, tight: true }, { x: from.x, z: e.edge + e.dir * outAt(from.x, e.edge, e.dir), tight: true });
+    }
+    // 주차 칸: 앞(북쪽)으로 곧게 빠져나왔다가, 들어올 때도 앞에서 곧게 들어온다
+    const p = this.park;
+    const lot = Math.max(5, this.frontReach + 3.5);
+    if (!from && Math.hypot(pos.x - p.x, pos.z - p.z) < 2.5 && Math.hypot(task.x - p.x, task.z - p.z) > 12) pre.push({ x: p.x, z: p.z - lot, tight: true });
+    if (task.kind === 'park') post.unshift({ x: p.x, z: p.z - lot, tight: true });
+    if (task.via) post.unshift(...task.via.map((q) => ({ ...q, tight: true })));
+    // 배합장 앞마당(지붕 아래 원료 칸): 남쪽 정면에서 곧게 들어가고, 나올 때도 곧게 빠져나온다
+    const bay = LAYOUT.station.bay, bayOut = Math.max(6, this.frontReach + 3.5);
+    const nearBay = (q) => Math.hypot(q.x - bay.x, q.z - bay.z) < 4.5;
+    if (nearBay(task) && Math.hypot(pos.x - bay.x, pos.z - bay.z) > bayOut + 2) post.unshift({ x: bay.x, z: bay.z + bayOut, tight: true });
+    if (nearBay(pos) && !nearBay(task)) pre.push({ x: bay.x, z: bay.z + bayOut, tight: true });
+    const start = pre.length ? pre[pre.length - 1] : pos;
+    const end = post.length ? post[0] : task;
+    const mid = lineClear(start.x, start.z, end.x, end.z, need, true) ? [{ x: end.x, z: end.z }] : (findPath(start.x, start.z, end.x, end.z, need) || [{ x: end.x, z: end.z }]);
+    if (post.length) mid[mid.length - 1] = post[0];
+    ai.path = [...pre, ...mid, ...post.slice(1), { x: task.x, z: task.z }];
+  }
+
+  /** 축사 통로 정면, 장애물과 가장 여유 있는 접근 지점 */
+  approachPoint(barn) {
+    let best = null, bc = -1;
+    for (const k of [9, 8, 7, 6, 10, 5]) {
+      const z = barn.front + k, c = clearanceAt(barn.cx, z);
+      if (c >= this.navNeed + 0.3) return { x: barn.cx, z };
+      if (c > bc) { bc = c; best = { x: barn.cx, z }; }
+    }
+    return best;
+  }
+
+  /** 그 자리가 축사 통로·우리 안이면 드나드는 길 정보 (x: 문 가운데, front/back: 앞뒤 벽) */
+  laneAt(x, z) {
+    for (const b of G.barns) {
+      if (!b.contains(x, z, -0.2)) continue;
+      const a = b.alley;
+      if (x > a.minX && x < a.maxX) return { b, x: b.cx, front: b.front, back: b.back };
+      for (const pn of b.pens) if (x > pn.minX && x < pn.maxX) return { b, x: pn.gate, front: b.front, back: b.back };
+    }
+    return null;
   }
 
   chooseTask() {
@@ -1513,6 +1718,7 @@ export class Vehicle {
     const p = shed.rawPos;
     return {
       kind: 'drop', key: 'shed' + shed.barn.uid, x: p.x, z: p.z + 0.6, arrive: 1.4, label: `${shed.name}로 운반 중 ♻️`,
+      via: [{ x: p.x, z: shed.front + 4 }],   // 퇴비사 정면에서 곧게 들어가 칸막이를 긁지 않게
       prep: () => { this.liftT = 0.3; this.tiltT = -0.4; },
       onArrive: () => { this.seq = [{ lift: 0.45, tilt: -0.2, dur: 0.5 }, { tilt: 1.05, dur: 0.7 }, { tilt: 0, lift: 0.12, dur: 0.6 }]; this.ai.reverseT = 0; },
     };
@@ -1612,12 +1818,14 @@ export class Vehicle {
       if ((this.ai.runBarn === barn && barn.contains(this.pos.x, this.pos.z, 9)) || barnAlleyAt(this.pos.x, this.pos.z) === barn) {
         return {
           kind: 'feedrun', key: 'run' + barn.uid, center: true, x: barn.cx, z: barn.back - 4, arrive: 2.2, label: `${barn.name}에 ${name} 급여 중 🥣`,
+          through: barn,   // 반드시 통로 한가운데를 따라 앞→뒤로 지나간다
           prep: () => { this.pto = true; this.tiltT = this.isMixed() && barnAlleyAt(this.pos.x, this.pos.z) ? 1 : 0; }, slow: 0.4,
           onArrive: () => { this.tiltT = 0; this.ai.runBarn = null; },
         };
       }
       return {
         kind: 'toAlley', key: 'alley' + barn.uid, center: true, x: barn.cx, z: barn.front + 4.5, arrive: 2.4, label: `${name} 배합하며 ${barn.name}로 가는 중`,
+        via: [this.approachPoint(barn)],   // 통로 정면에서 곧게 다가오기 (가로등·기둥 옆은 피해서)
         prep: () => { this.pto = true; this.tiltT = 0; },
         onArrive: () => { this.ai.think = 0; this.ai.runBarn = barn; },
       };
@@ -1734,7 +1942,7 @@ export class Vehicle {
   /** 간편: 원하는 속도 · 상승률을 말하면 자동 안정 장치가 기울기와 콜렉티브를 맞춘다 */
   heliEasy(dt, thr, yaw, climb, side) {
     const h = this.heading, fx = Math.sin(h), fz = Math.cos(h);
-    const maxF = this.boosting ? 22 : 16;
+    const maxF = this.boosting ? 28 : 21;   // 간편 모드 목표 속도 (예전 16·22 → 약 30% 빠르게)
     const fwd = thr >= 0 ? thr * maxF : thr * 6, lat = side * 6;
     const vsT = climb > 0 ? climb * 4.5 : climb < 0 ? -Math.min(4.5, 0.6 + this.pos.y * 0.45) : 0;
     return this.heliAssist(dt, fwd * fx - lat * fz, fwd * fz + lat * fx, vsT, yaw);
@@ -1777,7 +1985,8 @@ export class Vehicle {
     let ax = aT * (sp * fx + sr * rx), az = aT * (sp * fz + sr * rz);
     let ay = aT * Math.cos(this.pitch) * Math.cos(this.roll) - g - 0.6 * this.vs;
     // 항력: 앞뒤는 유선형, 옆으로는 동체가 넓어서 크게
-    const du = -(0.006 * u * Math.abs(u) + 0.05 * u), dw = -(0.02 * w * Math.abs(w) + 0.3 * w);
+    // 앞뒤 항력을 줄여 최고 속도 약 30% ↑ (약 66 → 80km/h, 부스트 약 94km/h)
+    const du = -(0.0038 * u * Math.abs(u) + 0.05 * u), dw = -(0.02 * w * Math.abs(w) + 0.3 * w);
     ax += du * fx + dw * rx; az += du * fz + dw * rz;
     if (ground && ay <= 0) {
       this.vs = 0;

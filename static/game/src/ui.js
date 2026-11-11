@@ -1,6 +1,7 @@
 // HUD, 운전 패널, 월드 라벨, 토스트, 상점, 설정, 미니맵
 import * as THREE from 'three';
-import { G, LAYOUT, PRODUCTS, ANIMAL_DEFS, BARN_DEFS, BUCKET_CAP, TRUCK_BULK_CAP, COMPOST, INGREDIENTS, RECIPES, MIX_TIME, MIXER_CAP, VEHICLE_SHOP, MAX_VEHICLES } from './state.js';
+import { G, LAYOUT, PRODUCTS, ANIMAL_DEFS, BARN_DEFS, BUCKET_CAP, TRUCK_BULK_CAP, COMPOST, INGREDIENTS, RECIPES, MIX_TIME, MIXER_CAP, VEHICLE_SHOP, MAX_ANIMALS, BARN_EXPAND_STEPS } from './state.js';
+import { PARKING, parkRows, maxVehicles, parkingBlocker, addParkingRow } from './layout.js';
 import { stock, recipeOf, mixTotal, stationItems } from './feed.js';
 import { bendY } from './materials.js';
 import { sfx } from './audio.js';
@@ -17,25 +18,85 @@ const _v = new THREE.Vector3();
 let shownCoins = 0;
 let API = null;
 
-// ---------------- 토스트 / 플로팅 텍스트 ----------------
-const recentToasts = new Map();
-export function toast(msg, icon = '🌼', ms = 3200) {
-  const box = $('#toasts');
-  if (!box) return;
-  // 같은 알림은 잠깐 동안 한 번만 · 휴대폰은 짧게, 최대 2개까지만
+// ---------------- 알림 (🔔 한 줄 알림 + 기록함) / 플로팅 텍스트 ----------------
+// 화면 가운데에 쌓이던 팝업 대신, 왼쪽 위 🔔 옆에 한 줄로 잠깐 보여 주고 기록함에 모아 둔다.
+const NOTE_MAX = 40;
+const notes = [];          // { msg, icon, at: '3일 07:20' }
+const lastSeen = new Map(); // msg → 마지막으로 보여 준 시각 (같은 알림 반복 방지)
+let unread = 0, noteTimer = 0;
+
+const clockStr = () => {
+  const t = Math.floor(G.time || 0), h = Math.floor(t / 60) % 24, m = t % 60;
+  return `${G.day}일 ${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+};
+
+/**
+ * @param opts.quiet true면 화면에 띄우지 않고 기록함에만 (내가 방금 한 행동의 확인 메시지 등)
+ */
+export function toast(msg, icon = '🌼', ms = 3200, opts = {}) {
   const now = performance.now();
-  if (now - (recentToasts.get(msg) || -1e9) < 4500) return;
-  recentToasts.set(msg, now);
-  if (recentToasts.size > 60) for (const [k, t] of recentToasts) if (now - t > 4500) recentToasts.delete(k);
-  const mobile = document.body.classList.contains('mobile');
-  if (mobile) ms = Math.min(ms, 2600);
-  const t = el('div', 'toast', `<span class="t-ico">${icon}</span><span>${msg}</span>`);
-  t.dataset.msg = msg;
-  box.prepend(t);
-  const max = mobile ? 2 : 3;
-  while (box.children.length > max) box.lastChild.remove();
-  setTimeout(() => t.classList.add('out'), ms);
-  setTimeout(() => t.remove(), ms + 400);
+  if (now - (lastSeen.get(msg) || -1e9) < 8000) return;   // 8초 안에 같은 말은 한 번만
+  lastSeen.set(msg, now);
+  if (lastSeen.size > 80) lastSeen.delete(lastSeen.keys().next().value);
+  notes.unshift({ msg, icon, at: clockStr() });
+  if (notes.length > NOTE_MAX) notes.pop();
+  // 광장에서는 채팅창에 안내 한 줄로
+  if (document.body.classList.contains('mode-plaza')) {
+    const logEl = $('#p-log');
+    if (logEl) {
+      const line = el('div', 'p-line sys', `${icon} ${msg}`);
+      logEl.append(line);
+      while (logEl.children.length > 40) logEl.firstChild.remove();
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+    return;
+  }
+  const box = $('#notice');
+  if (!box) return;
+  const logOpen = !$('#notice-log').classList.contains('hidden');
+  if (logOpen) { renderNoteLog(); return; }
+  unread++;
+  $('#notice-count').textContent = unread > 9 ? '9+' : String(unread);
+  box.classList.add('has-unread');
+  if (opts.quiet || G.settings?.notify === 'bell') {
+    box.classList.remove('ping'); void box.offsetWidth; box.classList.add('ping');
+    return;
+  }
+  $('#notice-text').innerHTML = `${icon} ${msg}`;
+  box.classList.add('show');
+  clearTimeout(noteTimer);
+  noteTimer = setTimeout(() => box.classList.remove('show'), Math.min(4500, Math.max(2200, ms)));
+}
+
+function renderNoteLog() {
+  const list = $('#notice-log');
+  list.innerHTML = `<div class="nl-head"><b>🔔 알림 기록</b><small>최근 ${NOTE_MAX}개</small></div>` +
+    (notes.length ? notes.map((n) => `<div class="nl-row"><span class="nl-ico">${n.icon}</span><span class="nl-msg">${n.msg}</span><small>${n.at}</small></div>`).join('')
+      : '<div class="nl-empty">아직 알림이 없어요</div>');
+}
+
+function initNotice() {
+  const box = $('#notice'), list = $('#notice-log');
+  const close = () => list.classList.add('hidden');
+  box.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const open = list.classList.contains('hidden');
+    if (open) {
+      renderNoteLog();
+      const r = box.getBoundingClientRect();
+      list.classList.remove('hidden');
+      // 🔔 오른쪽 끝에 맞춰 아래로 펼치기 (화면 밖으로 나가지 않게)
+      const w = list.offsetWidth;
+      list.style.left = `${Math.max(8, Math.min(r.right - w, window.innerWidth - w - 8))}px`;
+      list.style.top = `${Math.min(r.bottom + 6, window.innerHeight - list.offsetHeight - 8)}px`;
+      unread = 0;
+      box.classList.remove('has-unread', 'show');
+    } else close();
+    sfx('click');
+  });
+  box.addEventListener('pointerdown', (e) => e.stopPropagation());
+  list.addEventListener('pointerdown', (e) => e.stopPropagation());
+  window.addEventListener('pointerdown', close);
 }
 
 export function floatText(x, y, z, text, cls = '') {
@@ -56,6 +117,15 @@ export function setPrompt(text) {
   if (!text) { p.classList.add('hidden'); return; }
   if (p.dataset.text !== text) { p.innerHTML = text; p.dataset.text = text; }
   p.classList.remove('hidden');
+}
+
+/** 모바일 행동 버튼(E) 글자: 차량 근처면 '타기', 집 문 앞이면 '들어가기' 등. null이면 할 일 없음(흐리게) */
+export function setActionLabel(text) {
+  const b = $('#btn-e');
+  if (!b || G.driving) return;
+  const t = text || '✋ 행동';
+  if (b.textContent !== t) b.textContent = t;
+  b.classList.toggle('idle', !text);
 }
 
 const kb = (k) => `<kbd>${k}</kbd>`;
@@ -101,7 +171,7 @@ export function addVehicleUI(v) {
     </div>`);
   c.style.setProperty('--vc', v.def.color);
   const cb = c.querySelector('input');
-  cb.addEventListener('change', () => { API.setAuto(v, cb.checked); sfx('click'); toast(`${v.def.name} 자동 운전 ${cb.checked ? '켜짐' : '꺼짐'}`, v.def.icon, 1800); });
+  cb.addEventListener('change', () => { API.setAuto(v, cb.checked); sfx('click'); toast(`${v.def.name} 자동 운전 ${cb.checked ? '켜짐' : '꺼짐'}`, v.def.icon, 1800, { quiet: true }); });
   c.querySelector('.eye').addEventListener('click', (e) => { e.stopPropagation(); API.view(v); });
   // 카드 더블클릭(모바일 더블탭) → 바로 탑승. 자동 스위치·보기 버튼은 제외
   c.title = '더블클릭하면 바로 타요';
@@ -165,6 +235,8 @@ export function initUI(api) {
   $('#btn-dock').addEventListener('click', () => document.body.classList.toggle('show-dock'));
 
   initTouch();
+  initNotice();
+  $('#btn-house').addEventListener('click', () => api.toggleHouse());
   shownCoins = G.coins;
   buildSettings();
   $('#drive-panel').addEventListener('pointerdown', (e) => {
@@ -182,12 +254,18 @@ export function initTouch() {
   let id = null, cx = 0, cy = 0;
   const keys = ['KeyW', 'KeyA', 'KeyS', 'KeyD'];
   const set = (dx, dy) => {
-    const r = 46, l = Math.hypot(dx, dy);
+    const r = Math.max(30, joy.clientWidth * 0.35), l = Math.hypot(dx, dy);
     const k = l > r ? r / l : 1;
     knob.style.transform = `translate(${dx * k}px, ${dy * k}px)`;
-    const th = 14;
-    G.input.hold('KeyW', dy < -th); G.input.hold('KeyS', dy > th);
-    G.input.hold('KeyA', dx < -th); G.input.hold('KeyD', dx > th);
+    // 아날로그 값: 가운데 데드존(18%)을 빼고 0~1로 다시 펼침
+    let nx = (dx * k) / r, ny = (dy * k) / r;
+    const m = Math.hypot(nx, ny), dz = 0.18;
+    if (m < dz) { nx = 0; ny = 0; } else { const s = (m - dz) / (1 - dz) / m; nx *= s; ny *= s; }
+    G.input.setAxis(nx, ny, true);
+    // 키 입력도 함께 (온라인 친구 · 배치 변경 화면 이동 · 광장용)
+    const th = 0.3;
+    G.input.hold('KeyW', ny < -th); G.input.hold('KeyS', ny > th);
+    G.input.hold('KeyA', nx < -th); G.input.hold('KeyD', nx > th);
   };
   joy.addEventListener('pointerdown', (e) => {
     e.preventDefault(); id = e.pointerId; joy.setPointerCapture(id);
@@ -195,12 +273,14 @@ export function initTouch() {
     set(e.clientX - cx, e.clientY - cy);
   });
   joy.addEventListener('pointermove', (e) => { if (e.pointerId === id) set(e.clientX - cx, e.clientY - cy); });
-  const end = (e) => { if (e.pointerId !== id) return; id = null; knob.style.transform = ''; for (const k of keys) G.input.hold(k, false); };
+  const end = (e) => { if (e.pointerId !== id) return; id = null; knob.style.transform = ''; G.input.setAxis(0, 0, false); for (const k of keys) G.input.hold(k, false); };
   joy.addEventListener('pointerup', end);
   joy.addEventListener('pointercancel', end);
   bindHold('#btn-e', 'KeyE', true);
   bindHold('#btn-space', 'Space', true);
   bindHold('#btn-v', 'KeyV', true);
+  // 말풍선 안내(예: 🏠 집에 들어가기)를 눌러도 행동 버튼과 같은 동작
+  $('#prompt').addEventListener('pointerdown', (e) => { e.preventDefault(); G.input.tap('KeyE'); });
   for (const [sel, code] of [['#btn-r', 'KeyR'], ['#btn-f', 'KeyF'], ['#btn-t', 'KeyT'], ['#btn-g', 'KeyG'], ['#btn-boost', 'ShiftLeft']]) bindHold(sel, code, false);
 }
 
@@ -308,12 +388,14 @@ export function updateLabels(dt) {
     _v.set(p.x, bendY(p.x, p.y, p.z), p.z).project(cam);
     const html = far ? '' : l.getHtml();
     if (!html || _v.z > 1 || _v.x < -1.1 || _v.x > 1.1 || _v.y < -1.1 || _v.y > 1.1) {
-      l.e.style.display = 'none';
+      if (l.shown !== false) { l.e.style.display = 'none'; l.shown = false; }
       continue;
     }
     if (html !== l.html) { l.e.innerHTML = html; l.html = html; }
-    l.e.style.display = '';
-    l.e.style.transform = `translate(${((_v.x + 1) / 2) * w}px, ${((1 - _v.y) / 2) * h}px) translate(-50%, -100%)`;
+    if (l.shown !== true) { l.e.style.display = ''; l.shown = true; }
+    // 최적화: 화면 위치가 1px 이상 바뀔 때만 스타일 갱신
+    const sx = Math.round(((_v.x + 1) / 2) * w), sy = Math.round(((1 - _v.y) / 2) * h);
+    if (sx !== l.sx || sy !== l.sy) { l.sx = sx; l.sy = sy; l.e.style.transform = `translate(${sx}px, ${sy}px) translate(-50%, -100%)`; }
   }
   for (let i = floats.length - 1; i >= 0; i--) {
     const f = floats[i];
@@ -389,7 +471,6 @@ function updateDrivePanel() {
   if (!v) {
     panel.classList.add('hidden');
     $('#btn-space').textContent = '점프';
-    $('#btn-e').textContent = '타기';
     $('#touch-hyd').classList.add('hidden');
     return;
   }
@@ -502,7 +583,8 @@ function updateDrivePanel() {
     <div class="dp-keys">${keys.map((k) => `<span>${k}</span>`).join('')}</div>`;
   if (panel.dataset.html !== html) { panel.innerHTML = html; panel.dataset.html = html; }
   $('#btn-space').textContent = d.air === 'heli' ? (v.winch && v.winch.mode !== 'up' ? '멈추기' : v.carrying ? '내려놓기' : '후크') : d.air === 'plane' ? '플랩' : d.personal ? '경적' : space ? (v.isTruck ? '상차/판매' : '작업') : '작업';
-  $('#btn-e').textContent = '내리기';
+  $('#btn-e').textContent = '🚪 내리기';
+  $('#btn-e').classList.remove('idle');
 }
 
 function mixerTip(v) {
@@ -636,15 +718,29 @@ const FARM_ITEMS = () => {
     const ad = ANIMAL_DEFS[type];
     const room = barns.find((b) => b.animals.length < b.capacity);
     const total = barns.reduce((n, b) => n + b.animals.length, 0), cap = barns.reduce((n, b) => n + b.capacity, 0);
+    const free = cap - total;
     out.push({
       icon: barns[0].icon, name: `${ad.name} 한 마리`, desc: `${barns.length > 1 ? `축사 ${barns.length}동 · ` : ''}${total}/${cap}마리 · ${barns[0].pdef.icon} ${barns[0].pdef.name} 생산`,
-      price: ad.price, can: !!room, why: '축사가 꽉 찼어요', buy: () => room.addAnimal(true),
+      price: ad.price, can: !!room, why: '축사가 꽉 찼어요 (확장하세요)', buy: () => room.addAnimal(true),
     });
+    // 많이 키울 때 편하게: 5마리 한 번에
+    if (cap > 10) {
+      out.push({
+        icon: barns[0].icon, name: `${ad.name} 5마리 한 번에`, desc: `빈 자리 ${free}마리`,
+        price: ad.price * 5, can: free >= 5, why: '빈 자리 부족', buy: () => { let n = 5; for (const b of barns) while (n > 0 && b.addAnimal(n === 5)) n--; },
+        after: `${ad.name} 5마리가 들어왔어요!`,
+      });
+    }
   }
   for (const b of G.barns) {
+    // 축사 하나에 최대 MAX_ANIMALS마리까지, BARN_EXPAND_STEPS단계로 나눠 넓힌다
+    const step = Math.ceil((MAX_ANIMALS - b.def.cap) / BARN_EXPAND_STEPS);
+    const add = Math.min(step, MAX_ANIMALS - b.capacity);
     out.push({
-      icon: '🏗️', name: `${b.name} 확장${G.barns.filter((x) => x.id === b.id).length > 1 ? ` #${b.uid}` : ''}`, desc: `수용 +${b.def.expand}마리 (${b.expansions}/2단계)`,
-      price: 700 * (1 + b.expansions), can: b.expansions < 2, why: '최대 확장', buy: () => { b.expansions++; b.capacity += b.def.expand; },
+      icon: '🏗️', name: `${b.name} 확장${G.barns.filter((x) => x.id === b.id).length > 1 ? ` #${b.uid}` : ''}`,
+      desc: b.capacity >= MAX_ANIMALS ? `최대 ${MAX_ANIMALS}마리까지 넓혔어요` : `수용 +${add}마리 (지금 ${b.capacity}마리 → 최대 ${MAX_ANIMALS}마리) · 사료통·바닥도 함께 커져요`,
+      price: 700 * (1 + Math.min(b.expansions, 6)), can: b.capacity < MAX_ANIMALS, why: '최대 확장',
+      buy: () => { b.expansions++; b.capacity = Math.min(MAX_ANIMALS, b.capacity + add); },
     });
   }
   for (const d of BARN_DEFS) {
@@ -657,14 +753,28 @@ const FARM_ITEMS = () => {
   }
   return out;
 };
-const EQUIP_ITEMS = () => Object.entries(VEHICLE_SHOP).map(([type, price]) => {
+const MAX_PER_TYPE = 5;
+const EQUIP_ITEMS = () => [parkingItem(), ...Object.entries(VEHICLE_SHOP).map(([type, price]) => {
   const def = API.vehDefs()[type];
   const owned = G.vehicles.filter((v) => v.type === type).length;
   return {
     icon: def.icon, name: owned ? `${def.name} 한 대 더` : `${def.name}`, desc: `보유 ${owned}대 · 사면 주차장에 도착해요 (자동 운전 일꾼 포함)`,
-    price, can: owned < 3 && G.vehicles.length < MAX_VEHICLES, why: owned >= 3 ? '최대 3대' : '주차장이 가득', buy: () => API.buyVehicle(type),
+    price, can: owned < MAX_PER_TYPE && G.vehicles.length < maxVehicles(), why: owned >= MAX_PER_TYPE ? `최대 ${MAX_PER_TYPE}대` : '주차장이 가득', buy: () => API.buyVehicle(type),
   };
-});
+})];
+/** 🅿️ 주차장 넓히기: 남쪽으로 한 줄(8칸)씩 */
+function parkingItem() {
+  const rows = parkRows(), maxed = rows >= PARKING.maxRows;
+  const blocker = maxed ? null : parkingBlocker();
+  return {
+    icon: '🅿️', name: '주차장 넓히기 (+8칸)',
+    desc: `지금 ${rows}줄 · ${maxVehicles()}칸 (차량 ${G.vehicles.length}대) · 남쪽으로 한 줄씩 최대 ${PARKING.maxRows}줄`
+      + (blocker ? ` · ⚠️ 넓힐 자리에 ${blocker}이(가) 있어요 (배치 변경으로 옮겨 주세요)` : ''),
+    price: PARKING.prices[Math.min(rows, PARKING.prices.length - 1)] || 0,
+    can: !maxed && !blocker, why: maxed ? '최대 크기' : '자리가 막혔어요',
+    buy: () => addParkingRow(), after: '주차장을 넓혔어요! 차량을 8대 더 세울 수 있어요',
+  };
+}
 const FURN_ITEMS = () => Object.entries(API.furniture()).map(([id, f]) => {
   const inv = G.house.inventory[id] || 0;
   const placed = G.house.placed.filter((p) => p.id === id).length;
@@ -742,7 +852,13 @@ function buildSettings() {
       <h3>🎥 카메라</h3>
       <div class="row"><span>운전할 때 카메라가 차량 뒤를 따라가기</span>${toggle('camFollow')}</div>
       <div class="row"><span>시작할 때 1인칭 시점</span>${toggle('fpDefault')}</div>
-      <div class="row"><span>마우스 감도</span>${slider('sensitivity', 0.3, 2, 0.1)}</div>
+      <div class="row"><span>${G.isMobile ? '화면 끌기 감도' : '마우스 감도'}</span>${slider('sensitivity', 0.3, 2, 0.1)}</div>
+      ${G.isMobile ? `<div class="row"><span>화면 회전 고정 (전체화면 · 폰을 기울여도 가로/세로가 안 바뀜)</span>${toggle('lockScreen')}</div>` : ''}
+    </section>
+    <section>
+      <h3>🔔 알림</h3>
+      <div class="row"><span>알림 보여 주기</span>${seg('notify', [['line', '한 줄로 잠깐'], ['bell', '🔔에만 모으기']])}</div>
+      <p class="set-note">왼쪽 위 🔔을 누르면 지난 알림을 모아 볼 수 있어요.</p>
     </section>
     <section>
       <h3>✨ 그래픽</h3>
@@ -765,7 +881,14 @@ function buildSettings() {
     G.settings[k] = typeof G.settings[k] === 'number' ? Number(b.dataset.v) : b.dataset.v;
     changed();
   })));
-  box.querySelectorAll('input[type=checkbox][data-key]').forEach((c) => c.addEventListener('change', () => { G.settings[c.dataset.key] = c.checked; changed(); }));
+  box.querySelectorAll('input[type=checkbox][data-key]').forEach((c) => c.addEventListener('change', () => {
+    G.settings[c.dataset.key] = c.checked;
+    if (c.dataset.key === 'lockScreen') {
+      if (c.checked) API.lockScreen();
+      else { try { screen.orientation?.unlock?.(); } catch { /* 미지원 */ } if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {}); }
+    }
+    changed();
+  }));
   box.querySelectorAll('input[type=range]').forEach((r) => r.addEventListener('input', () => { G.settings[r.dataset.key] = Number(r.value); changed(false); }));
   let armed = false;
   $('#btn-reset').addEventListener('click', (e) => {

@@ -481,8 +481,14 @@ export function updatePlaza(dt, camera, renderer) {
   const me = plaza.me;
   const k = G.input;
   // 이동 (카메라 기준 WASD)
-  const ix = (k.down('KeyD') || k.down('ArrowRight') ? 1 : 0) - (k.down('KeyA') || k.down('ArrowLeft') ? 1 : 0);
-  const iz = (k.down('KeyW') || k.down('ArrowUp') ? 1 : 0) - (k.down('KeyS') || k.down('ArrowDown') ? 1 : 0);
+  let ix = (k.down('KeyD') || k.down('ArrowRight') ? 1 : 0) - (k.down('KeyA') || k.down('ArrowLeft') ? 1 : 0);
+  let iz = (k.down('KeyW') || k.down('ArrowUp') ? 1 : 0) - (k.down('KeyS') || k.down('ArrowDown') ? 1 : 0);
+  let mag = 1;
+  if (k.axis?.active) {   // 모바일 조이스틱 (아날로그)
+    ix = k.axis.x; iz = -k.axis.y;
+    mag = Math.min(1, Math.hypot(ix, iz));
+    if (mag < 0.01) { ix = 0; iz = 0; } else mag = Math.max(0.35, mag);
+  }
   let mx = 0, mz = 0;
   if (ix || iz) {
     const yaw = G.cam.yaw;
@@ -491,7 +497,7 @@ export function updatePlaza(dt, camera, renderer) {
     const l = Math.hypot(mx, mz); mx /= l; mz /= l;
   }
   const run = k.down('ShiftLeft') || k.down('ShiftRight');
-  me.spd = damp(me.spd, mx || mz ? (run ? 7.8 : 5) : 0, 12, dt);
+  me.spd = damp(me.spd, mx || mz ? (run ? 7.8 : 5) * mag : 0, 12, dt);
   if (mx || mz) me.h = dampAngle(me.h, Math.atan2(mx, mz), 14, dt);
   me.pos.x += Math.sin(me.h) * me.spd * dt;
   me.pos.z += Math.cos(me.h) * me.spd * dt;

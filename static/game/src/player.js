@@ -9,7 +9,7 @@ import { sfx } from './audio.js';
 
 /** 원격 플레이어의 키 입력 (네트워크로 받은 값) */
 export class NetInput {
-  constructor() { this.keys = new Set(); this.just = new Set(); }
+  constructor() { this.keys = new Set(); this.just = new Set(); this.axis = { x: 0, y: 0, active: false }; }
   down(code) { return this.keys.has(code); }
   pressed(code) { return this.just.has(code); }
   endFrame() { this.just.clear(); }
@@ -59,8 +59,16 @@ export class Player {
     // 다른 사람은 항상 보이고, 나는 1인칭이면 숨김
     this.group.visible = remote || !G.cam.fp || G.mode === 'house';
     const k = this.input;
-    const ix = (k.down('KeyD') || k.down('ArrowRight') ? 1 : 0) - (k.down('KeyA') || k.down('ArrowLeft') ? 1 : 0);
-    const iz = (k.down('KeyW') || k.down('ArrowUp') ? 1 : 0) - (k.down('KeyS') || k.down('ArrowDown') ? 1 : 0);
+    let ix = (k.down('KeyD') || k.down('ArrowRight') ? 1 : 0) - (k.down('KeyA') || k.down('ArrowLeft') ? 1 : 0);
+    let iz = (k.down('KeyW') || k.down('ArrowUp') ? 1 : 0) - (k.down('KeyS') || k.down('ArrowDown') ? 1 : 0);
+    // 모바일 조이스틱: 8방향 대신 기울인 방향 그대로, 살짝 밀면 천천히
+    let mag = 1;
+    if (!remote && (G.mode === 'build' || k.blocked)) { ix = 0; iz = 0; }   // 배치 중 WASD는 화면 이동용
+    else if (k.axis?.active) {
+      ix = k.axis.x; iz = -k.axis.y;
+      mag = Math.min(1, Math.hypot(ix, iz));
+      if (mag < 0.01) { ix = 0; iz = 0; } else mag = Math.max(0.35, mag);
+    }
     let mx = 0, mz = 0;
     if (ix || iz) {
       let fx, fz, rx, rz;
@@ -68,7 +76,8 @@ export class Player {
         const a = cam.fpYaw;
         fx = Math.sin(a); fz = Math.cos(a); rx = -Math.cos(a); rz = Math.sin(a);
       } else {
-        const yaw = cam.yaw;
+        // 집 안 카메라는 항상 정면(yaw 0)이므로 이동 기준도 그에 맞춤
+        const yaw = mode === 'house' ? 0 : cam.yaw;
         fx = -Math.sin(yaw); fz = -Math.cos(yaw); rx = Math.cos(yaw); rz = -Math.sin(yaw);
       }
       mx = fx * iz + rx * ix; mz = fz * iz + rz * ix;
@@ -77,7 +86,7 @@ export class Player {
     }
     const run = k.down('ShiftLeft') || k.down('ShiftRight');
     const indoor = mode === 'house';
-    const want = (mx || mz ? (run ? 7.8 : 5.0) : 0) * (indoor ? 0.6 : 1) * (this.restT > 0 ? 1.15 : 1);
+    const want = (mx || mz ? (run ? 7.8 : 5.0) * mag : 0) * (indoor ? 0.6 : 1) * (this.restT > 0 ? 1.15 : 1);
     this.speed = damp(this.speed, want, 12, dt);
     if (cam.fp) this.heading = cam.fpYaw;
     else if (mx || mz) this.heading = dampAngle(this.heading, Math.atan2(mx, mz), 14, dt);

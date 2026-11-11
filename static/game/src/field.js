@@ -60,7 +60,7 @@ export class Field {
     const n = this.tiles.length;
     this.tall = new THREE.InstancedMesh(tuftGeometry(), mat(0xffffff), n);
     this.tall.castShadow = true; this.tall.receiveShadow = true;
-    const wg = new THREE.CapsuleGeometry(0.42, 1.0, 3, 8);
+    const wg = new THREE.CapsuleGeometry(0.42, 1.0, 2, 7);
     wg.rotateX(Math.PI / 2);
     wg.scale(1, 0.55, 1);
     wg.translate(0, 0.22, 0);
