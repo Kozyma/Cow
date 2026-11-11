@@ -9,7 +9,7 @@ import { addCircle, addBoxC, setOwner } from './physics.js';
 /** 나무·덤불 충돌체 소유자 (건물 지을 때 치울 수 있음) */
 export const NATURE = { nature: true };
 import {
-  buildFarmhouse, buildLamp, buildSign, buildScarecrow, zoneRing, buildDock, buildMarket,
+  buildFarmhouse, buildAirfield, buildLamp, buildSign, buildScarecrow, zoneRing, buildDock, buildMarket,
 } from './buildings.js';
 import { dockSlots, setOnDock } from './items.js';
 import { removeColliders } from './physics.js';
@@ -23,7 +23,7 @@ function noise2(x, z) {
 }
 
 function buildGround(scene) {
-  const size = 440, seg = 200;
+  const size = 560, seg = 240;
   const geo = new THREE.PlaneGeometry(size, size, seg, seg);
   geo.rotateX(-Math.PI / 2);
   const c1 = new THREE.Color(0xa6dc7e), c2 = new THREE.Color(0x8ccf6c), c3 = new THREE.Color(0xb9e48c);
@@ -56,7 +56,10 @@ function strip(scene, cx, cz, w, d, color, y = 0.02, borderColor = 0xe2c48e) {
 
 function buildRoads(scene) {
   const sand = 0xf3e2b3, pave = 0xe6e1d6;
-  strip(scene, 0, LAYOUT.roadZ, 216, 4, sand);
+  strip(scene, 0, LAYOUT.roadZ, 296, 4, sand);
+  // 비행장 가는 길 (주차장 → 남쪽 비행장)
+  strip(scene, -20, 62.5, 4, 50, sand, 0.022);
+  strip(scene, -46, 88, 52, 4, sand, 0.022);
   strip(scene, -3, 7.5, 3.6, 23, sand, 0.025);
   strip(scene, -9, 28.5, 44, 18, 0xeadbb8, 0.03, 0xd8c79c); // 주차장 (2줄)
   strip(scene, LAYOUT.station.x, LAYOUT.station.z + 3, 14, 13, 0xeadbb8, 0.026, 0xd8c79c); // 배합장
@@ -129,6 +132,11 @@ function setupReserved() {
   reserve(-66, -47, -2, 12);
   const p = LAYOUT.pond;
   reserve(p.x - p.r - 2, p.x + p.r + 2, p.z - p.r - 2, p.z + p.r + 2);
+  const A = LAYOUT.airfield;
+  reserve(A.runway.x - A.runway.len / 2 - 25, A.runway.x + A.runway.len / 2 + 25, A.runway.z - 14, A.runway.z + 26);
+  reserve(A.heli.x - 9, A.heli.x + 9, A.heli.z - 9, A.heli.z + 9);
+  reserve(-24, -16, 36, 92);
+  reserve(-74, -18, 84, 92);
 }
 
 const GREENS = [0x7fcf6a, 0x6cbf5e, 0x8fdc78, 0x5fb35a, 0x9be07f];
@@ -202,7 +210,7 @@ function buildNature(scene) {
   setOwner(NATURE);
   const placed = [];
   let tries = 0;
-  while (placed.length < 130 && tries++ < 8000) {
+  while (placed.length < 220 && tries++ < 12000) {
     const x = rand(-B + 2, B - 2), z = rand(-B + 2, B - 2);
     if (isReserved(x, z, 2.5)) continue;
     if (placed.some((p) => Math.hypot(p.x - x, p.z - z) < 4.5)) continue;
@@ -212,26 +220,26 @@ function buildNature(scene) {
   }
   // 덤불, 꽃, 풀, 바위
   tries = 0; let n = 0;
-  while (n < 70 && tries++ < 4000) {
+  while (n < 120 && tries++ < 6000) {
     const x = rand(-B + 1, B - 1), z = rand(-B + 1, B - 1);
     if (isReserved(x, z, 1.2) || placed.some((p) => Math.hypot(p.x - x, p.z - z) < 2.5)) continue;
     bush(x, z, rand(0.8, 1.2)); addCircle(x, z, 0.6); n++;
   }
   setOwner(null);
   tries = 0; n = 0;
-  while (n < 380 && tries++ < 9000) {
+  while (n < 620 && tries++ < 14000) {
     const x = rand(-B - 6, B + 6), z = rand(-B - 6, B + 6);
     if (isReserved(x, z, 0.5)) continue;
     flowerPatch(x, z); n++;
   }
   const w = mat(0xffffff);
-  for (let i = 0; i < 2600; i++) {
+  for (let i = 0; i < 4300; i++) {
     const x = rand(-B - 8, B + 8), z = rand(-B - 8, B + 8);
     if (isReserved(x, z, 0.2)) continue;
     const c = pick([0x7cc464, 0x6cb85a, 0x8ad272]);
     for (let k = 0; k < 3; k++) INST.add('tuft', cone(0.07, 0.38, 4), w, x + rand(-0.15, 0.15), 0.15, z + rand(-0.15, 0.15), rand(-0.3, 0.3), 0, rand(-0.3, 0.3), 1, rand(0.7, 1.2), 1, c, false);
   }
-  for (let i = 0; i < 60; i++) {
+  for (let i = 0; i < 100; i++) {
     const x = rand(-B, B), z = rand(-B, B);
     if (isReserved(x, z, 1)) continue;
     INST.add('rock', dodeca(0.5), w, x, 0.15, z, rand(0, 3), rand(0, 3), 0, rand(0.5, 1), rand(0.4, 0.7), rand(0.5, 1), 0xc7c9cf);
@@ -389,6 +397,7 @@ export function buildWorld(scene) {
   buildLamp(scene, 14.5, 28.8);
   buildScarecrow(scene, 13.5, 56);
   buildScarecrow(scene, 62.5, 20);
+  buildAirfield(scene, LAYOUT.airfield);
 
   buildNature(scene);
   buildCritters(scene);

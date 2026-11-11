@@ -3,9 +3,9 @@ import * as THREE from 'three';
 import { G, LAYOUT, BALE_FEED, MAX_BALES, BUCKET_CAP, TRUCK_BULK_CAP, COMPOST, INGREDIENTS, RECIPES, MIX_TIME, MIXER_CAP, MIX_UNIT_FEED } from './state.js';
 import { stock, loadIngredient, recipeOf, planRecipe, mixTotal, freeStationSlot, setOnStation, inStation } from './feed.js';
 import { shedAt, allSheds } from './compost.js';
-import { makeTractor, makeBaler, makeForklift, makeSkidLoader, makeTruck1, makeTruck5, makeMixer, makeBaleWagon, makeCar, glassMat, makeFarmer, seatFigure, PLAYER_LOOK, NPC_LOOKS, LAMP } from './models.js';
+import { makeTractor, makeBaler, makeForklift, makeSkidLoader, makeTruck1, makeTruck5, makeMixer, makeBaleWagon, makeCar, makeHelicopter, makePlane, glassMat, makeFarmer, seatFigure, PLAYER_LOOK, NPC_LOOKS, LAMP } from './models.js';
 import { mat } from './materials.js';
-import { clamp, wrapAngle, approach, damp, rand, lerp, group } from './util.js';
+import { clamp, wrapAngle, approach, damp, dampAngle, rand, lerp, group } from './util.js';
 import { collideCircle } from './physics.js';
 import { findPath, lineClear, isFree } from './pathfinding.js';
 import { spawn, burst } from './particles.js';
@@ -56,6 +56,14 @@ export const VEH_DEFS = {
     name: '자가용', icon: '🚗', maxSpeed: 16, accel: 9, turn: 2.0, radius: 1.2, work: 2.2, build: makeCar, carries: [], color: '#ff9eb5',
     circles: [[1.0, 1.05], [-1.0, 1.05]], personal: true,
   },
+  heli: {
+    name: '헬기', icon: '🚁', maxSpeed: 16, accel: 6, turn: 1.6, radius: 2.0, work: 2.6, build: makeHelicopter, carries: [], color: '#ffd36e',
+    circles: [[0.3, 1.6], [-2.6, 0.8]], air: 'heli', seats: 2,
+  },
+  plane: {
+    name: '경비행기', icon: '✈️', maxSpeed: 30, accel: 5, turn: 1.4, radius: 1.8, work: 3.0, build: makePlane, carries: [], color: '#ff9eb5',
+    circles: [[1.2, 1.4], [-2.6, 1.0]], air: 'plane', seats: 2,
+  },
 };
 
 const _w = new THREE.Vector3();
@@ -74,9 +82,11 @@ export class Vehicle {
     this.m = this.def.build();
     this.group = this.m.group;
     G.scene.add(this.group);
-    this.park = LAYOUT.parking[index % LAYOUT.parking.length];
+    this.park = this.def.air ? LAYOUT.airfield[this.def.air] : LAYOUT.parking[index % LAYOUT.parking.length];
     this.pos = new THREE.Vector3(this.park.x, 0, this.park.z);
-    this.heading = Math.PI;
+    this.heading = this.park.h ?? Math.PI;
+    this.rpm = 0; this.vs = 0; this.pitch = 0; this.roll = 0;
+    this.flyState = 'idle'; this.flyWait = 2;
     this.speed = 0;
     this.prevSpeed = 0;
     this.accSm = 0;
@@ -115,6 +125,14 @@ export class Vehicle {
     this.lampOff = LAMP.off();
     this.beaconOn = mat(0xffb03c, { emissive: 0xff8a00, emissiveIntensity: 1.2 });
     this.beaconOff = mat(0xff9a3c);
+    // 2인승: 옆자리 동승자
+    this.passenger = null;
+    if (this.m.seat2) {
+      this.passFig = seatFigure(makeFarmer(NPC_LOOKS[(index + 2) % NPC_LOOKS.length]));
+      this.m.seat2.add(this.passFig.group);
+      this.passFig.group.visible = false;
+      this.eye2 = group(this.m.seat2, 0, 0.95, 0.12);
+    }
     this.glass = [];
     const gm = glassMat();
     this.group.traverse((o) => { if (o.isMesh && o.material === gm) this.glass.push(o); });
@@ -129,6 +147,8 @@ export class Vehicle {
   key(...codes) { const i = this.driver?.input; return !!i && codes.some((c) => i.down(c)); }
 
   get radius() { return this.def.radius; }
+  /** 하늘에 떠 있으면 땅 위 차·동물·건물과 부딪히지 않는다 */
+  get airborne() { return this.pos.y > 0.6; }
   get isTruck() { return !!this.def.cargo; }
 
   workPoint() {
@@ -141,6 +161,7 @@ export class Vehicle {
 
   setAuto(on) {
     this.auto = on;
+    if (this.def.air) { this.flyState = this.airborne ? 'back' : 'idle'; this.flyWait = 1; return; }
     if (!on) { this.clearTask(); this.pto = false; this.seq = null; }
     else this.ai.think = 0;
   }
@@ -489,6 +510,7 @@ export class Vehicle {
 
   // ---------------- 매 프레임 ----------------
   update(dt) {
+    if (this.def.air) { this.updateAir(dt); return; }
     const driven = !!this.driver;
     const def = this.def;
     let thr = 0, st = 0;
@@ -579,7 +601,7 @@ export class Vehicle {
     const myP = this.pushPriority();
     const dir = Math.sign(this.speed) || 0;
     for (const o of G.vehicles) {
-      if (o === this) continue;
+      if (o === this || o.airborne) continue;
       if (Math.hypot(o.pos.x - this.pos.x, o.pos.z - this.pos.z) > 10) continue;
       const ofx = Math.sin(o.heading), ofz = Math.cos(o.heading);
       const share = o.pushPriority() / (myP + o.pushPriority());
@@ -993,6 +1015,7 @@ export class Vehicle {
   }
 
   animate(dt, st) {
+    if (this.def.air) { this.animateAir(dt, st); return; }
     const m = this.m;
     const driven = !!this.driver;
     this.group.position.set(this.pos.x, 0, this.pos.z);
@@ -1059,7 +1082,7 @@ export class Vehicle {
         if (!isFree(x, z) || !lineClear(this.pos.x, this.pos.z, x, z)) continue;
         // 비킬 자리와 가는 길에 다른 차가 없어야 한다
         const crowded = G.vehicles.some((o) => {
-          if (o === this) return false;
+          if (o === this || o.airborne) return false;
           const gap = this.radius + o.radius + 1.2;
           if (Math.hypot(o.pos.x - x, o.pos.z - z) < gap + 1) return true;
           const sx = x - this.pos.x, sz = z - this.pos.z, L2 = sx * sx + sz * sz;
@@ -1085,7 +1108,7 @@ export class Vehicle {
     const dir = this.speed < -0.2 ? -1 : 1;
     const fx = Math.sin(this.heading) * dir, fz = Math.cos(this.heading) * dir;
     for (const o of G.vehicles) {
-      if (o === this || Math.abs(o.speed) > 0.3) continue;
+      if (o === this || o.def.air || Math.abs(o.speed) > 0.3) continue;
       const ox = o.pos.x - this.pos.x, oz = o.pos.z - this.pos.z;
       const fwd = ox * fx + oz * fz;
       if (fwd <= 0 || fwd > 9) continue;
@@ -1161,7 +1184,7 @@ export class Vehicle {
     const fx = Math.sin(this.heading), fz = Math.cos(this.heading);
     let blocked = false, avoid = 0, crawl = false, oncoming = null, blockLat = 0;
     for (const o of G.vehicles) {
-      if (o === this) continue;
+      if (o === this || o.airborne) continue;
       const ox = o.pos.x - this.pos.x, oz = o.pos.z - this.pos.z;
       const od = Math.hypot(ox, oz);
       if (od > 9) continue;
@@ -1230,7 +1253,7 @@ export class Vehicle {
       const fx = Math.sin(this.heading), fz = Math.cos(this.heading);
       let near = null, nd = 6;
       for (const o of G.vehicles) {
-        if (o === this) continue;
+        if (o === this || o.def.air) continue;
         const ox = o.pos.x - this.pos.x, oz = o.pos.z - this.pos.z, od = Math.hypot(ox, oz) - o.radius;
         if (od < nd && ox * fx + oz * fz > 0) { nd = od; near = o; }
       }
@@ -1593,12 +1616,237 @@ export class Vehicle {
     };
   }
 
+  // ================= 🚁 헬기 · ✈️ 비행기 =================
+  updateAir(dt) {
+    const driven = !!this.driver;
+    const heli = this.def.air === 'heli';
+    let thr = 0, yaw = 0, climb = 0;
+    if (driven) {
+      thr = (this.key('KeyW', 'ArrowUp') ? 1 : 0) - (this.key('KeyS', 'ArrowDown') ? 1 : 0);
+      yaw = (this.key('KeyA', 'ArrowLeft') ? 1 : 0) - (this.key('KeyD', 'ArrowRight') ? 1 : 0);
+      climb = (this.key('KeyR') ? 1 : 0) - (this.key('KeyF') ? 1 : 0);
+      this.status = this.airborne ? `비행 중 · 고도 ${Math.round(this.pos.y)}m` : '이륙 준비';
+    } else if (this.auto) {
+      [thr, yaw, climb] = this.autoFly(dt);
+    } else {
+      this.status = this.airborne ? '천천히 내려오는 중' : heli ? '헬기장에서 쉬는 중' : '주기장에서 쉬는 중';
+      if (this.airborne) { climb = -0.6; thr = heli ? 0 : -0.2; }
+    }
+    this.boosting = driven && thr > 0 && this.key('ShiftLeft', 'ShiftRight');
+    const engineOn = driven || this.airborne || (this.auto && this.flyState !== 'idle');
+    this.rpm = approach(this.rpm, engineOn ? 1 : 0, dt * (engineOn ? 0.7 : 0.35));
+    const wasAir = this.pos.y > 0.05;
+    if (heli) this.heliPhysics(dt, thr, yaw, climb);
+    else this.planePhysics(dt, thr, yaw, climb);
+    const fx = Math.sin(this.heading), fz = Math.cos(this.heading);
+    this.pos.x += fx * this.speed * dt;
+    this.pos.z += fz * this.speed * dt;
+    // 착지 판정
+    if (wasAir && this.pos.y <= 0) {
+      const hard = this.vs < -5.5;
+      if (hard) { this.speed *= 0.5; this.vs = 2.2; this.pos.y = 0.05; burst('dust', this.pos.x, 0.3, this.pos.z, 10, { vy: 1.5, grav: 0, life: 0.8 }); sfx('drop'); if (driven) toast('쿵! 너무 세게 내렸어요. F를 살살 눌러 내려와요', this.def.icon, 2200); }
+      else { this.vs = 0; this.pos.y = 0; burst('dust', this.pos.x, 0.2, this.pos.z, 8, { vy: 1, grav: 0, life: 0.7 }); if (driven) floatText(this.pos.x, 3, this.pos.z, '사뿐 착륙 ✨', 'good'); }
+    }
+    // 농장 경계: 하늘에서는 부드럽게 되돌아오기
+    const B = LAYOUT.bound - 6;
+    if (Math.abs(this.pos.x) > B || Math.abs(this.pos.z) > B) {
+      this.heading = dampAngle(this.heading, Math.atan2(-this.pos.x, -this.pos.z), 1.2, dt);
+      this.pos.x = clamp(this.pos.x, -LAYOUT.bound + 2, LAYOUT.bound - 2);
+      this.pos.z = clamp(this.pos.z, -LAYOUT.bound + 2, LAYOUT.bound - 2);
+      if (driven && G.now - (this.edgeWarn || 0) > 5) { this.edgeWarn = G.now; toast('농장 경계예요. 안쪽으로 돌아가요', this.def.icon, 1800); }
+    }
+    if (!this.airborne) this.resolveCollisions(fx, fz);
+    this.animateAir(dt, yaw);
+  }
+
+  heliPhysics(dt, thr, yaw, climb) {
+    const ready = this.rpm > 0.85;
+    const boost = this.boosting ? 1.5 : 1;
+    const vsT = ready ? climb * (climb > 0 ? 5 : 5.5) : (this.pos.y > 0 ? -3 : 0);
+    this.vs = approach(this.vs, vsT, dt * 7);
+    this.pos.y = Math.min(70, this.pos.y + this.vs * dt);
+    if (this.pos.y < 0) this.pos.y = 0;
+    const maxF = this.def.maxSpeed * boost;
+    const tgt = this.pos.y > 0.4 ? (thr >= 0 ? thr * maxF : thr * maxF * 0.5) : 0;
+    const slowing = Math.abs(tgt) < Math.abs(this.speed) || tgt * this.speed < 0;
+    this.speed = approach(this.speed, tgt, dt * (slowing ? 8 : 6));
+    if (this.rpm > 0.5) this.heading = wrapAngle(this.heading + yaw * this.def.turn * dt);
+    this.pitch = damp(this.pitch, (this.speed / this.def.maxSpeed) * 0.22, 4, dt);
+    this.roll = damp(this.roll, -yaw * 0.22 * clamp(Math.abs(this.speed) / 6, 0.3, 1), 4, dt);
+  }
+
+  planePhysics(dt, thr, yaw, climb) {
+    const air = this.pos.y > 0.05;
+    const boost = this.boosting ? 1.35 : 1;
+    const maxS = this.def.maxSpeed * boost, TO = 14, STALL = 11;
+    let tgt, acc;
+    if (thr > 0) { tgt = maxS * thr; acc = 5 * this.rpm; }
+    else if (thr < 0) { tgt = air ? STALL - 1 : 0; acc = 6; }
+    else { tgt = air ? this.speed : 0; acc = air ? 0 : 3; }
+    this.speed = approach(this.speed, Math.max(0, tgt), acc * dt);
+    if (air) {
+      this.heading = wrapAngle(this.heading + yaw * 0.75 * dt);
+      this.roll = damp(this.roll, -yaw * 0.55, 3, dt);
+    } else {
+      const eff = clamp(this.speed / 3, 0, 1);
+      this.heading = wrapAngle(this.heading + yaw * 1.4 * eff * (this.speed > 8 ? 0.45 : 1) * dt);
+      this.roll = damp(this.roll, 0, 6, dt);
+    }
+    let vsT = 0;
+    if (air) {
+      vsT = climb * this.speed * 0.3;
+      if (this.speed < STALL) vsT = Math.min(vsT, -1.5 - 4 * (1 - this.speed / STALL));
+    } else if (climb > 0 && this.speed > TO) vsT = climb * this.speed * 0.25;
+    this.vs = approach(this.vs, vsT, dt * 4);
+    this.pos.y = Math.min(90, this.pos.y + this.vs * dt);
+    // 땅 위에서 내려가는 중이면 바닥에 딱 붙인다 (살짝 튄 뒤 떠 있는 상태 방지)
+    if (this.pos.y < 0 || (!air && this.vs <= 0)) this.pos.y = 0;
+    this.pitch = damp(this.pitch, clamp(-this.vs / Math.max(this.speed, 6), -0.4, 0.4), 4, dt);
+    if (air && this.speed < STALL && this.driver === G.player && G.now - (this.stallWarn || 0) > 4) { this.stallWarn = G.now; toast('속도가 너무 느려요! W로 가속해요', '✈️', 1800); }
+  }
+
+  animateAir(dt, yaw = 0) {
+    const m = this.m;
+    const driven = !!this.driver;
+    this.group.position.set(this.pos.x, this.pos.y, this.pos.z);
+    this.group.rotation.set(0, this.heading, 0);
+    m.body.rotation.x = this.pitch;
+    m.body.rotation.z = this.roll;
+    if (m.rotor) { m.rotor.rotation.y += this.rpm * dt * 26; m.trotor.rotation.x += this.rpm * dt * 40; }
+    if (m.prop) m.prop.rotation.z += (this.rpm * 0.5 + this.speed / 30) * dt * 45;
+    if (!this.airborne) for (const w of m.wheels) w.spin.rotation.x += (this.speed * dt) / w.r;
+    this.steerVis = damp(this.steerVis, this.airborne ? 0 : yaw * 0.4, 8, dt);
+    for (const s of m.steer) s.rotation.y = this.steerVis;
+    const mine = this.driver === G.player;
+    this.playerFig.group.visible = driven && !(mine && G.cam.fp);
+    for (const gl of this.glass) gl.visible = !(mine && G.cam.fp);
+    this.npcFig.group.visible = !driven && this.auto;
+    if (this.passFig) this.passFig.group.visible = !!this.passenger && !(this.passenger === G.player && G.cam.fp);
+    if (m.beacon) m.beacon.material = this.rpm > 0.2 && Math.sin(G.now * 7) > 0.4 ? this.beaconOn : this.beaconOff;
+    if (this.rpm > 0.3) {
+      this.smokeT -= dt;
+      if (this.smokeT <= 0) {
+        this.smokeT = 0.18;
+        m.exhaust.getWorldPosition(_w);
+        spawn('smoke', _w.x, _w.y, _w.z, { vy: 0.8, life: 0.8, size: 0.5 });
+        // 헬기 바람에 날리는 흙먼지
+        if (m.rotor && this.pos.y < 6) {
+          for (let i = 0; i < 3; i++) { const a = rand(0, 6.28); spawn('dust', this.pos.x + Math.cos(a) * 3, 0.2, this.pos.z + Math.sin(a) * 3, { vx: Math.cos(a) * 3, vz: Math.sin(a) * 3, vy: 0.4, life: 0.8, size: 0.8 }); }
+        }
+      }
+    }
+  }
+
+  /** 자동 유람 비행 (일꾼 조종사) → [throttle, yaw, climb] */
+  autoFly(dt) {
+    const heli = this.def.air === 'heli';
+    const st = (n, w = 0) => { this.flyState = n; this.flyWait = w; };
+    const steer = (tx, tz, alt) => {
+      const diff = wrapAngle(Math.atan2(tx - this.pos.x, tz - this.pos.z) - this.heading);
+      return [clamp(diff * 1.8, -1, 1), clamp((alt - this.pos.y) * 0.35, -1, 1), Math.hypot(tx - this.pos.x, tz - this.pos.z), diff];
+    };
+    if (heli) {
+      const pad = this.park;
+      switch (this.flyState) {
+        case 'idle':
+          this.status = this.passenger ? '손님을 태우고 곧 출발해요!' : '헬기장에서 출발 준비 중';
+          if (this.passenger) this.flyWait = Math.min(this.flyWait, 2.5);
+          this.flyWait -= dt;
+          if (this.flyWait <= 0) st('up');
+          return [0, 0, 0];
+        case 'up':
+          this.status = '이륙! 🚁';
+          if (this.pos.y > 16) { st('tour'); this.tourT = 75; this.tourA = Math.atan2(this.pos.x, this.pos.z - 15); }
+          return [0, 0, 1];
+        case 'tour': {
+          this.status = '🚁 농장 유람 비행 중';
+          this.tourA += dt * 0.16;
+          const tx = Math.sin(this.tourA + 0.45) * 62, tz = 15 + Math.cos(this.tourA + 0.45) * 62;
+          const [y, c] = steer(tx, tz, 18);
+          this.tourT -= dt;
+          if (this.tourT <= 0) st('back');
+          return [0.75, y, c];
+        }
+        case 'back': {
+          this.status = '헬기장으로 돌아가는 중';
+          const [y, c, d] = steer(pad.x, pad.z, 14);
+          if (d < 2.2 && Math.abs(this.speed) < 1.2) st('down');
+          return [d > 14 ? 0.8 : d > 2.2 ? Math.min(0.5, d / 18) : 0, d > 3 ? y : 0, c];
+        }
+        case 'down':
+          this.status = '헬기장에 내리는 중';
+          if (this.pos.y <= 0.01) st('idle', 40);
+          this.heading = dampAngle(this.heading, pad.h ?? this.heading, 0.8, dt);
+          return [0, 0, this.pos.y > 3 ? -1 : -0.45];
+      }
+      st('idle', 5);
+      return [0, 0, 0];
+    }
+    // ✈️ 비행기: 이륙 → 유람 → 활주로 접근 → 착륙 → 주기장 복귀
+    const R = LAYOUT.airfield.runway, P = this.park;
+    const west = R.x - R.len / 2, east = R.x + R.len / 2;
+    switch (this.flyState) {
+      case 'idle':
+        this.status = this.passenger ? '손님을 태우고 곧 출발해요!' : '주기장에서 출발 준비 중';
+        if (this.passenger) this.flyWait = Math.min(this.flyWait, 2.5);
+        this.flyWait -= dt;
+        if (this.flyWait <= 0) st('roll');
+        return [0, 0, 0];
+      case 'roll': {
+        this.status = '활주로 달리는 중 💨';
+        const [y] = steer(east + 40, R.z, 0);
+        if (this.pos.y > 10) st('tour'), (this.tourT = 70), (this.tourA = Math.atan2(this.pos.x, this.pos.z - 30));
+        return [1, y, this.speed > 15 ? 1 : 0];
+      }
+      case 'tour': {
+        this.status = '✈️ 하늘 유람 중';
+        this.tourA += dt * 0.15;
+        const tx = Math.sin(this.tourA + 0.6) * 88, tz = 30 + Math.cos(this.tourA + 0.6) * 88;
+        const [y, c] = steer(tx, tz, 34);
+        this.tourT -= dt;
+        if (this.tourT <= 0) st('approach');
+        return [this.speed < 20 ? 1 : 0, y, c];
+      }
+      case 'approach': {
+        this.status = '착륙하러 활주로로 가는 중';
+        const [y, c, d] = steer(west - 45, R.z, 14);
+        if (d < 14) st('final');
+        return [this.speed > 18 ? -1 : this.speed < 16 ? 1 : 0, y, c];
+      }
+      case 'final': {
+        this.status = '사뿐히 착륙하는 중 🛬';
+        const tdX = west + 20;
+        const dist = tdX - this.pos.x;
+        // 활주로 중심선 위 앞쪽 점을 따라가며 정렬
+        const [y] = steer(this.pos.x + 35, R.z, 0);
+        const want = Math.max(0, dist * 0.13);
+        const c = clamp((want - this.pos.y) * 0.4, -1, 0.3);
+        if (this.pos.y <= 0.01) st('rollout');
+        return [this.speed > 15 ? -1 : this.speed < 13 ? 0.6 : 0, y, c];
+      }
+      case 'rollout': {
+        this.status = '착륙 완료! 속도 줄이는 중';
+        const [y] = steer(this.pos.x + 25, R.z, 0);
+        if (this.speed < 0.6) st('taxi');
+        return [-1, y, 0];
+      }
+      case 'taxi': {
+        this.status = '주기장으로 이동 중';
+        const [y, , d] = steer(P.x, P.z, 0);
+        if (d < 2.5) { st('idle', 45); this.speed = 0; }
+        return [d > 2.5 ? 0.18 : -1, y, 0];
+      }
+    }
+    st('idle', 5);
+    return [0, 0, 0];
+  }
+
   serialize() {
-    return { x: this.pos.x, z: this.pos.z, h: this.heading, auto: this.auto, bulk: this.bulk, bulkKind: this.bulkKind, load: this.load, loadKind: this.loadKind, mix: this.mix, mixT: this.mixT, disp: this.dispensed };
+    return { x: this.pos.x, z: this.pos.z, y: this.pos.y, h: this.heading, auto: this.auto, bulk: this.bulk, bulkKind: this.bulkKind, load: this.load, loadKind: this.loadKind, mix: this.mix, mixT: this.mixT, disp: this.dispensed };
   }
 }
 
-export const START_FLEET = ['tractor', 'baler', 'forklift', 'skid', 'truck1', 'truck5', 'mixer', 'balewagon', 'car'];
+export const START_FLEET = ['tractor', 'baler', 'forklift', 'skid', 'truck1', 'truck5', 'mixer', 'balewagon', 'car', 'heli', 'plane'];
 export function createVehicles(types = START_FLEET) {
   G.vehicles = [];
   for (const t of types) addVehicle(t);

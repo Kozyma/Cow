@@ -374,6 +374,7 @@ export class Animal {
     }
     this.fleeing = false;
     for (const v of G.vehicles) {
+      if (v.airborne) continue;
       const dx = this.pos.x - v.pos.x, dz = this.pos.z - v.pos.z;
       const d = Math.hypot(dx, dz);
       if (d < 4.5 && d > 1e-4) {

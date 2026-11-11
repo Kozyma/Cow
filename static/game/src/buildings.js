@@ -1,6 +1,7 @@
 // 건물과 구조물
 import * as THREE from 'three';
 import { mat, glow, curved, gradientMap } from './materials.js';
+import { glassMat } from './models.js';
 import { part, group, rbox, box, sbox, sphere, cyl, cone, torus, rand, pick } from './util.js';
 import { INST, Instancer } from './instancer.js';
 import { addBox, addBoxC, addCircle } from './physics.js';
@@ -314,4 +315,82 @@ export function buildScarecrow(scene, x, z) {
   part(g, cyl(0.25, 0.3, 0.25, 12), mat(0xe0b077), 0, 2.58, 0);
   for (const s of [-1, 1]) part(g, cone(0.1, 0.25, 6), mat(0xf4d36b), s * 0.95, 1.65, 0, 0, 0, s * Math.PI / 2);
   addCircle(x, z, 0.4);
+}
+
+// ---------------- ✈️ 비행장 ----------------
+export function buildAirfield(scene, A) {
+  const R = A.runway;
+  const g = group(scene);
+  const flat = (x, z, w, d, color, y) => {
+    const geo = new THREE.PlaneGeometry(w, d, Math.max(1, Math.ceil(w / 4)), Math.max(1, Math.ceil(d / 4)));
+    geo.rotateX(-Math.PI / 2);
+    const m = new THREE.Mesh(geo, mat(color));
+    m.position.set(x, y, z);
+    m.receiveShadow = true;
+    g.add(m);
+    return m;
+  };
+  // 활주로 (아스팔트 + 흰 중앙선 + 양 끝 줄무늬)
+  flat(R.x, R.z, R.len + 2, R.w + 2, 0xd9d4c7, 0.03);
+  flat(R.x, R.z, R.len, R.w, 0x8a8f9c, 0.06);
+  for (let x = R.x - R.len / 2 + 14; x < R.x + R.len / 2 - 12; x += 9) flat(x, R.z, 4.5, 0.4, 0xfffaf0, 0.09);
+  for (const end of [-1, 1]) {
+    for (let i = -2; i <= 2; i++) flat(R.x + end * (R.len / 2 - 4), R.z + i * 2.4, 5, 0.9, 0xfffaf0, 0.09);
+    flat(R.x + end * (R.len / 2 - 11), R.z, 0.6, R.w - 2, 0xffd34d, 0.09);
+  }
+  // 활주로 가장자리 등불
+  for (let x = R.x - R.len / 2; x <= R.x + R.len / 2; x += 10) {
+    for (const s2 of [-1, 1]) INST.add('rwlight', sphere(0.16, 8, 6), mat(0xffffff), x, 0.18, R.z + s2 * (R.w / 2 + 0.8), 0, 0, 0, 1, 1, 1, x % 20 === 0 ? 0xffd34d : 0x8fd16a, false);
+  }
+  // 주기장 · 유도로
+  flat(A.plane.x, R.z + R.w / 2 + 1 + 9, 18, 18, 0xc9c4b8, 0.045);
+  // 격납고 (둥근 지붕, 앞이 열림)
+  const H = A.hangar;
+  const hg = group(g, H.x, 0, H.z);
+  const wall = mat(0xe8edf2), roofM = mat(0x7cb7f0);
+  part(hg, sbox(16, 0.3, 11), mat(0xd9d4c7), 0, 0.15, 0);
+  const arch = new THREE.CylinderGeometry(6.5, 6.5, 11, 24, 3, true, -Math.PI / 2, Math.PI);
+  arch.rotateX(-Math.PI / 2);
+  const roof = new THREE.Mesh(arch, curved(new THREE.MeshToonMaterial({ color: 0x7cb7f0, gradientMap: gradientMap(), side: THREE.DoubleSide })));
+  roof.position.set(0, 0.2, 0);
+  roof.scale.set(1.2, 1, 1);
+  roof.castShadow = true; roof.receiveShadow = true;
+  hg.add(roof);
+  const half = new THREE.Shape();
+  half.absarc(0, 0, 6.5, 0, Math.PI, false);
+  half.lineTo(6.5, 0);
+  const backGeo = new THREE.ExtrudeGeometry(half, { depth: 0.3, bevelEnabled: false, curveSegments: 24 });
+  backGeo.scale(1.2, 1, 1);
+  const back = new THREE.Mesh(backGeo, wall);
+  back.position.set(0, 0.2, -5.6);
+  back.castShadow = true; back.receiveShadow = true;
+  hg.add(back);
+  for (let i = -3; i <= 3; i++) part(hg, box(0.25, 0.25, 11.2), mat(0xfffaf0), Math.sin((i / 3.5) * 1.4) * 7.6, 0.2 + Math.cos((i / 3.5) * 1.4) * 6.4, 0);
+  part(hg, rbox(4, 1.1, 0.15, 0.08), mat(0xfff3dc), 0, 5.1, 5.6);
+  part(hg, sphere(0.35, 10, 8), mat(0xff9eb5), -1.2, 5.1, 5.7, 0, 0, 0, 1, 1, 0.3);
+  addBox(H.x - 8, H.x + 8, H.z - 5.6, H.z - 5.2);
+  for (const sx of [-1, 1]) addBox(H.x + sx * 7.8 - 0.3, H.x + sx * 7.8 + 0.3, H.z - 5.5, H.z + 5.5);
+  // 헬기장
+  const P = A.heli;
+  const hp = group(g, P.x, 0, P.z);
+  const pad = new THREE.CircleGeometry(7, 32); pad.rotateX(-Math.PI / 2);
+  part(hp, pad, mat(0x9aa1ad), 0, 0.03, 0).castShadow = false;
+  const ring = new THREE.RingGeometry(5.6, 6.1, 32); ring.rotateX(-Math.PI / 2);
+  part(hp, ring, mat(0xffd34d), 0, 0.04, 0).castShadow = false;
+  for (const [x, z, w, d] of [[-1.6, 0, 0.7, 4.6], [1.6, 0, 0.7, 4.6], [0, 0, 2.6, 0.7]]) part(hp, box(w, 0.02, d), mat(0xfffaf0), x, 0.05, z).castShadow = false;
+  for (let i = 0; i < 8; i++) { const a = (i / 8) * Math.PI * 2; part(hp, sphere(0.14, 8, 6), glow(0xffd34d, 0.4), Math.cos(a) * 6.9, 0.16, Math.sin(a) * 6.9); }
+  // 바람자루
+  const ws = group(g, R.x - R.len / 2 + 8, 0, R.z + R.w / 2 + 6);
+  part(ws, cyl(0.08, 0.08, 5, 8), mat(0xfffaf0), 0, 2.5, 0);
+  const sock = group(ws, 0, 4.8, 0);
+  for (let i = 0; i < 4; i++) part(sock, cyl(0.35 - i * 0.06, 0.3 - i * 0.06, 0.55, 12), mat(i % 2 ? 0xfffaf0 : 0xff7b6b), 0.35 + i * 0.52, 0, 0, 0, 0, Math.PI / 2);
+  addCircle(ws.position.x, ws.position.z, 0.3);
+  // 관제탑 (작고 귀여운)
+  const tw = group(g, R.x - R.len / 2 + 24, 0, R.z + R.w / 2 + 12);
+  part(tw, rbox(3, 6, 3, 0.3), mat(0xfff1d6), 0, 3, 0);
+  part(tw, rbox(4, 1.8, 4, 0.4), glassMat(), 0, 6.9, 0);
+  part(tw, rbox(4.4, 0.35, 4.4, 0.15), mat(0xff9eb5), 0, 7.95, 0);
+  part(tw, sphere(0.25, 8, 6), glow(0xff6b6b, 0.6), 0, 8.4, 0);
+  addBox(tw.position.x - 1.5, tw.position.x + 1.5, tw.position.z - 1.5, tw.position.z + 1.5);
+  return { sock };
 }

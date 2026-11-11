@@ -117,8 +117,8 @@ export function addVehicleUI(v) {
   });
   $('#vehicle-dock').appendChild(c);
   v.ui = { card: c, status: c.querySelector('.v-status'), cb };
-  addLabel(() => ({ x: v.pos.x, y: v.isTruck ? 4.2 : 3.6, z: v.pos.z }), 'veh-label', () => {
-    if (G.driving === v || G.mode !== 'farm') return '';
+  addLabel(() => ({ x: v.pos.x, y: (v.isTruck ? 4.2 : v.def.air ? 4.4 : 3.6) + v.pos.y, z: v.pos.z }), 'veh-label', () => {
+    if (G.driving === v || G.riding === v || G.mode !== 'farm') return '';
     return `${v.def.icon} <span>${v.auto ? shortStatus(v) : '수동'}</span>`;
   });
 }
@@ -386,11 +386,16 @@ function updateDrivePanel() {
     return;
   }
   panel.classList.remove('hidden');
-  $('#touch-hyd').classList.toggle('hidden', !v.def.lift);
+  $('#touch-hyd').classList.toggle('hidden', !(v.def.lift || v.def.air));
   const d = v.def, easy = G.settings.mode === 'easy';
   const kmh = Math.round(Math.abs(v.speed) * 3.6);
   const g = [];
   g.push(gauge('부스트', 1, v.boosting ? '🔥 ∞' : '∞', v.boosting ? 'boost on' : 'boost'));
+  if (d.air) {
+    g.push(gauge('고도', Math.min(1, v.pos.y / 60), `${Math.round(v.pos.y)}m`, 'lift'));
+    g.push(gauge(d.air === 'heli' ? '로터' : '엔진', v.rpm, `${Math.round(v.rpm * 100)}%`, 'tilt'));
+    if (d.air === 'plane') g.push(gauge('이륙 속도', Math.min(1, v.speed / 14), v.speed >= 14 ? '이륙 가능!' : `${Math.round(v.speed * 3.6)}/50`, 'mix'));
+  }
   if (d.lift) {
     const val = v.type === 'forklift' ? `${(v.lift + 0.18).toFixed(1)}m` : v.type === 'truck5' ? `${Math.round((v.lift / d.lift.max) * 50)}°` : v.lift < 0.2 ? '작업' : `${Math.round(v.lift * 100)}%`;
     g.push(gauge(d.lift.name, (v.lift - d.lift.min) / (d.lift.max - d.lift.min), val, 'lift'));
@@ -436,12 +441,16 @@ function updateDrivePanel() {
   }
   if (space) keys.push(`${kb('Space')} ${space}`);
   if (v.type === 'mixer') keys.push(`${kb('1')}${kb('2')}${kb('3')} 건초·옥수수·대두박 넣기 (배합장)`);
+  if (d.air === 'heli') keys.splice(0, keys.length, `${kb('R')}${kb('F')} 상승·하강`, `${kb('W')}${kb('S')} 전진·후진`, `${kb('A')}${kb('D')} 회전`, `${kb('Shift')} 빠르게`);
+  if (d.air === 'plane') keys.splice(0, keys.length, `${kb('W')}${kb('S')} 가속·감속`, `${kb('R')}${kb('F')} 기수 올리기·내리기`, `${kb('A')}${kb('D')} 선회`, `${kb('Shift')} 부스트`);
   keys.push(`${kb('E')} 내리기`, `${kb('V')} 시점`);
   let tip = '';
+  if (d.air === 'heli') tip = v.airborne ? 'F를 눌러 천천히 내려앉으면 E로 내릴 수 있어요' : '로터가 다 돌면(100%) R을 눌러 떠올라요';
+  if (d.air === 'plane') tip = v.airborne ? (v.speed < 11 ? '⚠️ 너무 느려요! W로 가속하세요' : '활주로 쪽으로 가서 F로 살살 내려앉아요 (세게 내리면 쿵!)') : v.speed >= 14 ? 'R을 눌러 이륙!' : 'W를 눌러 활주로를 달려요 (시속 50km 넘으면 이륙 가능)';
   if (easy && v.type === 'mixer') tip = mixerTip(v);
   if (v.isTruck && v.nearStore()) tip = 'Space를 눌러 사료 가게에서 옥수수·대두박을 사요';
   else if (v.isTruck && v.atStation() && truckCargo(v).some((it) => it.kind === 'sack')) tip = 'Space를 눌러 원료를 배합장에 내려요';
-  if (!easy && !tip) {
+  if (!easy && !tip && !d.air) {
     if (v.type === 'forklift') tip = v.carrying ? '내려놓을 곳에서 F로 포크를 내리면 놓여요 (트럭 적재함 위도 가능)' : '포크를 바닥까지 내리고(F) 짐 아래로 밀어 넣은 뒤 R로 들어올려요';
     else if (v.type === 'skid') tip = v.load > 0 ? (v.loadKind === 'compost' ? '트럭 적재함 위로 암을 올리고(R) G로 쏟아 퇴비를 실어요' : '축사 뒤 퇴비사 분뇨칸(왼쪽)에서 G로 버킷을 쏟아요') : '암을 바닥까지 내리고(F) 앞으로 밀면 분뇨(우리 바닥)나 퇴비(퇴비사 오른쪽)가 담겨요';
     else if (v.type === 'tractor') tip = 'F로 예초기를 내리고 Space로 칼날을 돌려요';
@@ -504,7 +513,7 @@ export function renderStore(truck) {
 
 // ---------------- 미니맵 ----------------
 let mmBg = null;
-const MM = 230;
+const MM = 310;
 function drawMinimapBg(size) {
   const c = document.createElement('canvas');
   c.width = c.height = size;
@@ -514,7 +523,13 @@ function drawMinimapBg(size) {
   g.scale(s, s);
   g.fillStyle = '#a6dc7e'; g.fillRect(-MM / 2, -MM / 2, MM, MM);
   g.fillStyle = '#f3e2b3';
-  g.fillRect(-108, LAYOUT.roadZ - 2, 216, 4);
+  g.fillRect(-148, LAYOUT.roadZ - 2, 296, 4);
+  g.fillRect(-22, 37.5, 4, 50); g.fillRect(-72, 86, 52, 4);
+  const AF = LAYOUT.airfield;
+  g.fillStyle = '#8a8f9c'; g.fillRect(AF.runway.x - AF.runway.len / 2, AF.runway.z - AF.runway.w / 2, AF.runway.len, AF.runway.w);
+  g.fillStyle = '#7cb7f0'; g.fillRect(AF.hangar.x - 8, AF.hangar.z - 5.5, 16, 11);
+  g.fillStyle = '#ffd34d'; g.beginPath(); g.arc(AF.heli.x, AF.heli.z, 6, 0, Math.PI * 2); g.fill();
+  g.fillStyle = '#f3e2b3';
   g.strokeStyle = 'rgba(107,79,58,0.25)'; g.lineWidth = 1; g.strokeRect(-LAYOUT.bound, -LAYOUT.bound, LAYOUT.bound * 2, LAYOUT.bound * 2);
   g.fillRect(-4.8, -4, 3.6, 23);
   g.fillRect(-31, 19.5, 44, 18);

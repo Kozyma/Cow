@@ -39,6 +39,8 @@ function fixedRects() {
   return [
     { minX: f.x0 - 1, maxX: f.x0 + f.cols * f.tile + 1, minZ: f.z0 - 1, maxZ: f.z0 + f.rows * f.tile + 1, name: '목초지' },
     { minX: -31, maxX: 13, minZ: 19.5, maxZ: 37.5, name: '주차장' },
+    { minX: LAYOUT.airfield.runway.x - LAYOUT.airfield.runway.len / 2 - 12, maxX: LAYOUT.airfield.runway.x + LAYOUT.airfield.runway.len / 2 + 12, minZ: LAYOUT.airfield.runway.z - 12, maxZ: LAYOUT.airfield.runway.z + 24, name: '비행장' },
+    { minX: LAYOUT.airfield.heli.x - 9, maxX: LAYOUT.airfield.heli.x + 9, minZ: LAYOUT.airfield.heli.z - 9, maxZ: LAYOUT.airfield.heli.z + 9, name: '헬기장' },
     { minX: LAYOUT.yard.x - 4.5, maxX: LAYOUT.yard.x + 4.5, minZ: LAYOUT.yard.z - 3.5, maxZ: LAYOUT.yard.z + 3.5, name: '건초 보관소' },
     { minX: LAYOUT.market.x - 6, maxX: LAYOUT.market.x + 13, minZ: LAYOUT.market.z - 6, maxZ: LAYOUT.market.z + 6, name: '판매소' },
     { minX: LAYOUT.store.x - 11, maxX: LAYOUT.store.x + 5, minZ: LAYOUT.store.z - 5, maxZ: LAYOUT.store.z + 5, name: '사료 가게' },

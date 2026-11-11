@@ -108,12 +108,16 @@ export function applySaveData(d) {
     if (!v) return;
     // 예전 저장본은 모두 기본값(자동 켜짐)이었으므로 꺼서 시작한다
     v.pos.set(s.x, 0, s.z); v.heading = s.h; v.auto = d.autoV === 2 ? !!s.auto : false;
+    // 하늘에서 저장됐으면 착륙장으로 돌려놓는다
+    if (v.def.air && (s.y || 0) > 0.5) { v.pos.set(v.park.x, 0, v.park.z); v.heading = v.park.h ?? v.heading; }
     v.bulk = s.bulk || 0; v.bulkKind = s.bulkKind || null; v.load = s.load || 0; v.loadKind = s.loadKind || null;
     if (s.mix) { v.mix = s.mix; v.mixT = s.mixT || 0; v.dispensed = s.disp || 0; }
     v.syncVisual();
   });
   // 예전 세이브에는 자가용이 없으니 한 대 넣어준다
   if (!G.vehicles.some((v) => v.def.personal)) addVehicle('car');
+  // 헬기 · 비행기가 생기기 전 저장본에도 한 대씩
+  for (const t of ['heli', 'plane']) if (!G.vehicles.some((v) => v.type === t)) addVehicle(t);
   const dslots = dockSlots(), sslots = stationSlots();
   for (const o of d.items || []) {
     const it = new Item(o.k, o.p);

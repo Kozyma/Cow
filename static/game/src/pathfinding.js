@@ -2,8 +2,8 @@
 import { G, LAYOUT } from './state.js';
 import { distToCollider } from './physics.js';
 
-const N = 228;          // 셀 개수 (한 변)
-const ORIGIN = -114;
+const N = 308;          // 셀 개수 (한 변)
+const ORIGIN = -154;
 const CELL = 1;
 let blocked = null;
 
@@ -118,7 +118,7 @@ export function findPath(sx, sz, tx, tz) {
   stamp[s] = run; gScore[s] = 0; parent[s] = -1;
   open.push(h(s), s);
   let found = false, iter = 0;
-  while (open.size && iter++ < 70000) {
+  while (open.size && iter++ < 140000) {
     const cur = open.pop();
     if (closed[cur] === run) continue;
     closed[cur] = run;

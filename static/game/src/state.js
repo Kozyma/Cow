@@ -17,7 +17,8 @@ export const G = {
   field: null,
   player: null,
   colliders: [],
-  driving: null,          // 플레이어가 운전 중인 차량
+  driving: null,
+  riding: null,           // 옆자리에 동승 중인 비행기·헬기
   viewTarget: null,       // 관전 중인 차량
   cam: { yaw: 0, pitch: 0.92, dist: 28, dragT: 0, fp: false, fpYaw: Math.PI, fpPitch: -0.08, fpOff: 0 },
   upgrades: { autoSpeed: 0 },
@@ -35,12 +36,14 @@ export const G = {
 
 // 장비 상점 (추가 구매 가능)
 export const VEHICLE_SHOP = {
-  tractor: 2600, baler: 3200, forklift: 2200, skid: 2400, truck1: 2000, truck5: 3800, mixer: 3400, balewagon: 3000,
+  tractor: 2600, baler: 3200, forklift: 2200, skid: 2400, truck1: 2000, truck5: 3800, mixer: 3400, balewagon: 3000, heli: 5200, plane: 7800,
 };
 export const MAX_VEHICLES = 16;
 
 export const LAYOUT = {
-  bound: 110,
+  bound: 150,
+  // ✈️ 남쪽 비행장: 활주로(동서 방향) · 비행기 주기장 · 헬기장
+  airfield: { runway: { x: 0, z: 104, len: 170, w: 14 }, plane: { x: -70, z: 104, h: Math.PI / 2 }, heli: { x: -40, z: 84, h: Math.PI }, hangar: { x: -70, z: 121 } },
   roadZ: -6,
   dock: { x: 6, z: 3.5, w: 10, d: 6, bay: { x: 6, z: 12 } },      // 출하장 (팔레트 보관)
   market: { x: 54, z: 5, r: 5 },                                    // 판매소

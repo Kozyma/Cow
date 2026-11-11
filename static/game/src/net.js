@@ -108,7 +108,7 @@ function addRemote(id, name) {
 function removeRemote(id) {
   const p = net.remotes.get(id);
   if (!p) return;
-  if (p.driving) G.hooks.exitVehicle(p);
+  if (p.driving || p.riding) G.hooks.exitVehicle(p);
   removeLabel(p.label);
   p.destroy();
   net.remotes.delete(id);
@@ -177,9 +177,10 @@ function structSig() {
 
 function playerList() {
   const out = [];
-  const add = (id, name, p, drv) => out.push([id, name, r2(p.pos.x), r2(p.pos.z), r2(p.heading), r2(p.speed), drv ? G.vehicles.indexOf(drv) : -1, p.hopT > 0 ? 1 : 0, G.mode === 'house' && id === 0 ? 1 : 0]);
-  add(0, net.name, G.player, G.driving);
-  for (const p of net.remotes.values()) add(p.netId, p.name, p, p.driving);
+  // 차량 번호: 운전 중이면 그대로, 옆자리 동승이면 +1000
+  const add = (id, name, p, drv, ride) => out.push([id, name, r2(p.pos.x), r2(p.pos.z), r2(p.heading), r2(p.speed), drv ? G.vehicles.indexOf(drv) : ride ? 1000 + G.vehicles.indexOf(ride) : -1, p.hopT > 0 ? 1 : 0, G.mode === 'house' && id === 0 ? 1 : 0]);
+  add(0, net.name, G.player, G.driving, G.riding);
+  for (const p of net.remotes.values()) add(p.netId, p.name, p, p.driving, p.riding);
   return out;
 }
 
@@ -191,7 +192,7 @@ function initPacket(id) {
 function fastPacket() {
   return {
     t: 's', time: r2(G.time),
-    v: G.vehicles.map((v) => [r2(v.pos.x), r2(v.pos.z), r3(v.heading), r2(v.speed), r3(v.lift), r3(v.tilt), r2(v.steerVis), v.driver ? (v.driver === G.player ? 0 : v.driver.netId) : -1, v.boosting ? 1 : 0]),
+    v: G.vehicles.map((v) => [r2(v.pos.x), r2(v.pos.z), r3(v.heading), r2(v.speed), r3(v.lift), r3(v.tilt), r2(v.steerVis), v.driver ? (v.driver === G.player ? 0 : v.driver.netId) : -1, v.boosting ? 1 : 0, r2(v.pos.y), r3(v.roll || 0), r3(v.pitch || 0), r2(v.rpm || 0), v.passenger ? (v.passenger === G.player ? 0 : v.passenger.netId) : -1]),
     p: playerList(),
   };
 }
@@ -265,7 +266,7 @@ function applyInit(m) {
 function applyFast(m, snap = false) {
   if (!ready) return;
   tgt.v = m.v;
-  let mine = null;
+  let mine = null, myRide = null;
   m.v.forEach((s, i) => {
     const v = G.vehicles[i];
     if (!v) return;
@@ -274,8 +275,12 @@ function applyFast(m, snap = false) {
     if (drv === net.id) mine = v;
     v.driver = drv === net.id ? G.player : drv >= 0 ? (v.driver && v.driver !== G.player ? v.driver : { remote: true }) : null;
     v.boosting = !!s[8];
-    if (snap) { v.pos.set(s[0], 0, s[1]); v.heading = s[2]; }
+    const pas = s[13] ?? -1;
+    if (pas === net.id) myRide = v;
+    v.passenger = pas === net.id ? G.player : pas >= 0 ? (v.passenger && v.passenger !== G.player ? v.passenger : { remote: true }) : null;
+    if (snap) { v.pos.set(s[0], s[9] || 0, s[1]); v.heading = s[2]; }
   });
+  if (myRide !== G.riding) { G.riding = myRide; sfx(myRide ? 'board' : 'unboard'); }
   if (mine !== G.driving) {
     const prev = G.driving;
     G.driving = mine;
@@ -300,7 +305,8 @@ function applyFast(m, snap = false) {
       p.netDriving = vi;
       p.netHidden = !!inHouse;
       p.group.visible = vi < 0 && !inHouse;
-      if (vi >= 0 && G.vehicles[vi]) G.vehicles[vi].driver = p;
+      if (vi >= 1000 && G.vehicles[vi - 1000]) G.vehicles[vi - 1000].passenger = p;
+      else if (vi >= 0 && G.vehicles[vi]) G.vehicles[vi].driver = p;
     }
     p.netT = { x, z, h, spd };
     if (hop && !(p.hopT > 0)) p.hopT = 0.45;
@@ -419,6 +425,12 @@ export function guestStep(dt) {
     v.speed = s[3];
     v.lift = damp(v.lift, s[4], L, dt);
     v.tilt = damp(v.tilt, s[5], L, dt);
+    if (v.def.air) {
+      v.pos.y = damp(v.pos.y, s[9] || 0, L, dt);
+      v.roll = damp(v.roll || 0, s[10] || 0, L, dt);
+      v.pitch = damp(v.pitch || 0, s[11] || 0, L, dt);
+      v.rpm = s[12] || 0;
+    }
     v.applyControls();
     v.animate(dt, s[6] * 2);
   });
@@ -432,7 +444,7 @@ export function guestStep(dt) {
     p.heading = dampAngle(p.heading, t.h, 14, dt);
     p.speed = t.spd;
     if (p === G.player) {
-      p.group.visible = !G.driving && !G.cam.fp;
+      p.group.visible = !G.driving && !G.riding && !G.cam.fp;
     }
     p.animate(dt);
   }

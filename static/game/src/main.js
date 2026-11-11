@@ -213,10 +213,13 @@ function toggleFP() {
 // p: 로컬 플레이어(G.player) 또는 원격 플레이어 (호스트가 대신 계산)
 const isLocal = (p) => p === G.player;
 const drivingOf = (p) => (isLocal(p) ? G.driving : p.driving);
+const ridingOf = (p) => (isLocal(p) ? G.riding : p.riding);
+const seatFree = (v) => (v.def.seats || 1) >= 2 && !v.passenger;
 function nearestVehicle(maxD, p = G.player) {
   let best = null, bd = maxD;
   for (const v of G.vehicles) {
-    if (v.driver && v.driver !== p) continue;
+    if (v.driver && v.driver !== p && !seatFree(v)) continue;
+    if (v.airborne) continue;
     const fx = Math.sin(v.heading), fz = Math.cos(v.heading);
     for (const [off, r] of v.def.circles) {
       const d = Math.hypot(v.pos.x + fx * off - p.pos.x, v.pos.z + fz * off - p.pos.z) - r;
@@ -234,8 +237,42 @@ function nearestAnimal(maxD, p = G.player) {
   return best;
 }
 
+/** 옆자리에 타기 (2인승 비행기·헬기) */
+function boardPassenger(v, p) {
+  if (drivingOf(p)) exitVehicle(p);
+  v.passenger = p;
+  if (isLocal(p)) {
+    G.riding = v;
+    G.viewTarget = null;
+    G.cam.dist = Math.max(G.cam.dist, 34);
+    sfx('board');
+    toast(v.driver ? `${v.driver.name || '조종사'} 님 옆자리에 탔어요! 즐거운 비행 ✨` : `일꾼 조종사와 함께 유람 비행! (직접 조종하려면 카드의 자동을 끄세요)`, v.def.icon, 3200);
+  } else {
+    p.riding = v;
+  }
+  return true;
+}
+
+function exitRide(p) {
+  const v = ridingOf(p);
+  if (!v) return;
+  if (v.airborne) { if (isLocal(p)) toast('땅에 내려앉은 뒤 내릴 수 있어요', v.def.icon, 1800); return; }
+  const lx = Math.cos(v.heading), lz = -Math.sin(v.heading);
+  const r = v.radius + 1.0;
+  const spots = [[-lx * r, -lz * r], [lx * r, lz * r]];
+  const spot = spots.find(([dx, dz]) => !blockedAt(v.pos.x + dx, v.pos.z + dz, 0.5, false)) || spots[0];
+  p.pos.set(v.pos.x + spot[0], 0, v.pos.z + spot[1]);
+  v.passenger = null;
+  if (isLocal(p)) { G.riding = null; sfx('unboard'); }
+  else p.riding = null;
+}
+
 function enterVehicle(v, p = G.player) {
+  if (ridingOf(p)) return false;
+  // 일꾼이 자동 비행 중인 비행기·헬기는 옆자리에 탄다
+  if (v.def.air && v.auto && !v.driver && seatFree(v)) return boardPassenger(v, p);
   if (v.driver && v.driver !== p) {
+    if (seatFree(v)) return boardPassenger(v, p);
     if (isLocal(p)) toast(`${v.def.name}은(는) ${v.driver.name || '다른 사람'} 님이 운전 중이에요`, v.def.icon, 1800);
     return false;
   }
@@ -247,6 +284,7 @@ function enterVehicle(v, p = G.player) {
     G.cam.dragT = 0;
     G.cam.fpOff = 0;
     G.cam.fpPitch = -0.08;
+    if (v.def.air) { G.cam.dist = Math.max(G.cam.dist, 34); toast(v.def.air === 'heli' ? '🚁 R 상승 · F 하강 · W/S 전진·후진 · A/D 회전 · Shift 빠르게' : '✈️ W로 달려 시속 50km가 넘으면 R로 이륙! A/D 선회 · F 하강 · S 감속', v.def.icon, 4200); }
     sfx('board');
   } else {
     p.driving = v;
@@ -257,8 +295,13 @@ function enterVehicle(v, p = G.player) {
 }
 
 function exitVehicle(p = G.player) {
+  if (!drivingOf(p) && ridingOf(p)) { exitRide(p); return; }
   const v = drivingOf(p);
   if (!v) return;
+  if (v.def.air && v.pos.y > 0.4) {
+    if (isLocal(p)) toast(v.def.air === 'heli' ? '땅에 내려앉은 뒤 내릴 수 있어요 (F로 하강)' : '착륙한 뒤 내릴 수 있어요 (활주로에 천천히 내려앉기)', v.def.icon, 2200);
+    return;
+  }
   const lx = Math.cos(v.heading), lz = -Math.sin(v.heading);
   const fx = Math.sin(v.heading), fz = Math.cos(v.heading);
   const r = (v.isTruck ? 1.6 : v.radius) + 0.9;
@@ -283,7 +326,7 @@ function exitVehicle(p = G.player) {
 function remoteActions(p) {
   const k = p.input;
   if (k.pressed('KeyE')) {
-    if (p.driving) exitVehicle(p);
+    if (p.driving || p.riding) exitVehicle(p);
     else {
       const v = nearestVehicle(2.2, p);
       if (v) enterVehicle(v, p);
@@ -313,7 +356,7 @@ function handleInput() {
   if (k.pressed('KeyL')) api.toggleBuild();
   if (k.pressed('KeyV')) toggleFP();
   if (k.pressed('KeyE') && !isGuest()) {
-    if (G.driving) exitVehicle();
+    if (G.driving || G.riding) exitVehicle();
     else {
       const v = nearestVehicle(2.2);
       if (v) enterVehicle(v);
@@ -342,6 +385,7 @@ function handleInput() {
   }
 
   if (G.driving) setPrompt(null);
+  else if (G.riding) setPrompt(`${G.riding.def.icon} 옆자리 동승 중 · 고도 ${Math.round(G.riding.pos.y)}m · <kbd>E</kbd> 내리기 (착륙 후)`);
   else if (G.viewTarget) setPrompt(`👁 ${G.viewTarget.def.name} 관찰 중 · 움직이면 돌아와요`);
   else {
     const v = nearestVehicle(2.2);
@@ -383,6 +427,7 @@ function updateCamera(dt) {
   if (G.mode === 'build') {
     crosshair.classList.add('hidden');
     curveUniforms.uCurve.value = 0;
+    tgt.y = 0;
     if (camera.fov !== 40 || camera.near !== 0.5) { camera.fov = 40; camera.near = 0.5; camera.updateProjectionMatrix(); }
     tgt.x = damp(tgt.x, buildState.cam.x, 6, dt);
     tgt.z = damp(tgt.z, buildState.cam.z, 6, dt);
@@ -392,6 +437,7 @@ function updateCamera(dt) {
   if (G.mode === 'house') {
     crosshair.classList.add('hidden');
     curveUniforms.uCurve.value = 0;
+    tgt.y = 0;
     if (camera.fov !== 40 || camera.near !== 0.5) { camera.fov = 40; camera.near = 0.5; camera.updateProjectionMatrix(); }
     const rc = HOUSE.roomCenter();
     const p = G.player.pos;
@@ -406,6 +452,9 @@ function updateCamera(dt) {
     if (G.driving) {
       G.driving.eye.getWorldPosition(_eye);
       yaw = G.driving.heading + G.cam.fpOff;
+    } else if (G.riding?.eye2) {
+      G.riding.eye2.getWorldPosition(_eye);
+      yaw = G.riding.heading + G.cam.fpOff;
     } else {
       const p = G.player.pos;
       _eye.set(p.x, 1.62 + Math.abs(Math.sin(G.player.phase)) * 0.04 * Math.min(1, G.player.speed / 5), p.z);
@@ -435,12 +484,13 @@ function updateCamera(dt) {
     lookPoint.t -= dt;
     if (lookPoint.t <= 0) lookPoint = null;
   } else {
-    p = (G.viewTarget || G.driving || G.player).pos;
+    p = (G.viewTarget || G.driving || G.riding || G.player).pos;
   }
   tgt.x = damp(tgt.x, p.x, 5, dt);
+  tgt.y = damp(tgt.y, (p.y || 0) * 0.9, 4, dt);
   tgt.z = damp(tgt.z, p.z, 5, dt);
   G.cam.dragT -= dt;
-  const follow = G.driving || G.viewTarget;
+  const follow = G.driving || G.riding || G.viewTarget;
   if (follow && G.settings.camFollow && G.cam.dragT <= 0 && follow.speed > 0.6) {
     G.cam.yaw = dampAngle(G.cam.yaw, follow.heading + Math.PI, G.driving ? 1.6 : 0.8, dt);
   }

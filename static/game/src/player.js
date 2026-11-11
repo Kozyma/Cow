@@ -36,6 +36,7 @@ export class Player {
     this.input = remote ? new NetInput() : G.input;
     this.cam = { fp: false, yaw: 0, fpYaw: 0 };   // 원격 플레이어의 카메라 방향 (이동 기준)
     this.driving = null;                           // 원격 플레이어가 탄 차량
+    this.riding = null;                            // 원격 플레이어가 동승한 비행기·헬기
     // 발밑 그림자 동그라미
     const sh = new THREE.Mesh(new THREE.CircleGeometry(0.5, 20).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.15, depthWrite: false }));
     sh.position.y = 0.05;
@@ -43,9 +44,13 @@ export class Player {
   }
 
   get isDriving() { return this.remote ? !!this.driving : !!G.driving; }
+  get ridingVehicle() { return this.remote ? this.riding : G.riding; }
 
   update(dt) {
     if (this.isDriving) { this.group.visible = false; return; }
+    // 옆자리 동승 중: 몸은 숨기고 탈것을 따라간다
+    const ride = this.ridingVehicle;
+    if (ride) { this.group.visible = false; this.pos.set(ride.pos.x, 0, ride.pos.z); this.heading = ride.heading; return; }
     const remote = this.remote;
     const cam = remote ? this.cam : G.cam;
     const mode = remote ? 'farm' : G.mode;
