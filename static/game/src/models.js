@@ -204,6 +204,17 @@ export function seatFigure(f) {
   return f;
 }
 
+/** 항공기 조종사: 작게 앉히고 모자 대신 헤드셋 (기체 밖으로 튀어나오지 않게) */
+export function pilotFigure(f) {
+  seatFigure(f);
+  f.group.scale.setScalar(0.58);
+  f.group.position.set(0, -0.3, 0.04);
+  for (const c of f.head.children) if (c.type === 'Group') c.visible = false;
+  part(f.head, torus(0.5, 0.05, 6, 18, Math.PI), mat(0x4a4f5c), 0, 0.04, 0);
+  for (const sx of [-1, 1]) part(f.head, sphere(0.15, 10, 8), mat(0xff8fab), sx * 0.48, -0.02, 0, 0, 0, 0, 0.6, 1, 1);
+  return f;
+}
+
 // ---------------- 차량 ----------------
 
 function wheel(parent, x, y, z, r, w, hub = 0xffd34d) {
@@ -594,149 +605,132 @@ export function makeBaleWagon() {
 }
 
 // ---------------- 하늘 탈것 ----------------
-/** 🚁 UH-1 '휴이' 스타일 헬기: 긴 객실 · 활짝 열린 미닫이문 · 2날 로터 + 안정바 · 긴 꼬리붐 · 화물 후크 (정원 2명) */
+/** 🚁 MD 500 스타일 소형 헬기: 달걀 동체 · 5날 로터 · T자 꼬리 · 화물 후크 (정원 2명) */
 export function makeHelicopter() {
-  const g = new THREE.Group(), body = group(g);
-  const O = mat(0x9cc77f), O2 = mat(0x7fae66), C = mat(0xfff1c9), D = mat(COL.dark), M = mat(COL.metal), K = mat(0x55606a), IN = mat(0x55604f), R = mat(0xff8a7a);
-  // 스키드: 길쭉한 썰매 + 앞쪽이 살짝 들린 코
+  const g = new THREE.Group(), body = group(g), inner = group(body);
+  const S = 0.78;               // 작고 귀엽게 (원래 크기의 78%)
+  inner.scale.setScalar(S);
+  const Y = mat(0xffd36e), Y2 = mat(0xf2b134), W = mat(0xfffaf0), D = mat(COL.dark), M = mat(COL.metal), K = mat(0x5a6170);
+  // 높은 스키드 (앞 다리가 조금 더 길다)
   for (const sx of [-1, 1]) {
-    part(body, capsule(0.08, 4.2, 3, 8), M, sx * 1.2, 0.1, 0.35, Math.PI / 2, 0, 0);
-    part(body, capsule(0.08, 0.45, 3, 8), M, sx * 1.2, 0.24, 2.62, Math.PI / 2 - 0.7, 0, 0);
-    for (const z of [1.55, -0.6]) part(body, cyl(0.07, 0.07, 1.0, 6), K, sx * 1.02, 0.55, z, 0, 0, sx * 0.42);
+    part(inner, capsule(0.075, 3.3, 3, 8), M, sx * 1.05, 0.1, 0.15, Math.PI / 2, 0, 0);
+    part(inner, sphere(0.09, 8, 6), M, sx * 1.05, 0.16, 1.8, 0, 0, 0, 1, 1, 1.4);
+    part(inner, cyl(0.06, 0.06, 1.15, 6), K, sx * 0.85, 0.62, 0.95, 0.15, 0, sx * 0.35);
+    part(inner, cyl(0.06, 0.06, 1.1, 6), K, sx * 0.85, 0.6, -0.75, -0.1, 0, sx * 0.35);
   }
-  // 객실 (각진 상자 + 둥근 코)
-  part(body, rbox(2.0, 1.75, 3.5, 0.32), O, 0, 1.68, 0.2);
-  part(body, rbox(2.02, 0.38, 3.52, 0.16), C, 0, 0.98, 0.2);              // 크림색 배
-  part(body, sphere(1.0, 22, 16), O, 0, 1.38, 1.95, 0, 0, 0, 1.0, 0.62, 0.95); // 아래 코
-  part(body, sphere(0.98, 22, 16), mat(0xbfe8ff), 0, 1.92, 1.88, 0, 0, 0, 1.0, 0.72, 0.92);
-  part(body, sphere(1.0, 22, 16), glassMat(), 0, 1.94, 1.92, 0, 0, 0, 1.02, 0.74, 0.94);
-  for (const sx of [-1, 1]) part(body, sphere(0.2, 10, 8), mat(0xbfe8ff), sx * 0.42, 1.0, 2.55, 0.5, 0, 0, 1, 0.7, 0.5); // 발밑 창
-  // 반짝 눈 · 볼터치
+  // 달걀 모양 동체 (앞이 둥글고 뒤가 좁다)
+  const egg = group(inner, 0, 1.75, 0.2);
+  part(egg, sphere(1.15, 24, 18), Y, 0, 0, 0, 0, 0, 0, 1.0, 1.0, 1.35);
+  part(egg, sphere(1.0, 20, 14), Y, 0, 0.05, -0.75, 0, 0, 0, 0.8, 0.85, 1.0);
+  // 앞 유리 (위·아래 버블)
+  part(egg, sphere(0.8, 22, 16), mat(0xbfe8ff), 0, 0.18, 0.98, 0, 0, 0, 1.05, 0.78, 0.62);
+  part(egg, sphere(0.8, 22, 16), glassMat(), 0, 0.2, 1.02, 0, 0, 0, 1.08, 0.8, 0.64);
+  part(egg, sphere(0.5, 14, 10), mat(0xbfe8ff), 0, -0.48, 1.18, 0, 0, 0, 0.95, 0.5, 0.5);
+  // 반짝이는 눈 (귀엽게)
+  for (const sx of [-1, 1]) part(egg, sphere(0.13, 10, 8), mat(0xffffff), sx * 0.32, 0.38, 1.47, 0, 0, 0, 1, 1.1, 0.4);
+  // 옆문 창 · 줄무늬 · 귀여운 볼터치
   for (const sx of [-1, 1]) {
-    part(body, sphere(0.13, 10, 8), mat(0xffffff), sx * 0.36, 2.25, 2.68, 0, 0, 0, 1, 1.15, 0.4);
-    part(body, sphere(0.19, 10, 8), mat(0xffa3b5), sx * 0.86, 1.32, 2.15, 0, sx * 0.6, 0, 0.35, 0.7, 1);
+    part(egg, sphere(0.42, 14, 10), glassMat(), sx * 1.0, 0.15, -0.05, 0, 0, 0, 0.25, 0.85, 1.0);
+    part(egg, sphere(0.18, 10, 8), mat(0xffa3b5), sx * 0.98, -0.32, 0.55, 0, 0, 0, 0.25, 0.7, 1);
   }
-  // 활짝 열린 미닫이문 (안이 보인다) + 뒤로 밀린 문짝
-  for (const sx of [-1, 1]) {
-    part(body, rbox(0.06, 1.25, 1.7, 0.05), IN, sx * 1.0, 1.72, 0.25);
-    part(body, rbox(0.08, 1.35, 1.25, 0.06), O2, sx * 1.07, 1.72, -1.0);
-    part(body, sphere(0.24, 12, 10), glassMat(), sx * 1.1, 1.95, -1.0, 0, 0, 0, 0.2, 0.9, 1);
-    part(body, box(0.04, 0.05, 1.9), M, sx * 1.11, 2.42, -0.35);                  // 문 레일
-    part(body, rbox(0.06, 0.5, 0.55, 0.08), glassMat(), sx * 1.0, 2.0, 1.4);      // 조종석 옆창
+  part(egg, torus(1.17, 0.07, 6, 30), W, 0, -0.35, 0, Math.PI / 2, 0, 0, 1, 1.32, 1);
+  // 엔진 덮개 · 배기구
+  part(inner, rbox(0.9, 0.45, 1.3, 0.2), Y2, 0, 2.75, -0.35);
+  // 꼬리붐 + T자 꼬리
+  part(inner, cyl(0.13, 0.26, 3.2, 12), Y, 0, 2.0, -2.55, Math.PI / 2 - 0.05, 0, 0);
+  const tail = group(inner, 0, 2.15, -4.15);
+  part(tail, rbox(0.1, 1.15, 0.6, 0.05), Y2, 0, 0.5, -0.05, -0.32, 0, 0);
+  part(tail, rbox(0.1, 0.65, 0.45, 0.05), Y2, 0, -0.3, 0.05, 0.4, 0, 0);
+  part(tail, rbox(1.25, 0.08, 0.42, 0.04), W, 0, 1.0, -0.2);
+  for (const sx of [-1, 1]) part(tail, rbox(0.06, 0.32, 0.36, 0.03), Y2, sx * 0.62, 1.0, -0.2);
+  for (const sx of [-1, 1]) part(inner, sphere(0.06, 6, 4), glow(sx > 0 ? 0x8fff8a : 0xff6b6b, 0.5), sx * 0.66, 3.15, -4.35);
+  const trotor = group(tail, 0.14, 0.15, 0.05);
+  for (let i = 0; i < 2; i++) part(trotor, box(0.04, 0.8, 0.11), D, 0, 0, 0, i * Math.PI / 2, 0, 0);
+  part(trotor, sphere(0.07, 8, 6), mat(0xff8a7a), 0.03, 0, 0);
+  // 5날 메인 로터
+  part(inner, cyl(0.1, 0.16, 0.45, 10), D, 0, 3.15, 0.0);
+  const rotor = group(inner, 0, 3.42, 0.0);
+  part(rotor, cyl(0.26, 0.26, 0.14, 12), mat(0xff8a7a));
+  part(rotor, sphere(0.14, 10, 8), mat(0xff8a7a), 0, 0.1, 0);
+  for (let i = 0; i < 5; i++) {
+    const bl = group(rotor);
+    bl.rotation.y = (i / 5) * Math.PI * 2;
+    part(bl, box(0.26, 0.04, 3.9), K, 0, 0, 2.05);
+    part(bl, box(0.27, 0.05, 0.35), W, 0, 0.005, 3.85);
   }
-  // 객실 안 긴 의자
-  part(body, rbox(1.6, 0.3, 0.55, 0.08), mat(0x8a6a4a), 0, 1.08, -0.45);
-  part(body, rbox(1.6, 0.6, 0.15, 0.06), mat(0x8a6a4a), 0, 1.4, -0.75);
-  // 엔진 덮개 (지붕 위 혹) · 배기구
-  part(body, rbox(1.2, 0.6, 2.6, 0.26), O2, 0, 2.72, -0.35);
-  part(body, cyl(0.24, 0.28, 0.5, 12), D, 0, 2.95, -1.8, Math.PI / 2 - 0.35, 0, 0);
-  part(body, cyl(0.17, 0.17, 0.52, 12), mat(0x2e2a35), 0, 2.96, -1.82, Math.PI / 2 - 0.35, 0, 0);
-  // 꼬리붐 (뒤로 갈수록 가늘고 살짝 올라간다)
-  part(body, cyl(0.18, 0.44, 4.6, 14), O, 0, 2.1, -3.6, Math.PI / 2 - 0.06, 0, 0);
-  part(body, torus(0.3, 0.05, 6, 18), C, 0, 2.12, -2.6, 0, 0, 0, 1, 1, 1);
-  // 꼬리 수평 안정판(엘리베이터)
-  part(body, rbox(2.0, 0.07, 0.5, 0.03), O2, 0, 2.15, -4.4);
-  // 수직 꼬리 (뒤로 젖혀진) + 꼬리 끝 스키드
-  const tail = group(body, 0, 2.3, -5.85);
-  part(tail, rbox(0.14, 1.5, 0.6, 0.06), O, 0, 0.55, -0.15, -0.45, 0, 0);
-  part(tail, cyl(0.03, 0.03, 0.7, 6), M, 0, -0.45, 0.05, 0.6, 0, 0);
-  part(body, sphere(0.09, 8, 6), glow(0xff6b6b, 0.5), 0, 3.35, -6.5);
-  const trotor = group(tail, 0.18, 0.95, -0.4);
-  part(trotor, sphere(0.09, 8, 6), R);
-  for (let i = 0; i < 2; i++) {
-    part(trotor, box(0.04, 1.3, 0.16), D, 0.02, 0, 0, i * Math.PI, 0, 0);
-    for (const s of [-1, 1]) part(trotor, box(0.05, 0.18, 0.17), mat(0xffffff), 0.02, s * 0.58, 0, 0, 0, 0);
-  }
-  // 2날 메인 로터 + 안정바 (휴이의 상징)
-  part(body, cyl(0.11, 0.16, 0.65, 10), D, 0, 3.25, 0.15);
-  const rotor = group(body, 0, 3.6, 0.15);
-  part(rotor, rbox(0.55, 0.2, 0.4, 0.08), R);
-  part(rotor, sphere(0.16, 10, 8), R, 0, 0.16, 0);
-  for (const s of [-1, 1]) {
-    part(rotor, box(0.42, 0.05, 5.2), K, 0, 0, s * 2.85);
-    part(rotor, box(0.43, 0.06, 0.45), mat(0xffffff), 0, 0.005, s * 5.25);
-    part(rotor, cyl(0.025, 0.025, 1.7, 6), M, s * 0.85, 0.1, 0, 0, 0, Math.PI / 2);
-    part(rotor, capsule(0.07, 0.22, 3, 8), mat(0xffd36e), s * 1.75, 0.1, 0, Math.PI / 2, 0, 0);
-  }
-  const beacon = part(body, sphere(0.11, 8, 6), mat(0xff6b6b), 0, 3.05, -1.2);
-  // 화물 후크 (배 밑) — 줄과 짐은 vehicles.js에서 그린다
-  const hook = group(body, 0, 0.82, 0.15);
-  part(hook, cyl(0.12, 0.12, 0.1, 10), D);
-  // 조종석 2자리 (나란히)
-  const seat = group(body, -0.46, 1.05, 1.5);
-  const seat2 = group(body, 0.46, 1.05, 1.5);
-  return { group: g, body, wheels: [], steer: [], rotor, trotor, beacon, seat, seat2, hook, carry: g, exhaust: group(body, 0, 3.05, -2.05), heli: true };
+  const beacon = part(inner, sphere(0.1, 8, 6), mat(0xff6b6b), 0, 2.98, -1.05);
+  // 조종석 2자리 (나란히) — 작은 조종사가 달걀 동체 안에 쏙 들어간다
+  const seat = group(body, 0.3 * S, 1.02 * S, 0.42 * S);
+  const seat2 = group(body, -0.3 * S, 1.02 * S, 0.42 * S);
+  // 화물 후크 (배 밑)
+  const hook = group(body, 0, 0.62 * S, 0.15 * S);
+  part(hook, cyl(0.1, 0.1, 0.08, 10), D);
+  return { group: g, body, wheels: [], steer: [], rotor, trotor, beacon, seat, seat2, hook, hookY: 0.58 * S, hookZ: 0.15 * S, carry: g, exhaust: group(inner, 0, 2.8, -1.05), heli: true };
 }
 
-/** ✈️ C172 스타일 경비행기: 높은 날개 · 버팀대 · 바퀴 덮개 세발바퀴 · 큰 꼬리날개 (정원 2명) */
+/** ✈️ 초소형 2인승 경비행기: 통통한 작은 저익기 · 물방울 캐노피 · 앞뒤(탠덤) 좌석 · 세발바퀴 */
 export function makePlane() {
   const g = new THREE.Group(), body = group(g);
   const W = mat(0xfffaf0), P = mat(0xff9eb5), B = mat(0x7cb7f0), D = mat(COL.dark), M = mat(COL.metal);
-  const fus = group(body, 0, 1.35, 0);
-  // 동체: 둥근 엔진 카울 → 넓은 객실 → 가늘어지는 꼬리
-  part(fus, rbox(1.25, 1.25, 2.3, 0.5), W, 0, 0.05, 0.5);
-  part(fus, cyl(0.62, 0.5, 1.1, 18), W, 0, -0.05, 2.15, Math.PI / 2, 0, 0);
-  part(fus, sphere(0.52, 16, 12), B, 0, -0.08, 2.75, 0, 0, 0, 1, 0.9, 0.7);
-  part(fus, cyl(0.58, 0.14, 3.6, 16), W, 0, 0.15, -2.35, Math.PI / 2 + 0.07, 0, 0);
-  // 옆 줄무늬 (분홍·하늘)
+  const fus = group(body, 0, 0.95, 0);
+  // 통통한 동체 → 가늘어지는 꼬리
+  part(fus, capsule(0.48, 1.6, 6, 16), W, 0, 0, 0.35, Math.PI / 2, 0, 0);
+  part(fus, cyl(0.44, 0.12, 2.4, 16), W, 0, 0.06, -1.9, Math.PI / 2 + 0.05, 0, 0);
   for (const sx of [-1, 1]) {
-    part(fus, box(0.04, 0.16, 4.6), P, sx * 0.62, -0.18, -0.4);
-    part(fus, box(0.04, 0.08, 4.4), B, sx * 0.61, -0.36, -0.5);
+    part(fus, box(0.04, 0.12, 2.9), P, sx * 0.46, -0.14, 0.15);
+    part(fus, box(0.04, 0.06, 2.7), B, sx * 0.45, -0.3, 0.1);
+    part(fus, sphere(0.1, 10, 8), mat(COL.blush), sx * 0.4, -0.05, 1.45, 0, sx * 0.6, 0, 0.35, 0.7, 1);
   }
-  // 창문: 앞 유리 · 옆 문 창 · 뒷창
-  part(fus, rbox(1.1, 0.6, 0.12, 0.08), glassMat(), 0, 0.42, 1.62, -0.55, 0, 0);
-  for (const sx of [-1, 1]) {
-    part(fus, rbox(0.06, 0.48, 0.85, 0.08), glassMat(), sx * 0.64, 0.3, 0.95);
-    part(fus, rbox(0.06, 0.4, 0.6, 0.08), glassMat(), sx * 0.62, 0.3, 0.05);
-    part(fus, box(0.05, 0.62, 0.03), mat(0xb8c4d4), sx * 0.64, 0.12, 0.55);
-  }
-  // 프로펠러 + 스피너
-  const prop = group(fus, 0, -0.08, 3.08);
-  part(prop, cone(0.2, 0.4, 12), mat(0xffd34d), 0, 0, 0.12, Math.PI / 2, 0, 0);
-  for (let i = 0; i < 2; i++) part(prop, rbox(0.17, 2.2, 0.05, 0.03), D, 0, 0, 0, 0, 0, i * Math.PI);
-  for (let i = 0; i < 2; i++) part(prop, box(0.18, 0.18, 0.06), mat(0xffd34d), 0, (i ? 1 : -1) * 1.0, 0.01);
-  // 높은 날개 + 버팀대 + 끝 등불 (뒷전에 플랩 · 보조익이 움직인다)
-  part(body, rbox(10.4, 0.16, 1.1, 0.07), W, 0, 2.08, 0.93);
+  // 반짝 눈 (엔진 덮개 위)
+  for (const sx of [-1, 1]) part(fus, sphere(0.09, 10, 8), mat(0xffffff), sx * 0.2, 0.22, 1.75, 0, 0, 0, 1, 1.15, 0.45);
+  // 엔진 덮개 + 스피너 + 2날 프로펠러
+  part(fus, sphere(0.42, 16, 12), B, 0, -0.04, 1.85, 0, 0, 0, 1, 0.95, 0.55);
+  const prop = group(fus, 0, -0.04, 2.08);
+  part(prop, cone(0.15, 0.32, 12), mat(0xffd34d), 0, 0, 0.1, Math.PI / 2, 0, 0);
+  for (let i = 0; i < 2; i++) part(prop, rbox(0.13, 1.6, 0.04, 0.02), D, 0, 0, 0, 0, 0, i * Math.PI);
+  for (let i = 0; i < 2; i++) part(prop, box(0.14, 0.14, 0.05), mat(0xffd34d), 0, (i ? 1 : -1) * 0.72, 0.01);
+  // 물방울 캐노피 (두 자리를 덮는다)
+  part(fus, sphere(0.5, 20, 14), glassMat(), 0, 0.44, 0.05, 0, 0, 0, 0.75, 0.62, 1.7);
+  part(fus, torus(0.36, 0.035, 6, 16, Math.PI), P, 0, 0.44, 0.05, 0, Math.PI / 2, 0, 1, 0.85, 1);
+  // 낮은 날개 + 끝 등불 + 뒷전의 플랩 · 보조익
+  part(body, rbox(6.4, 0.12, 0.95, 0.05), W, 0, 0.62, 0.45);
   const flaps = [], ailerons = [];
   for (const sx of [-1, 1]) {
-    part(body, rbox(1.2, 0.17, 1.12, 0.07), P, sx * 4.7, 2.09, 0.93);
-    part(body, sphere(0.1, 8, 6), glow(sx > 0 ? 0x8fff8a : 0xff6b6b, 0.6), sx * 5.25, 2.09, 0.93);
-    part(body, cyl(0.04, 0.04, 2.2, 6), M, sx * 1.55, 1.38, 0.75, 0, 0, sx * 0.92);
-    const f = group(body, sx * 1.95, 2.06, 0.4);
-    part(f, rbox(2.5, 0.08, 0.4, 0.03), W, 0, 0, -0.2);
+    part(body, rbox(0.8, 0.13, 0.97, 0.05), P, sx * 2.85, 0.62, 0.45);
+    part(body, sphere(0.08, 8, 6), glow(sx > 0 ? 0x8fff8a : 0xff6b6b, 0.6), sx * 3.22, 0.62, 0.45);
+    const f = group(body, sx * 1.15, 0.6, 0.0);
+    part(f, rbox(1.4, 0.06, 0.32, 0.02), W, 0, 0, -0.16);
     flaps.push(f);
-    const a = group(body, sx * 4.2, 2.06, 0.4);
-    part(a, rbox(2.1, 0.08, 0.4, 0.03), P, 0, 0, -0.2);
+    const a = group(body, sx * 2.5, 0.6, 0.0);
+    part(a, rbox(1.2, 0.06, 0.32, 0.02), P, 0, 0, -0.16);
     a.userData.side = sx;
     ailerons.push(a);
   }
-  // 꼬리: 뒤로 젖혀진 수직날개 + 방향타 · 수평날개 + 승강타
-  part(body, rbox(3.2, 0.1, 0.6, 0.04), W, 0, 1.6, -3.82);
-  for (const sx of [-1, 1]) part(body, rbox(0.5, 0.11, 0.62, 0.04), P, sx * 1.35, 1.6, -3.82);
-  const elevator = group(body, 0, 1.6, -4.12);
-  part(elevator, rbox(3.2, 0.08, 0.42, 0.03), P, 0, 0, -0.21);
-  part(body, rbox(0.1, 1.5, 0.75, 0.04), P, 0, 2.3, -3.9, -0.42, 0, 0);
-  const rp = group(body, 0, 2.3, -4.3);
-  rp.rotation.x = -0.42;
+  // 꼬리: 수평날개 + 승강타 · 수직날개 + 방향타
+  part(body, rbox(2.0, 0.07, 0.42, 0.03), W, 0, 1.05, -2.85);
+  const elevator = group(body, 0, 1.05, -3.06);
+  part(elevator, rbox(2.0, 0.06, 0.3, 0.02), P, 0, 0, -0.15);
+  part(body, rbox(0.08, 0.9, 0.5, 0.03), P, 0, 1.45, -2.85, -0.35, 0, 0);
+  const rp = group(body, 0, 1.45, -3.13);
+  rp.rotation.x = -0.35;
   const rudder = group(rp);
-  part(rudder, rbox(0.08, 1.4, 0.42, 0.03), W, 0, 0, -0.2);
-  part(body, rbox(0.08, 0.45, 1.4, 0.04), W, 0, 1.85, -3.2, -0.15, 0, 0);
-  // 세발 고정 바퀴 (바퀴 덮개)
+  part(rudder, rbox(0.07, 0.85, 0.28, 0.02), W, 0, 0, -0.14);
+  // 짧은 세발바퀴
   const wheels = [], steer = [];
   for (const sx of [-1, 1]) {
-    part(body, box(0.08, 0.9, 0.12), M, sx * 0.85, 0.72, 0.05, 0, 0, sx * 0.55);
-    wheels.push(wheel(body, sx * 1.2, 0.3, 0.05, 0.3, 0.18, 0xfffaf0));
-    part(body, sphere(0.36, 12, 8), P, sx * 1.2, 0.38, 0.05, 0, 0, 0, 0.42, 0.62, 1.15);
+    part(body, box(0.06, 0.45, 0.08), M, sx * 0.75, 0.42, 0.25, 0, 0, sx * 0.5);
+    wheels.push(wheel(body, sx * 0.9, 0.22, 0.25, 0.22, 0.14, 0xfffaf0));
+    part(body, sphere(0.26, 12, 8), P, sx * 0.9, 0.28, 0.25, 0, 0, 0, 0.4, 0.6, 1.1);
   }
-  part(body, cyl(0.05, 0.05, 0.75, 6), M, 0, 0.6, 2.3);
-  const nw = wheel(body, 0, 0.24, 2.3, 0.24, 0.15, 0xfffaf0);
+  part(body, cyl(0.04, 0.04, 0.5, 6), M, 0, 0.42, 1.55);
+  const nw = wheel(body, 0, 0.18, 1.55, 0.18, 0.12, 0xfffaf0);
   wheels.push(nw); steer.push(nw.steer);
-  const beacon = part(body, sphere(0.09, 8, 6), mat(0xff6b6b), 0, 3.0, -4.35);
-  // 조종석 2자리 (나란히)
-  for (const sx of [-1, 1]) part(body, rbox(0.5, 0.55, 0.15, 0.06), mat(0x8b5a3c), sx * 0.3, 1.3, 0.35);
-  const seat = group(body, 0.3, 0.92, 0.6);
-  const seat2 = group(body, -0.3, 0.92, 0.6);
-  return { group: g, body, wheels, steer, prop, beacon, seat, seat2, flaps, ailerons, elevator, rudder, exhaust: group(body, 0.45, 1.05, 2.3), plane: true };
+  const beacon = part(body, sphere(0.08, 8, 6), mat(0xff6b6b), 0, 1.92, -3.05);
+  // 앞뒤 좌석 (탠덤)
+  for (const z of [0.45, -0.35]) part(body, rbox(0.42, 0.45, 0.1, 0.05), mat(0x8b5a3c), 0, 0.92, z - 0.22);
+  const seat = group(body, 0, 0.7, 0.45);
+  const seat2 = group(body, 0, 0.7, -0.35);
+  return { group: g, body, wheels, steer, prop, beacon, seat, seat2, flaps, ailerons, elevator, rudder, exhaust: group(body, 0.3, 0.8, 1.7), plane: true };
 }
 
 // ---------------- 아이템 ----------------

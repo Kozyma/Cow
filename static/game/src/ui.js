@@ -411,7 +411,7 @@ function updateDrivePanel() {
     g.push(gauge('상승률', Math.min(1, Math.abs(vs) / 5), `${vs >= 0 ? '▲' : '▼'} ${Math.abs(vs).toFixed(1)}m/s`, Math.abs(vs) > 3.2 && v.pos.y < 6 && vs < 0 ? 'boost on' : 'mix'));
     if (d.air === 'heli') {
       g.push(gauge('출력', v.coll || 0, v.rpm < 0.95 ? `시동 ${Math.round(v.rpm * 100)}%` : `${Math.round((v.coll || 0) * 100)}%`, 'tilt'));
-      if (v.carrying) g.push(gauge('화물 줄', v.lift / 9, `${v.lift.toFixed(1)}m`, 'feedleft'));
+      if (v.carrying || v.winch) g.push(gauge('화물 줄', v.lift / 30, `${v.lift.toFixed(1)}m`, 'feedleft'));
     } else {
       g.push(gauge('스로틀', v.thrL || 0, v.rpm < 0.95 ? `시동 ${Math.round(v.rpm * 100)}%` : `${Math.round((v.thrL || 0) * 100)}%`, 'tilt'));
       g.push(gauge('플랩', v.tilt, v.tilt === 0 ? '올림' : v.tilt === 0.5 ? '10°' : '30°', 'feedleft'));
@@ -462,14 +462,16 @@ function updateDrivePanel() {
   }
   if (space) keys.push(`${kb('Space')} ${space}`);
   if (v.type === 'mixer') keys.push(`${kb('1')}${kb('2')}${kb('3')} 건초·옥수수·대두박 넣기 (배합장)`);
-  if (d.air === 'heli') keys.splice(0, keys.length, `${kb('W')}${kb('S')} 앞·뒤`, `${kb('R')}${kb('F')} 상승·하강`, `${kb('A')}${kb('D')} 선회`, `${kb('Space')} ${v.carrying ? '짐 내려놓기' : '짐 걸기 🪝'}`);
+  if (d.air === 'heli') keys.splice(0, keys.length, `${kb('W')}${kb('S')} 앞·뒤`, `${kb('R')}${kb('F')} 상승·하강`, `${kb('A')}${kb('D')} 선회`, `${kb('Space')} ${v.carrying ? '짐 내려놓기 (자동)' : '짐 걸기 (자동) 🪝'}`);
   if (d.air === 'plane') keys.splice(0, keys.length, `${kb('W')}${kb('S')} 출력 올리기·내리기`, `${kb('R')}${kb('F')} 상승·하강`, `${kb('A')}${kb('D')} 선회`, `${kb('Space')} 플랩`);
   keys.push(`${kb('E')} 내리기`, `${kb('V')} 시점`);
   let tip = '';
   if (d.air === 'heli') {
     if (!v.airborne) tip = v.rpm < 0.95 ? '로터가 다 돌 때까지 기다렸다가 R로 떠올라요' : v.carrying ? '짐을 매단 채 R로 천천히 올라가요 (짐 무게만큼 출력이 더 필요해요)' : 'R로 떠올라요 · 팔레트를 매달아 판매소에 내려놓으면 팔려요';
-    else if (v.carrying) tip = '짐이 흔들려요! 천천히 멈춰 흔들림을 줄이고, 짐이 땅에 닿으면 Space로 내려놓아요';
-    else tip = Math.abs(v.speed) > 6 ? '손을 떼도 관성으로 계속 가요 · S로 기수를 들어 멈춰요' : '팔레트 바로 위에 낮게 떠서 Space로 걸어요 · 내려올 땐 F로 천천히 (초속 3m 이하)';
+    else if (v.winch?.mode === 'down') tip = '🪝 후크가 짐까지 내려가는 중… 그대로 떠 있어요';
+    else if (v.winch?.mode === 'set') tip = '🪝 줄을 풀어 짐을 내려놓는 중…';
+    else if (v.carrying) tip = '짐이 흔들려요! 천천히 멈춰요 · 내려놓을 곳(판매소·출하장·트럭) 위에서 Space';
+    else tip = Math.abs(v.speed) > 6 ? '손을 떼도 관성으로 계속 가요 · S로 기수를 들어 멈춰요' : '짐 위에서 Space → 고도와 상관없이 후크가 자동으로 내려가 걸어요';
   }
   if (d.air === 'plane') {
     const kmh = Math.round(v.V * 3.6);
@@ -499,7 +501,7 @@ function updateDrivePanel() {
     ${v.type === 'mixer' ? mixerButtons(v) : ''}
     <div class="dp-keys">${keys.map((k) => `<span>${k}</span>`).join('')}</div>`;
   if (panel.dataset.html !== html) { panel.innerHTML = html; panel.dataset.html = html; }
-  $('#btn-space').textContent = d.air === 'heli' ? (v.carrying ? '내려놓기' : '짐 걸기') : d.air === 'plane' ? '플랩' : d.personal ? '경적' : space ? (v.isTruck ? '상차/판매' : '작업') : '작업';
+  $('#btn-space').textContent = d.air === 'heli' ? (v.winch && v.winch.mode !== 'up' ? '멈추기' : v.carrying ? '내려놓기' : '짐 걸기') : d.air === 'plane' ? '플랩' : d.personal ? '경적' : space ? (v.isTruck ? '상차/판매' : '작업') : '작업';
   $('#btn-e').textContent = '내리기';
 }
 
@@ -544,7 +546,7 @@ export function renderStore(truck) {
 
 // ---------------- 미니맵 ----------------
 let mmBg = null;
-const MM = 310;
+const MM = 470;
 function drawMinimapBg(size) {
   const c = document.createElement('canvas');
   c.width = c.height = size;
@@ -554,7 +556,7 @@ function drawMinimapBg(size) {
   g.scale(s, s);
   g.fillStyle = '#a6dc7e'; g.fillRect(-MM / 2, -MM / 2, MM, MM);
   g.fillStyle = '#f3e2b3';
-  g.fillRect(-148, LAYOUT.roadZ - 2, 296, 4);
+  g.fillRect(-LAYOUT.bound + 2, LAYOUT.roadZ - 2, LAYOUT.bound * 2 - 4, 4);
   g.fillRect(-22, 37.5, 4, 50); g.fillRect(-72, 86, 52, 4);
   const AF = LAYOUT.airfield;
   g.fillStyle = '#8a8f9c'; g.fillRect(AF.runway.x - AF.runway.len / 2, AF.runway.z - AF.runway.w / 2, AF.runway.len, AF.runway.w);

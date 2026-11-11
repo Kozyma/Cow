@@ -23,7 +23,7 @@ function noise2(x, z) {
 }
 
 function buildGround(scene) {
-  const size = 560, seg = 240;
+  const size = 720, seg = 300;
   const geo = new THREE.PlaneGeometry(size, size, seg, seg);
   geo.rotateX(-Math.PI / 2);
   const c1 = new THREE.Color(0xa6dc7e), c2 = new THREE.Color(0x8ccf6c), c3 = new THREE.Color(0xb9e48c);
@@ -56,7 +56,7 @@ function strip(scene, cx, cz, w, d, color, y = 0.02, borderColor = 0xe2c48e) {
 
 function buildRoads(scene) {
   const sand = 0xf3e2b3, pave = 0xe6e1d6;
-  strip(scene, 0, LAYOUT.roadZ, 296, 4, sand);
+  strip(scene, 0, LAYOUT.roadZ, LAYOUT.bound * 2 - 4, 4, sand);
   // 비행장 가는 길 (주차장 → 남쪽 비행장)
   strip(scene, -20, 62.5, 4, 50, sand, 0.022);
   strip(scene, -46, 88, 52, 4, sand, 0.022);
@@ -210,7 +210,7 @@ function buildNature(scene) {
   setOwner(NATURE);
   const placed = [];
   let tries = 0;
-  while (placed.length < 220 && tries++ < 12000) {
+  while (placed.length < 470 && tries++ < 24000) {
     const x = rand(-B + 2, B - 2), z = rand(-B + 2, B - 2);
     if (isReserved(x, z, 2.5)) continue;
     if (placed.some((p) => Math.hypot(p.x - x, p.z - z) < 4.5)) continue;
@@ -220,26 +220,26 @@ function buildNature(scene) {
   }
   // 덤불, 꽃, 풀, 바위
   tries = 0; let n = 0;
-  while (n < 120 && tries++ < 6000) {
+  while (n < 210 && tries++ < 9000) {
     const x = rand(-B + 1, B - 1), z = rand(-B + 1, B - 1);
     if (isReserved(x, z, 1.2) || placed.some((p) => Math.hypot(p.x - x, p.z - z) < 2.5)) continue;
     bush(x, z, rand(0.8, 1.2)); addCircle(x, z, 0.6); n++;
   }
   setOwner(null);
   tries = 0; n = 0;
-  while (n < 620 && tries++ < 14000) {
+  while (n < 1000 && tries++ < 20000) {
     const x = rand(-B - 6, B + 6), z = rand(-B - 6, B + 6);
     if (isReserved(x, z, 0.5)) continue;
     flowerPatch(x, z); n++;
   }
   const w = mat(0xffffff);
-  for (let i = 0; i < 4300; i++) {
+  for (let i = 0; i < 8200; i++) {
     const x = rand(-B - 8, B + 8), z = rand(-B - 8, B + 8);
     if (isReserved(x, z, 0.2)) continue;
     const c = pick([0x7cc464, 0x6cb85a, 0x8ad272]);
     for (let k = 0; k < 3; k++) INST.add('tuft', cone(0.07, 0.38, 4), w, x + rand(-0.15, 0.15), 0.15, z + rand(-0.15, 0.15), rand(-0.3, 0.3), 0, rand(-0.3, 0.3), 1, rand(0.7, 1.2), 1, c, false);
   }
-  for (let i = 0; i < 100; i++) {
+  for (let i = 0; i < 180; i++) {
     const x = rand(-B, B), z = rand(-B, B);
     if (isReserved(x, z, 1)) continue;
     INST.add('rock', dodeca(0.5), w, x, 0.15, z, rand(0, 3), rand(0, 3), 0, rand(0.5, 1), rand(0.4, 0.7), rand(0.5, 1), 0xc7c9cf);
@@ -297,7 +297,7 @@ function buildSky(scene) {
   sun.shadow.normalBias = 0.04;
   scene.add(sun); scene.add(sun.target);
   W.sun = sun;
-  scene.fog = new THREE.Fog(0xd8f2ff, 90, 230);
+  scene.fog = new THREE.Fog(0xd8f2ff, 100, 280);
 }
 
 export function updateSky(camPos, target) {

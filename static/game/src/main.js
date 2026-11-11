@@ -284,7 +284,7 @@ function enterVehicle(v, p = G.player) {
     G.cam.dragT = 0;
     G.cam.fpOff = 0;
     G.cam.fpPitch = -0.08;
-    if (v.def.air) { G.cam.dist = Math.max(G.cam.dist, 34); toast(v.def.air === 'heli' ? '🚁 R 상승 · F 하강 · W/S 전진·후진 · A/D 회전 · Shift 빠르게' : '✈️ W로 달려 시속 50km가 넘으면 R로 이륙! A/D 선회 · F 하강 · S 감속', v.def.icon, 4200); }
+    if (v.def.air) { G.cam.dist = Math.max(G.cam.dist, 34); toast(v.def.air === 'heli' ? '🚁 R 상승 · F 하강 · W/S 앞뒤 · A/D 선회 · Space 짐 걸기' : '✈️ W로 출력을 올려 달리다 R로 이륙 · A/D 선회 · F 하강', v.def.icon, 4200); }
     sfx('board');
   } else {
     p.driving = v;

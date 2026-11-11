@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { G, LAYOUT, BALE_FEED, MAX_BALES, BUCKET_CAP, TRUCK_BULK_CAP, COMPOST, INGREDIENTS, RECIPES, MIX_TIME, MIXER_CAP, MIX_UNIT_FEED } from './state.js';
 import { stock, loadIngredient, recipeOf, planRecipe, mixTotal, freeStationSlot, setOnStation, inStation } from './feed.js';
 import { shedAt, allSheds } from './compost.js';
-import { makeTractor, makeBaler, makeForklift, makeSkidLoader, makeTruck1, makeTruck5, makeMixer, makeBaleWagon, makeCar, makeHelicopter, makePlane, glassMat, makeFarmer, seatFigure, PLAYER_LOOK, NPC_LOOKS, LAMP } from './models.js';
+import { makeTractor, makeBaler, makeForklift, makeSkidLoader, makeTruck1, makeTruck5, makeMixer, makeBaleWagon, makeCar, makeHelicopter, makePlane, glassMat, makeFarmer, seatFigure, pilotFigure, PLAYER_LOOK, NPC_LOOKS, LAMP } from './models.js';
 import { mat } from './materials.js';
 import { clamp, wrapAngle, approach, damp, dampAngle, rand, lerp, group, part, sphere, torus } from './util.js';
 import { collideCircle, blockedAt } from './physics.js';
@@ -57,12 +57,12 @@ export const VEH_DEFS = {
     circles: [[1.0, 1.05], [-1.0, 1.05]], personal: true,
   },
   heli: {
-    name: '헬기', icon: '🚁', maxSpeed: 20, accel: 6, turn: 1.6, radius: 2.0, work: 2.6, build: makeHelicopter, carries: ['pallet', 'bale', 'sack'], color: '#9cc77f',
-    circles: [[0.6, 1.7], [-2.2, 1.0], [-4.6, 0.7]], air: 'heli', seats: 2,
+    name: '헬기', icon: '🚁', maxSpeed: 20, accel: 6, turn: 1.6, radius: 1.6, work: 2.2, build: makeHelicopter, carries: ['pallet', 'bale', 'sack'], color: '#ffd36e',
+    circles: [[0.2, 1.3], [-2.3, 0.6]], air: 'heli', seats: 2,
   },
   plane: {
-    name: '경비행기', icon: '✈️', maxSpeed: 28, accel: 5, turn: 1.4, radius: 1.8, work: 3.0, build: makePlane, carries: [], color: '#ff9eb5',
-    circles: [[1.2, 1.4], [-2.6, 1.0]], air: 'plane', seats: 2,
+    name: '경비행기', icon: '✈️', maxSpeed: 28, accel: 5, turn: 1.4, radius: 1.3, work: 2.4, build: makePlane, carries: [], color: '#ff9eb5',
+    circles: [[0.7, 1.1], [-1.6, 0.7]], air: 'plane', seats: 2,
   },
 };
 
@@ -123,11 +123,13 @@ export class Vehicle {
     this.status = '대기 중';
     this.idleStatus = '대기 중';
     this.ai = { task: null, path: null, idx: 0, think: rand(0.2, 1.2), stuck: 0, reverseT: 0, revSteer: 0, wait: 0, forBarn: null };
-    this.playerFig = seatFigure(makeFarmer(PLAYER_LOOK));
-    this.npcFig = seatFigure(makeFarmer(NPC_LOOKS[index % NPC_LOOKS.length]));
+    const sit = this.def.air ? pilotFigure : seatFigure;   // 항공기는 작은 조종사 + 헤드셋
+    this.playerFig = sit(makeFarmer(PLAYER_LOOK));
+    this.npcFig = sit(makeFarmer(NPC_LOOKS[index % NPC_LOOKS.length]));
     this.m.seat.add(this.playerFig.group, this.npcFig.group);
     this.playerFig.group.visible = false;
-    this.eye = group(this.m.seat, 0, 0.95, 0.12);
+    const eyeY = this.def.air ? 0.66 : 0.95;
+    this.eye = group(this.m.seat, 0, eyeY, 0.12);
     this.lampOn = LAMP.on();
     this.lampOff = LAMP.off();
     this.beaconOn = mat(0xffb03c, { emissive: 0xff8a00, emissiveIntensity: 1.2 });
@@ -135,10 +137,10 @@ export class Vehicle {
     // 2인승: 옆자리 동승자
     this.passenger = null;
     if (this.m.seat2) {
-      this.passFig = seatFigure(makeFarmer(NPC_LOOKS[(index + 2) % NPC_LOOKS.length]));
+      this.passFig = sit(makeFarmer(NPC_LOOKS[(index + 2) % NPC_LOOKS.length]));
       this.m.seat2.add(this.passFig.group);
       this.passFig.group.visible = false;
-      this.eye2 = group(this.m.seat2, 0, 0.95, 0.12);
+      this.eye2 = group(this.m.seat2, 0, eyeY, 0.12);
     }
     this.glass = [];
     const gm = glassMat();
@@ -172,6 +174,7 @@ export class Vehicle {
     if (this.def.air) {
       if (this.job?.reservedBy === this) this.job.reservedBy = null;
       this.job = null;
+      if (this.winch?.it) this.winchStop();
       this.flyState = this.airborne ? (this.def.air === 'plane' ? 'dw1' : 'back') : 'idle'; this.flyWait = 1; this.stateT = 0;
       return;
     }
@@ -1647,7 +1650,8 @@ export class Vehicle {
     this.lift = this.liftT = 2.5;                 // 화물 줄 길이 (m)
     this.sling = { p: new THREE.Vector3(this.pos.x, 0, this.pos.z), v: new THREE.Vector3() };
     this.drops = [];
-    this.slingLocal = new THREE.Vector3(0, 0, 0.15);
+    this.slingLocal = new THREE.Vector3(0, 0, this.m.hookZ);
+    this.winch = null;
     const rg = new THREE.CylinderGeometry(0.035, 0.035, 1, 6);
     rg.translate(0, 0.5, 0);
     this.rope = new THREE.Mesh(rg, mat(0x6b5a48));
@@ -1677,10 +1681,11 @@ export class Vehicle {
       if (driven) {
         c = easy ? this.heliEasy(dt, thr, yaw, climb, side) : this.heliSim(dt, thr, yaw, climb, side);
         const w = (this.key('KeyT') ? 1 : 0) - (this.key('KeyG') ? 1 : 0);   // T: 줄 감기 · G: 줄 풀기
-        if (w) this.lift = clamp(this.lift - w * 1.8 * dt, 0.6, 9);
+        if (w) { this.winch = null; this.lift = clamp(this.lift - w * 2.5 * dt, 0.6, 30); }
       } else if (this.auto) c = this.autoHeli(dt);
       else c = this.heliAssist(dt, 0, 0, this.airborne ? -Math.min(2.5, 0.6 + this.pos.y * 0.3) : -2, 0);
       this.heliPhysics(dt, c);
+      this.winchStep(dt);
       this.slingStep(dt);
       this.stepDrops(dt);
     } else {
@@ -1816,8 +1821,9 @@ export class Vehicle {
   slingStep(dt) {
     const S = this.sling, it = this.carrying;
     const h = this.heading, s = Math.sin(h), c = Math.cos(h);
-    const hy = 0.82 * Math.cos(this.pitch) - 0.15 * Math.sin(this.pitch);
-    const hz = 0.82 * Math.sin(this.pitch) + 0.15 * Math.cos(this.pitch);
+    const HY = this.m.hookY, HZ = this.m.hookZ;
+    const hy = HY * Math.cos(this.pitch) - HZ * Math.sin(this.pitch);
+    const hz = HY * Math.sin(this.pitch) + HZ * Math.cos(this.pitch);
     const Hx = this.pos.x + hz * s, Hy = this.pos.y + hy, Hz = this.pos.z + hz * c;
     const top = it ? SLING_TOP[it.kind] ?? 0.9 : 0;
     const mu = it ? SLING_MASS[it.kind] ?? 0.2 : 0.004;
@@ -1872,8 +1878,9 @@ export class Vehicle {
       L.x += (this.netHook[0] - L.x) * k; L.y += (this.netHook[1] - L.y) * k; L.z += (this.netHook[2] - L.z) * k;
     }
     const top = it ? SLING_TOP[it.kind] ?? 0.9 : 0;
-    const hy = 0.82 * Math.cos(this.pitch) - 0.15 * Math.sin(this.pitch);
-    const hz = 0.82 * Math.sin(this.pitch) + 0.15 * Math.cos(this.pitch);
+    const HY = this.m.hookY, HZ = this.m.hookZ;
+    const hy = HY * Math.cos(this.pitch) - HZ * Math.sin(this.pitch);
+    const hz = HY * Math.sin(this.pitch) + HZ * Math.cos(this.pitch);
     _c.set(0, hy, hz);
     _w.set(L.x, L.y + top, L.z);
     this.hookBall.position.copy(_w);
@@ -1894,7 +1901,7 @@ export class Vehicle {
     }
   }
 
-  /** Space: 🚁 후크 걸기/풀기 · ✈️ 플랩 단계 */
+  /** Space: 🚁 후크 자동으로 내려 걸기 / 짐 내려놓기 · ✈️ 플랩 단계 */
   airAction() {
     if (this.def.air === 'plane') {
       this.tilt = this.tilt < 0.25 ? 0.5 : this.tilt < 0.75 ? 1 : 0;
@@ -1902,38 +1909,94 @@ export class Vehicle {
       floatText(this.pos.x, this.pos.y + 3.5, this.pos.z, `플랩 ${this.tilt === 0 ? '올림' : this.tilt === 0.5 ? '10°' : '30°'}`, '');
       return;
     }
-    if (this.carrying) this.slingRelease();
-    else this.slingHook();
+    if (this.winch && this.winch.mode !== 'up') { this.winchStop(); if (this.driver) toast('후크 작업을 멈췄어요', '🪝', 1400); return; }
+    if (this.carrying) this.startSetdown();
+    else this.startHook();
   }
 
-  slingHook() {
-    const S = this.sling, manual = !!this.driver;
-    // 후크 근처(옆으로 2.6m, 위아래 4m 안)의 짐을 건다 → 줄 길이는 알아서 맞춘다
-    let best = null, bd = Infinity;
+  /** 헬기 아래(옆으로 8m 안)에서 가장 가까운 짐 */
+  hookTarget(R = 8) {
+    let best = null, bd = R;
     for (const it of G.items) {
       if (it.carriedBy || it.fly || it.removed || it.falling || !this.def.carries.includes(it.kind)) continue;
       if (it.reservedBy && it.reservedBy !== this) continue;
-      const top = it.pos.y + (SLING_TOP[it.kind] ?? 0.9);
-      const hd = Math.hypot(it.pos.x - S.p.x, it.pos.z - S.p.z), vd = S.p.y - top;
-      if (hd > 2.6 || vd > 4 || vd < -1.5) continue;
-      const d = hd + Math.abs(vd) * 0.5;
+      if (it.pos.y > this.pos.y) continue;
+      const d = Math.hypot(it.pos.x - this.pos.x, it.pos.z - this.pos.z);
       if (d < bd) { bd = d; best = it; }
     }
-    if (!best) {
-      if (manual) toast('짐(팔레트·건초) 바로 위에 낮게 떠서 Space를 눌러요', '🪝', 2400);
+    return best;
+  }
+
+  /** 고도와 상관없이: 줄을 풀어 후크를 짐까지 내려 걸고, 다시 감아올린다 */
+  startHook(it = null) {
+    it = it || this.hookTarget();
+    if (!it) {
+      if (this.driver) toast('헬기 바로 아래(8m 안)에 팔레트·건초가 없어요', '🪝', 2200);
       return false;
     }
-    {
-      const top = best.pos.y + (SLING_TOP[best.kind] ?? 0.9);
-      const hy = this.pos.y + 0.82;
-      this.lift = clamp(Math.max(this.lift, Math.hypot(best.pos.x - this.pos.x, top - hy, best.pos.z - this.pos.z) + 0.1), 0.6, 9);
-    }
-    pickupItem(this, best);
-    S.p.copy(best.pos);
-    S.v.set(0, 0, 0);
-    if (manual) floatText(best.pos.x, best.pos.y + 2, best.pos.z, '후크 연결! 🪝', 'good');
+    it.reservedBy = this;
+    this.winch = { mode: 'down', it };
+    sfx('click');
     return true;
   }
+  /** 짐을 매단 채: 줄을 풀어 짐이 땅(판매소·출하장·트럭)에 닿으면 내려놓는다 */
+  startSetdown() {
+    const S = this.sling, sp = supportUnder(S.p.x, S.p.z, this, 0.4);
+    if (S.p.y - sp.y < 0.6) { if (this.slingRelease()) this.winch = { mode: 'up', target: 3 }; return; }
+    this.winch = { mode: 'set' };
+    sfx('click');
+  }
+  winchStop() {
+    const w = this.winch;
+    if (w?.it && w.it.reservedBy === this) w.it.reservedBy = null;
+    this.winch = null;
+  }
+  winchStep(dt) {
+    const w = this.winch, S = this.sling;
+    if (!w) return;
+    const MAXL = 30;
+    if (w.mode === 'down') {
+      const it = w.it;
+      if (!it || it.removed || it.carriedBy || it.falling) { this.winchStop(); return; }
+      if (Math.hypot(it.pos.x - this.pos.x, it.pos.z - this.pos.z) > 14) {
+        this.winchStop();
+        if (this.driver) toast('짐에서 너무 멀어졌어요. 다시 짐 위에서 Space', '🪝', 2000);
+        return;
+      }
+      const top = it.pos.y + (SLING_TOP[it.kind] ?? 0.9);
+      // 스마트 후크: 줄을 풀면서 짐 쪽으로 살짝 끌려간다
+      const k = Math.min(1, dt * 4);
+      S.p.x += (it.pos.x - S.p.x) * k; S.p.z += (it.pos.z - S.p.z) * k;
+      S.v.x *= 1 - k; S.v.z *= 1 - k;
+      if (S.p.y > top + 0.4) this.lift = Math.min(MAXL, this.lift + 7 * dt);
+      if (Math.hypot(it.pos.x - S.p.x, top - S.p.y, it.pos.z - S.p.z) < 1.0) {
+        it.reservedBy = null;
+        pickupItem(this, it);
+        S.p.copy(it.pos);
+        S.v.set(0, 0, 0);
+        if (this.driver) floatText(it.pos.x, it.pos.y + 2, it.pos.z, '후크 연결! 🪝', 'good');
+        this.winch = { mode: 'up', target: Math.min(5, this.lift) };
+      } else if (this.lift >= MAXL) {
+        this.winchStop();
+        if (this.driver) toast(`줄이 닿지 않아요 (최대 ${MAXL}m) · 조금 내려가서 다시 Space`, '🪝', 2200);
+      }
+    } else if (w.mode === 'up') {
+      this.lift = Math.max(w.target, this.lift - (this.carrying ? 2.5 : 5) * dt);
+      if (this.lift <= w.target + 0.001) this.winch = null;
+    } else if (w.mode === 'set') {
+      if (!this.carrying) { this.winch = { mode: 'up', target: 3 }; return; }
+      const sp = supportUnder(S.p.x, S.p.z, this, 0.4);
+      if (S.p.y - sp.y < 0.12 && Math.hypot(S.v.x, S.v.z) < 2.5) {
+        if (this.slingRelease()) this.winch = { mode: 'up', target: 3 };
+        else this.winch = null;
+      } else if (this.lift >= MAXL) {
+        this.winch = null;
+        if (this.driver) toast(`줄이 땅까지 닿지 않아요 (최대 ${MAXL}m) · 조금 내려가서 다시 Space`, '🪝', 2200);
+      } else this.lift = Math.min(MAXL, this.lift + 4 * dt);
+    }
+  }
+
+  slingHook() { return this.startHook(); }
 
   /** 짐 풀기: 땅에 닿아 있으면 그 자리에 내려놓고(판매소 → 판매), 공중이면 떨어뜨린다 */
   slingRelease() {
@@ -2154,6 +2217,7 @@ export class Vehicle {
       this.job = null;
     };
     const it = this.job;
+    const d0 = (o) => { const q = o.pos || o; return Math.hypot(q.x - this.pos.x, q.z - this.pos.z); };
     switch (this.flyState) {
       case 'idle': {
         this.status = this.passenger ? '손님을 태우고 곧 출발해요!' : '헬기장에서 출발 준비 중';
@@ -2172,48 +2236,44 @@ export class Vehicle {
         return fly(this.pos.x, this.pos.z, 18)[0];
       case 'tour': {
         this.status = '🚁 농장 유람 비행 중';
-        this.tourA += dt * 0.17;
+        this.tourA += dt * 0.13;
         this.tourT -= dt;
         if (this.tourT <= 0) st('back');
-        return fly(Math.sin(this.tourA + 0.5) * 62, 15 + Math.cos(this.tourA + 0.5) * 62, 18)[0];
+        return fly(Math.sin(this.tourA + 0.5) * 85, 15 + Math.cos(this.tourA + 0.5) * 85, 18)[0];
       }
       case 'toItem': {
         if (!it || it.removed || it.carriedBy || it.falling) { drop(); st('back'); return this.heliAssist(dt, 0, 0, 0, 0); }
-        this.status = `📦 팔레트 가지러 가는 중`;
-        const [c, d] = fly(it.pos.x, it.pos.z, Math.max(16 - Math.max(0, 30 - Math.hypot(it.pos.x - this.pos.x, it.pos.z - this.pos.z)) * 0.25, it.pos.y + 1 + this.lift + 2), 14);
-        if (d < 2.5 && hv < 1.5) st('lower');
-        if (this.stateT > 60) { drop(true); st('back'); }
+        this.status = '📦 팔레트 가지러 가는 중';
+        const [c, d] = fly(it.pos.x, it.pos.z, d0(it) < 30 ? it.pos.y + 11 : 16, 14);
+        if (d < 2.5 && hv < 1.5 && Math.abs(this.pos.y - (it.pos.y + 11)) < 2) { this.job = null; this.startHook(it); st('lower'); }
+        if (this.stateT > 70) { drop(true); st('back'); }
         return c;
       }
       case 'lower': {
-        if (!it || it.removed || it.carriedBy || it.falling) { drop(); st('back'); return this.heliAssist(dt, 0, 0, 0, 0); }
         this.status = '🪝 후크를 내려 거는 중';
-        const top = it.pos.y + (SLING_TOP[it.kind] ?? 0.9);
-        const [c] = fly(it.pos.x, it.pos.z, top + this.lift - 0.82 - 0.3, 2, false);
-        if (Math.hypot(S.p.x - it.pos.x, S.p.y - top, S.p.z - it.pos.z) < 1.3 && this.slingHook()) { this.job = null; st('lift'); }
-        if (this.stateT > 30) { drop(true); st('back'); }
-        return c;
+        const w = this.winch?.it;
+        if (this.carrying) { st('lift'); return this.heliAssist(dt, 0, 0, 0, 0); }
+        if (!w || this.stateT > 25) { if (w) w.unreachable = G.now + 60; this.winchStop(); st('back'); return this.heliAssist(dt, 0, 0, 0, 0); }
+        return fly(w.pos.x, w.pos.z, w.pos.y + 11, 1.5, false)[0];
       }
       case 'lift':
         this.status = '📦 팔레트를 매달고 상승!';
         if (!this.carrying) { st('back'); return this.heliAssist(dt, 0, 0, 0, 0); }
-        if (this.pos.y > 15) st('toMarket');
+        if (this.pos.y > 15 && !this.winch) st('toMarket');
         return fly(this.pos.x, this.pos.z, 18, 2, false)[0];
       case 'toMarket': {
         if (!this.carrying) { st('back'); return this.heliAssist(dt, 0, 0, 0, 0); }
         this.status = '🏪 판매소로 하늘 배송 중';
-        const [c, d] = fly(M.x, M.z, 18, 11);
-        if (d < 2.5 && hv < 1.2) st('setdown');
+        const [c, d] = fly(M.x, M.z, d0(M) < 25 ? 11 : 18, 11);
+        if (d < 2.5 && hv < 1.2 && this.pos.y < 13) { this.startSetdown(); st('setdown'); }
         return c;
       }
       case 'setdown': {
-        if (!this.carrying) { st('back'); return this.heliAssist(dt, 0, 0, 0, 0); }
         this.status = '🏪 판매소에 살며시 내려놓는 중';
-        const top = SLING_TOP[this.carrying.kind] ?? 0.9;
-        const [c] = fly(M.x, M.z, 0.15 + top + this.lift - 0.82, 1.5, false);
-        if (S.p.y < 0.45 && hv < 1.2 && Math.hypot(S.v.x, S.v.z) < 1.2) { this.slingRelease(); st('back'); }
-        if (this.stateT > 40) { this.slingRelease(); st('back'); }
-        return c;
+        if (!this.carrying) { st('back'); return this.heliAssist(dt, 0, 0, 0, 0); }
+        if (!this.winch) this.startSetdown();
+        if (this.stateT > 30) { this.slingRelease(); st('back'); }
+        return fly(M.x, M.z, 11, 1.5, false)[0];
       }
       case 'back': {
         this.status = '헬기장으로 돌아가는 중';
@@ -2255,7 +2315,9 @@ export class Vehicle {
     this.stateT += dt;
     const st = (n, w = 0) => { this.flyState = n; this.flyWait = w; this.stateT = 0; };
     const err = (tx, tz) => wrapAngle(Math.atan2(tx - this.pos.x, tz - this.pos.z) - this.heading);
-    const lineErr = () => clamp(wrapAngle(Math.PI / 2 + clamp((this.pos.z - R.z) * 0.06, -0.5, 0.5) - this.heading), -1.5, 1.5);
+    const lineErr = () => clamp(wrapAngle(Math.PI / 2 + clamp((this.pos.z - R.z) * 0.09, -0.5, 0.5) - this.heading), -1.5, 1.5);
+    // 착륙 장주: 활주로 북쪽을 서쪽으로(다운윈드) → 왼쪽으로 돌아(베이스) → 서쪽 끝에서 긴 파이널
+    const PAT = [[60, 40, 18], [-130, 40, 15], [-178, 50, 13], [-200, 76, 11.5], [west - 65, R.z, 10], [west, R.z, 3.5]];
     const bank = (e, m = 0.5) => clamp(-e * 1.4, -m, m);
     const spd = (Vt, max = 1) => { this.thrL = approach(this.thrL, clamp(0.45 + (Vt - this.V) * 0.15, 0, max), dt * 0.8); };
     const alt = (a, m = 0.12) => clamp((a - this.pos.y) * 0.03, -m, m);
@@ -2292,43 +2354,43 @@ export class Vehicle {
       }
       case 'tour': {
         this.status = '✈️ 하늘 유람 중';
-        this.tourA += dt * 0.2;
+        this.tourA += dt * 0.15;
         this.tourT -= dt;
         spd(17);
         if (this.tourT <= 0) st('dw1');
-        return law(bank(err(Math.sin(this.tourA + 0.5) * 80, 20 + Math.cos(this.tourA + 0.5) * 80)), alt(30));
+        return law(bank(err(Math.sin(this.tourA + 0.5) * 110, 20 + Math.cos(this.tourA + 0.5) * 110)), alt(30));
       }
       case 'dw1': {
         this.status = '착륙 장주로 들어가는 중';
         spd(16);
-        const e = err(25, 40);
-        if (Math.hypot(25 - this.pos.x, 40 - this.pos.z) < 20 || this.pos.x < 10) st('dw2');
-        return law(bank(e), alt(18));
+        if (Math.hypot(PAT[0][0] - this.pos.x, PAT[0][1] - this.pos.z) < 25) { st('pattern'); this.pathIdx = 0; }
+        return law(bank(err(PAT[0][0], PAT[0][1])), alt(PAT[0][2]));
       }
-      case 'dw2': {
-        this.status = '다운윈드 · 착륙 준비';
-        spd(14);
-        this.tilt = 0.5;
-        if (Math.hypot(-95 - this.pos.x, 40 - this.pos.z) < 14 || this.pos.x < -95) st('base');
-        return law(bank(err(-95, 40)), alt(15));
-      }
-      case 'base': {
-        this.status = '활주로 쪽으로 선회 중';
-        spd(14);
-        this.tilt = 1;
-        const a = Math.atan2(this.pos.x + 95, this.pos.z - 72) + 0.7;
-        const e = err(-95 + Math.sin(a) * 32, 72 + Math.cos(a) * 32);
-        if (Math.abs(lineErr()) < 0.35 && this.pos.z > 88) st('final');
-        return law(bank(e, 0.55), alt(8, 0.1));
+      case 'pattern': {
+        // 정해진 장주 경로를 따라간다 (앞쪽 25m 지점을 바라보며 비행)
+        this.status = this.pathIdx < 1 ? '다운윈드 · 착륙 준비' : '활주로 쪽으로 선회 중';
+        spd(this.pathIdx < 1 ? 15 : 13);
+        this.tilt = this.pathIdx < 1 ? 0.5 : 1;
+        let i = this.pathIdx;
+        const seg = (k) => { const [ax, az] = PAT[k], [bx, bz] = PAT[k + 1]; const lx = bx - ax, lz = bz - az, L2 = lx * lx + lz * lz; return { ax, az, lx, lz, L: Math.sqrt(L2), t: ((this.pos.x - ax) * lx + (this.pos.z - az) * lz) / L2 }; };
+        while (i < PAT.length - 2 && seg(i).t > 1) i++;
+        this.pathIdx = i;
+        let sg = seg(i), along = clamp(sg.t, 0, 1) * sg.L + 25, k = i;
+        while (along > sg.L && k < PAT.length - 2) { along -= sg.L; k++; sg = seg(k); }
+        const f = Math.min(1, along / sg.L);
+        const cx = sg.ax + sg.lx * f, cz = sg.az + sg.lz * f;
+        const altT = lerp(PAT[k][2], PAT[k + 1][2], f);
+        if (i >= PAT.length - 2 && seg(i).t > 0) st('final');
+        return law(bank(err(cx, cz), 0.55), alt(altT, 0.1));
       }
       case 'final': {
         this.status = '사뿐히 착륙하는 중 🛬';
         const td = west + 30;
-        const altT = Math.max(0, (td - this.pos.x) * 0.15);
+        const altT = Math.max(0, (td - this.pos.x) * 0.125);
         if (this.pos.y < 1.3) { this.thrL = approach(this.thrL, 0, dt * 2); if (this.pos.y <= 0.001) st('rollout'); return law(bank(lineErr(), 0.15), -0.035); }
         spd(13, 0.55);
         if (this.pos.x > td + 60) { this.tilt = 0.5; st('climb'); }    // 너무 길면 다시 상승(복행)
-        return law(bank(lineErr(), 0.3), clamp(-0.15 + (altT - this.pos.y) * 0.08, -0.3, 0.05));
+        return law(bank(lineErr(), 0.3), clamp(-0.125 + (altT - this.pos.y) * 0.08, -0.3, 0.05));
       }
       case 'rollout':
         this.status = '착륙 완료! 속도 줄이는 중';

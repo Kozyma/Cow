@@ -41,9 +41,9 @@ export const VEHICLE_SHOP = {
 export const MAX_VEHICLES = 16;
 
 export const LAYOUT = {
-  bound: 150,
+  bound: 230,
   // ✈️ 남쪽 비행장: 활주로(동서 방향) · 비행기 주기장 · 헬기장
-  airfield: { runway: { x: 0, z: 104, len: 170, w: 14 }, plane: { x: -70, z: 104, h: Math.PI / 2 }, heli: { x: -40, z: 84, h: Math.PI }, hangar: { x: -70, z: 121 } },
+  airfield: { runway: { x: 0, z: 104, len: 220, w: 14 }, plane: { x: -98, z: 104, h: Math.PI / 2 }, heli: { x: -40, z: 84, h: Math.PI }, hangar: { x: -70, z: 121 } },
   roadZ: -6,
   dock: { x: 6, z: 3.5, w: 10, d: 6, bay: { x: 6, z: 12 } },      // 출하장 (팔레트 보관)
   market: { x: 54, z: 5, r: 5 },                                    // 판매소
