@@ -550,3 +550,60 @@ body.mobile #plaza-hud.side-open .p-side { display: block; }
 body.mobile .mob-only-p { display: inline-flex; }
 body.mobile .p-chat { bottom: 180px; width: calc(100vw - 180px); }
 body.mobile #p-log { max-height: 90px; }
+
+/* ---------- 모바일 화면 정리 v2: 알림은 작게, 패널은 얇게, 서로 안 겹치게 ---------- */
+#touch-hyd button.hidden { display: none !important; }
+body.mobile #top-left { flex-direction: row; flex-wrap: wrap; align-items: center; max-width: calc(100vw - 205px); gap: 5px; }
+body.mobile #top-left .pill.coin { order: 1; }
+body.mobile #top-left .pill.mode { order: 2; }
+body.mobile #btn-open-farm { order: 3; }
+body.mobile #btn-to-plaza { order: 4; }
+body.mobile #top-left .pill.clock { order: 5; }
+body.mobile #fert { order: 6; }
+body.mobile #net-pill { order: 7; }
+body.mobile .pill { font-size: 13px; padding: 4px 9px; }
+body.mobile .pill .lbl { display: none; }
+body.mobile .pill[data-armed] .lbl { display: inline; font-size: 11px; }
+body.mobile .pill.mode, body.mobile .pill.net-btn { font-size: 15px; padding: 2px 7px; }
+body.mobile .pill.net { max-width: 44vw; font-size: 11px; padding: 3px 8px; }
+body.mobile .pill.fert { font-size: 11px; padding: 3px 8px; }
+body.mobile #minimap { top: 104px; bottom: auto; right: 8px; width: 88px; height: 88px; }
+
+body.mobile #toasts { top: auto; bottom: 250px; width: 84vw; gap: 4px; }
+body.mobile .toast { font-size: 11.5px; line-height: 1.3; padding: 4px 11px; gap: 5px; border-width: 2px; max-width: 84vw;
+  background: rgba(255, 250, 240, 0.93); box-shadow: 0 2px 0 rgba(160, 120, 80, 0.18); }
+body.mobile .toast .t-ico { font-size: 14px; }
+body.mobile #prompt { bottom: 200px; font-size: 13px; padding: 6px 12px; border-width: 2px; }
+body.mobile .float { font-size: 14px; }
+body.mobile .float.coin { font-size: 17px; }
+
+body.mobile #drive-panel { top: 104px; bottom: auto; left: 8px; right: 104px; width: auto; transform: none;
+  padding: 5px 9px 6px; border-width: 2px; border-radius: 16px; background: rgba(255, 250, 240, 0.9); }
+body.mobile .dp-head { font-size: 13px; gap: 5px; }
+body.mobile .dp-ico { font-size: 16px; }
+body.mobile .dp-mode { display: none; }
+body.mobile .dp-speed { font-size: 10px; }
+body.mobile .dp-speed b { font-size: 16px; }
+body.mobile .dp-gauges { grid-template-columns: 1fr 1fr; gap: 1px 8px; margin: 3px 0 1px; }
+body.mobile .gauge { font-size: 10px; gap: 4px; }
+body.mobile .gauge.boost { display: none; }
+body.mobile .gauge .g-lbl { width: 36px; font-size: 10px; overflow: hidden; text-overflow: ellipsis; }
+body.mobile .gauge .g-val { width: auto; min-width: 28px; font-size: 10.5px; white-space: nowrap; }
+body.mobile .gauge .track { height: 7px; }
+body.mobile .dp-chips { gap: 4px; margin: 2px 0; }
+body.mobile .chip { font-size: 10.5px; padding: 1px 7px; }
+body.mobile .dp-tip { font-size: 11px; padding: 2px 8px; margin: 2px 0 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+body.mobile.show-panel #barn-panel { top: 104px; }
+
+@media (max-height: 500px) {
+  /* 가로 화면: 위쪽 한 줄 · 운전 패널은 아래 가운데(조이스틱과 버튼 사이) · 알림은 위 가운데 */
+  body.mobile #top-left { max-width: calc(100vw - 360px); }
+  body.mobile #top-right { grid-template-columns: repeat(7, 40px); }
+  body.mobile .round-btn { width: 40px; height: 40px; }
+  body.mobile #minimap { top: 54px; width: 76px; height: 76px; }
+  body.mobile #toasts { bottom: auto; top: 50px; width: 46vw; }
+  body.mobile #drive-panel { top: auto; bottom: 8px; left: 150px; right: 240px; }
+  body.mobile #prompt { bottom: 120px; }
+  body.mobile #house-hud { top: 50px; }
+  body.mobile.show-panel #barn-panel { top: 50px; max-height: calc(100vh - 60px); }
+}

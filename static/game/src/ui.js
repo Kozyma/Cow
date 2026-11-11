@@ -18,14 +18,22 @@ let shownCoins = 0;
 let API = null;
 
 // ---------------- 토스트 / 플로팅 텍스트 ----------------
+const recentToasts = new Map();
 export function toast(msg, icon = '🌼', ms = 3200) {
   const box = $('#toasts');
   if (!box) return;
-  if (box.firstChild && box.firstChild.dataset.msg === msg) return;
+  // 같은 알림은 잠깐 동안 한 번만 · 휴대폰은 짧게, 최대 2개까지만
+  const now = performance.now();
+  if (now - (recentToasts.get(msg) || -1e9) < 4500) return;
+  recentToasts.set(msg, now);
+  if (recentToasts.size > 60) for (const [k, t] of recentToasts) if (now - t > 4500) recentToasts.delete(k);
+  const mobile = document.body.classList.contains('mobile');
+  if (mobile) ms = Math.min(ms, 2600);
   const t = el('div', 'toast', `<span class="t-ico">${icon}</span><span>${msg}</span>`);
   t.dataset.msg = msg;
   box.prepend(t);
-  while (box.children.length > 4) box.lastChild.remove();
+  const max = mobile ? 2 : 3;
+  while (box.children.length > max) box.lastChild.remove();
   setTimeout(() => t.classList.add('out'), ms);
   setTimeout(() => t.remove(), ms + 400);
 }
@@ -337,7 +345,7 @@ export function updateUI(dt) {
   const fert = $('#fert');
   if (G.fertileTimer > 0) { fert.classList.remove('hidden'); fert.textContent = `🌱 성장촉진 ${Math.ceil(G.fertileTimer)}s`; }
   else fert.classList.add('hidden');
-  $('#mode-pill').innerHTML = G.settings.mode === 'sim' ? '🎛️ 시뮬레이션' : '🎮 간편';
+  $('#mode-pill').innerHTML = G.settings.mode === 'sim' ? '🎛️<span class="lbl"> 시뮬레이션</span>' : '🎮<span class="lbl"> 간편</span>';
   $('#btn-cam .i').textContent = G.cam.fp ? '👀' : '🎥';
 
   for (const b of G.barns) {
@@ -387,14 +395,27 @@ function updateDrivePanel() {
   }
   panel.classList.remove('hidden');
   $('#touch-hyd').classList.toggle('hidden', !(v.def.lift || v.def.air));
+  // 항공기: R/F = 상승·하강, 헬기만 T/G(화물 줄)
+  $('#btn-r').textContent = v.def.air ? '▲상승' : 'R▲';
+  $('#btn-f').textContent = v.def.air ? '▼하강' : 'F▼';
+  for (const id of ['#btn-t', '#btn-g']) $(id).classList.toggle('hidden', v.def.air === 'plane');
+  $('#btn-t').textContent = v.def.air === 'heli' ? '줄↑' : 'T';
+  $('#btn-g').textContent = v.def.air === 'heli' ? '줄↓' : 'G';
   const d = v.def, easy = G.settings.mode === 'easy';
   const kmh = Math.round(Math.abs(v.speed) * 3.6);
   const g = [];
   g.push(gauge('부스트', 1, v.boosting ? '🔥 ∞' : '∞', v.boosting ? 'boost on' : 'boost'));
   if (d.air) {
     g.push(gauge('고도', Math.min(1, v.pos.y / 60), `${Math.round(v.pos.y)}m`, 'lift'));
-    g.push(gauge(d.air === 'heli' ? '로터' : '엔진', v.rpm, `${Math.round(v.rpm * 100)}%`, 'tilt'));
-    if (d.air === 'plane') g.push(gauge('이륙 속도', Math.min(1, v.speed / 14), v.speed >= 14 ? '이륙 가능!' : `${Math.round(v.speed * 3.6)}/50`, 'mix'));
+    const vs = v.vs || 0;
+    g.push(gauge('상승률', Math.min(1, Math.abs(vs) / 5), `${vs >= 0 ? '▲' : '▼'} ${Math.abs(vs).toFixed(1)}m/s`, Math.abs(vs) > 3.2 && v.pos.y < 6 && vs < 0 ? 'boost on' : 'mix'));
+    if (d.air === 'heli') {
+      g.push(gauge('출력', v.coll || 0, v.rpm < 0.95 ? `시동 ${Math.round(v.rpm * 100)}%` : `${Math.round((v.coll || 0) * 100)}%`, 'tilt'));
+      if (v.carrying) g.push(gauge('화물 줄', v.lift / 9, `${v.lift.toFixed(1)}m`, 'feedleft'));
+    } else {
+      g.push(gauge('스로틀', v.thrL || 0, v.rpm < 0.95 ? `시동 ${Math.round(v.rpm * 100)}%` : `${Math.round((v.thrL || 0) * 100)}%`, 'tilt'));
+      g.push(gauge('플랩', v.tilt, v.tilt === 0 ? '올림' : v.tilt === 0.5 ? '10°' : '30°', 'feedleft'));
+    }
   }
   if (d.lift) {
     const val = v.type === 'forklift' ? `${(v.lift + 0.18).toFixed(1)}m` : v.type === 'truck5' ? `${Math.round((v.lift / d.lift.max) * 50)}°` : v.lift < 0.2 ? '작업' : `${Math.round(v.lift * 100)}%`;
@@ -441,12 +462,22 @@ function updateDrivePanel() {
   }
   if (space) keys.push(`${kb('Space')} ${space}`);
   if (v.type === 'mixer') keys.push(`${kb('1')}${kb('2')}${kb('3')} 건초·옥수수·대두박 넣기 (배합장)`);
-  if (d.air === 'heli') keys.splice(0, keys.length, `${kb('R')}${kb('F')} 상승·하강`, `${kb('W')}${kb('S')} 전진·후진`, `${kb('A')}${kb('D')} 회전`, `${kb('Shift')} 빠르게`);
-  if (d.air === 'plane') keys.splice(0, keys.length, `${kb('W')}${kb('S')} 가속·감속`, `${kb('R')}${kb('F')} 기수 올리기·내리기`, `${kb('A')}${kb('D')} 선회`, `${kb('Shift')} 부스트`);
+  if (d.air === 'heli') keys.splice(0, keys.length, `${kb('W')}${kb('S')} 앞·뒤`, `${kb('R')}${kb('F')} 상승·하강`, `${kb('A')}${kb('D')} 선회`, `${kb('Space')} ${v.carrying ? '짐 내려놓기' : '짐 걸기 🪝'}`);
+  if (d.air === 'plane') keys.splice(0, keys.length, `${kb('W')}${kb('S')} 출력 올리기·내리기`, `${kb('R')}${kb('F')} 상승·하강`, `${kb('A')}${kb('D')} 선회`, `${kb('Space')} 플랩`);
   keys.push(`${kb('E')} 내리기`, `${kb('V')} 시점`);
   let tip = '';
-  if (d.air === 'heli') tip = v.airborne ? 'F를 눌러 천천히 내려앉으면 E로 내릴 수 있어요' : '로터가 다 돌면(100%) R을 눌러 떠올라요';
-  if (d.air === 'plane') tip = v.airborne ? (v.speed < 11 ? '⚠️ 너무 느려요! W로 가속하세요' : '활주로 쪽으로 가서 F로 살살 내려앉아요 (세게 내리면 쿵!)') : v.speed >= 14 ? 'R을 눌러 이륙!' : 'W를 눌러 활주로를 달려요 (시속 50km 넘으면 이륙 가능)';
+  if (d.air === 'heli') {
+    if (!v.airborne) tip = v.rpm < 0.95 ? '로터가 다 돌 때까지 기다렸다가 R로 떠올라요' : v.carrying ? '짐을 매단 채 R로 천천히 올라가요 (짐 무게만큼 출력이 더 필요해요)' : 'R로 떠올라요 · 팔레트를 매달아 판매소에 내려놓으면 팔려요';
+    else if (v.carrying) tip = '짐이 흔들려요! 천천히 멈춰 흔들림을 줄이고, 짐이 땅에 닿으면 Space로 내려놓아요';
+    else tip = Math.abs(v.speed) > 6 ? '손을 떼도 관성으로 계속 가요 · S로 기수를 들어 멈춰요' : '팔레트 바로 위에 낮게 떠서 Space로 걸어요 · 내려올 땐 F로 천천히 (초속 3m 이하)';
+  }
+  if (d.air === 'plane') {
+    const kmh = Math.round(v.V * 3.6);
+    if (v.stalled) tip = '⚠️ 실속! F로 기수를 내리고 W로 출력을 올려요';
+    else if (!v.airborne && v.pos.y <= 0.001) tip = v.V > 11 ? 'R로 기수를 들어 이륙!' : v.thrL < 0.9 ? 'W로 출력을 끝까지 올려 활주로를 달려요 (플랩 10° 추천)' : `가속 중… ${kmh}km/h (약 45km/h면 뜰 수 있어요)`;
+    else if (v.V < 13) tip = '속도가 느려요! 너무 느리면 날개가 양력을 잃어요(실속)';
+    else tip = '기울여야 돌아요(A/D) · 착륙: 출력을 줄이고 플랩 30°, 활주로 앞에서 천천히 내려와요';
+  }
   if (easy && v.type === 'mixer') tip = mixerTip(v);
   if (v.isTruck && v.nearStore()) tip = 'Space를 눌러 사료 가게에서 옥수수·대두박을 사요';
   else if (v.isTruck && v.atStation() && truckCargo(v).some((it) => it.kind === 'sack')) tip = 'Space를 눌러 원료를 배합장에 내려요';
@@ -461,14 +492,14 @@ function updateDrivePanel() {
     else if (v.type === 'balewagon') tip = v.carrying ? 'R로 집게를 끝까지 올리면 건초가 데크로 넘어가요' : truckCargo(v).length ? '축사 통로·건초 보관소·배합장에서 T로 데크를 들면 건초를 내려요 (더 실으려면 F로 집게를 내려 건초 앞으로)' : 'F로 집게를 바닥까지 내리고 건초를 집게 사이에 넣은 뒤 R로 들어올려요';
   }
   const html = `
-    <div class="dp-head"><span class="dp-ico">${d.icon}</span><b>${d.name}</b><span class="dp-mode">${easy ? '🎮 간편' : '🎛️ 시뮬레이션'}</span><span class="dp-speed"><b>${kmh}</b> km/h</span></div>
+    <div class="dp-head"><span class="dp-ico">${d.icon}</span><b>${d.name}</b><span class="dp-mode">${d.air ? '🛩️ 비행' : easy ? '🎮 간편' : '🎛️ 시뮬레이션'}</span><span class="dp-speed"><b>${kmh}</b> km/h</span></div>
     <div class="dp-gauges">${g.join('')}</div>
     ${chips.length ? `<div class="dp-chips">${chips.join('')}</div>` : ''}
     ${tip ? `<div class="dp-tip">💡 ${tip}</div>` : ''}
     ${v.type === 'mixer' ? mixerButtons(v) : ''}
     <div class="dp-keys">${keys.map((k) => `<span>${k}</span>`).join('')}</div>`;
   if (panel.dataset.html !== html) { panel.innerHTML = html; panel.dataset.html = html; }
-  $('#btn-space').textContent = d.personal ? '경적' : space ? (v.isTruck ? '상차/판매' : '작업') : '작업';
+  $('#btn-space').textContent = d.air === 'heli' ? (v.carrying ? '내려놓기' : '짐 걸기') : d.air === 'plane' ? '플랩' : d.personal ? '경적' : space ? (v.isTruck ? '상차/판매' : '작업') : '작업';
   $('#btn-e').textContent = '내리기';
 }
 

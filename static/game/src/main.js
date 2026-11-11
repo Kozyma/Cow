@@ -750,7 +750,7 @@ function refreshNetButtons() {
   btnToPlaza.classList.toggle('hidden', !served);
   btnOpen.classList.toggle('hidden', !served || net.role === 'guest');
   btnOpen.classList.toggle('on', !!net.public);
-  btnOpen.textContent = net.public ? '🔓 농장 열림 (닫기)' : '🚪 농장 문 열기';
+  btnOpen.innerHTML = net.public ? '🔓<span class="lbl"> 농장 열림 (닫기)</span>' : '🚪<span class="lbl"> 농장 문 열기</span>';
 }
 btnToPlaza.addEventListener('click', () => {
   if (net.role === 'host' && net.remotes.size && !confirmLeave()) return;
@@ -759,8 +759,8 @@ btnToPlaza.addEventListener('click', () => {
 function confirmLeave() {
   if (btnToPlaza.dataset.armed) return true;
   btnToPlaza.dataset.armed = '1';
-  btnToPlaza.textContent = '🏞️ 한 번 더 누르면 이동 (손님들은 나가요)';
-  setTimeout(() => { delete btnToPlaza.dataset.armed; btnToPlaza.textContent = '🏞️ 광장으로'; }, 3000);
+  btnToPlaza.innerHTML = '🏞️<span class="lbl"> 한 번 더 누르면 이동 (손님들은 나가요)</span>';
+  setTimeout(() => { delete btnToPlaza.dataset.armed; btnToPlaza.innerHTML = '🏞️<span class="lbl"> 광장으로</span>'; }, 3000);
   return false;
 }
 btnOpen.addEventListener('click', async () => {

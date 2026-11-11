@@ -164,7 +164,7 @@ export function barnAlleyAt(x, z) {
 // ---------------- 판매 ----------------
 export function itemPrice(it) {
   if (it.kind === 'sack') return Math.round(INGREDIENTS[it.product].price * 0.6);
-  return it.kind === 'bale' ? BALE_PRICE : Math.round(PRODUCTS[it.product].price * (G.prices[it.product] ?? 1));
+  return it.kind === 'bale' ? BALE_PRICE : Math.round(PRODUCTS[it.product].price * (G.prices[it.product] ?? 1) * (it.dmg ? 0.6 : 1));
 }
 export function sellItems(list, at) {
   let total = 0, pallets = 0;

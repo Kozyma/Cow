@@ -189,10 +189,16 @@ function initPacket(id) {
   return { t: 'init', you: id, save: buildSaveData(), world: worldPacket(), fast: fastPacket(), mid: midPacket() };
 }
 
+/** 항공기 추가 상태: 헬기 = 화물 줄 끝(기체 기준) · 콜렉티브 / 비행기 = 보조익 · 승강타 · 스로틀 */
+function airExtra(v) {
+  if (v.def.air === 'heli') return [r2(v.slingLocal.x), r2(v.slingLocal.y), r2(v.slingLocal.z), r2(v.coll)];
+  if (v.def.air === 'plane') return [r2(v.ail || 0), r2(v.elev || 0), 0, r2(v.thrL)];
+  return [];
+}
 function fastPacket() {
   return {
     t: 's', time: r2(G.time),
-    v: G.vehicles.map((v) => [r2(v.pos.x), r2(v.pos.z), r3(v.heading), r2(v.speed), r3(v.lift), r3(v.tilt), r2(v.steerVis), v.driver ? (v.driver === G.player ? 0 : v.driver.netId) : -1, v.boosting ? 1 : 0, r2(v.pos.y), r3(v.roll || 0), r3(v.pitch || 0), r2(v.rpm || 0), v.passenger ? (v.passenger === G.player ? 0 : v.passenger.netId) : -1]),
+    v: G.vehicles.map((v) => [r2(v.pos.x), r2(v.pos.z), r3(v.heading), r2(v.speed), r3(v.lift), r3(v.tilt), r2(v.steerVis), v.driver ? (v.driver === G.player ? 0 : v.driver.netId) : -1, v.boosting ? 1 : 0, r2(v.pos.y), r3(v.roll || 0), r3(v.pitch || 0), r2(v.rpm || 0), v.passenger ? (v.passenger === G.player ? 0 : v.passenger.netId) : -1, ...airExtra(v)]),
     p: playerList(),
   };
 }
@@ -278,6 +284,10 @@ function applyFast(m, snap = false) {
     const pas = s[13] ?? -1;
     if (pas === net.id) myRide = v;
     v.passenger = pas === net.id ? G.player : pas >= 0 ? (v.passenger && v.passenger !== G.player ? v.passenger : { remote: true }) : null;
+    if (v.def.air && s.length > 14) {
+      if (v.def.air === 'heli') { v.netHook = [s[14], s[15], s[16]]; v.coll = s[17]; }
+      else { v.ail = s[14]; v.elev = s[15]; v.thrL = s[17]; }
+    }
     if (snap) { v.pos.set(s[0], s[9] || 0, s[1]); v.heading = s[2]; }
   });
   if (myRide !== G.riding) { G.riding = myRide; sfx(myRide ? 'board' : 'unboard'); }
