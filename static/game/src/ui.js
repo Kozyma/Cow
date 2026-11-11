@@ -462,7 +462,7 @@ function updateDrivePanel() {
   }
   if (space) keys.push(`${kb('Space')} ${space}`);
   if (v.type === 'mixer') keys.push(`${kb('1')}${kb('2')}${kb('3')} 건초·옥수수·대두박 넣기 (배합장)`);
-  if (d.air === 'heli') keys.splice(0, keys.length, `${kb('W')}${kb('S')} 앞·뒤`, `${kb('R')}${kb('F')} 상승·하강`, `${kb('A')}${kb('D')} 선회`, `${kb('Space')} ${v.carrying ? '짐 내려놓기 (자동)' : '짐 걸기 (자동) 🪝'}`);
+  if (d.air === 'heli') keys.splice(0, keys.length, `${kb('W')}${kb('S')} 앞·뒤`, `${kb('R')}${kb('F')} 상승·하강`, `${kb('A')}${kb('D')} 선회`, `${kb('Space')} ${v.carrying ? '짐 내려놓기 (자동)' : '짐 걸기 · 빈 곳이면 후크 감기 🪝'}`);
   if (d.air === 'plane') keys.splice(0, keys.length, `${kb('W')}${kb('S')} 출력 올리기·내리기`, `${kb('R')}${kb('F')} 상승·하강`, `${kb('A')}${kb('D')} 선회`, `${kb('Space')} 플랩`);
   keys.push(`${kb('E')} 내리기`, `${kb('V')} 시점`);
   let tip = '';
@@ -471,7 +471,7 @@ function updateDrivePanel() {
     else if (v.winch?.mode === 'down') tip = '🪝 후크가 짐까지 내려가는 중… 그대로 떠 있어요';
     else if (v.winch?.mode === 'set') tip = '🪝 줄을 풀어 짐을 내려놓는 중…';
     else if (v.carrying) tip = '짐이 흔들려요! 천천히 멈춰요 · 내려놓을 곳(판매소·출하장·트럭) 위에서 Space';
-    else tip = Math.abs(v.speed) > 6 ? '손을 떼도 관성으로 계속 가요 · S로 기수를 들어 멈춰요' : '짐 위에서 Space → 고도와 상관없이 후크가 자동으로 내려가 걸어요';
+    else tip = Math.abs(v.speed) > 6 ? '손을 떼도 관성으로 계속 가요 · S로 기수를 들어 멈춰요' : '짐 위에서 Space → 후크가 자동으로 내려가 걸어요 · 빈 곳에서 Space → 후크 감기';
   }
   if (d.air === 'plane') {
     const kmh = Math.round(v.V * 3.6);
@@ -501,7 +501,7 @@ function updateDrivePanel() {
     ${v.type === 'mixer' ? mixerButtons(v) : ''}
     <div class="dp-keys">${keys.map((k) => `<span>${k}</span>`).join('')}</div>`;
   if (panel.dataset.html !== html) { panel.innerHTML = html; panel.dataset.html = html; }
-  $('#btn-space').textContent = d.air === 'heli' ? (v.winch && v.winch.mode !== 'up' ? '멈추기' : v.carrying ? '내려놓기' : '짐 걸기') : d.air === 'plane' ? '플랩' : d.personal ? '경적' : space ? (v.isTruck ? '상차/판매' : '작업') : '작업';
+  $('#btn-space').textContent = d.air === 'heli' ? (v.winch && v.winch.mode !== 'up' ? '멈추기' : v.carrying ? '내려놓기' : '후크') : d.air === 'plane' ? '플랩' : d.personal ? '경적' : space ? (v.isTruck ? '상차/판매' : '작업') : '작업';
   $('#btn-e').textContent = '내리기';
 }
 

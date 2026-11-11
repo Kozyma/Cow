@@ -1909,7 +1909,13 @@ export class Vehicle {
       floatText(this.pos.x, this.pos.y + 3.5, this.pos.z, `플랩 ${this.tilt === 0 ? '올림' : this.tilt === 0.5 ? '10°' : '30°'}`, '');
       return;
     }
-    if (this.winch && this.winch.mode !== 'up') { this.winchStop(); if (this.driver) toast('후크 작업을 멈췄어요', '🪝', 1400); return; }
+    if (this.winch && this.winch.mode !== 'up') {
+      const hooking = this.winch.mode === 'down';
+      this.winchStop();
+      if (hooking) this.winch = { mode: 'up', target: 1 };   // 내려가던 후크는 다시 감아올린다
+      if (this.driver) toast(hooking ? '후크를 다시 감아올려요' : '후크 작업을 멈췄어요', '🪝', 1400);
+      return;
+    }
     if (this.carrying) this.startSetdown();
     else this.startHook();
   }
@@ -1931,7 +1937,12 @@ export class Vehicle {
   startHook(it = null) {
     it = it || this.hookTarget();
     if (!it) {
-      if (this.driver) toast('헬기 바로 아래(8m 안)에 팔레트·건초가 없어요', '🪝', 2200);
+      // 짐이 없는 곳에서 Space → 후크를 감아올린다
+      if (this.lift > 1.05) {
+        this.winch = { mode: 'up', target: 1 };
+        sfx('click');
+        if (this.driver) toast('후크를 감아올려요', '🪝', 1400);
+      } else if (this.driver) toast('헬기 바로 아래(8m 안)에 팔레트·건초가 없어요', '🪝', 2000);
       return false;
     }
     it.reservedBy = this;
