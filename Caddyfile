@@ -1,10 +1,28 @@
 koreacow.kr {
 	# HTTP는 자동으로 HTTPS로 리다이렉트되고, 인증서는 Let's Encrypt로 자동 발급·갱신됩니다.
-	# 게임 멀티플레이(WebSocket)만 중계 서버로
+
+	# 게임 멀티플레이(WebSocket)만 중계 서버로 (압축 없이 그대로)
 	handle /static/game/ws {
 		reverse_proxy game-ws:8931
 	}
+
+	# 정적 파일(css·js·아이콘·게임)은 Caddy가 직접 보냄 → gunicorn(워커 1개)이 페이지 처리에만 집중
+	# (docker-compose에서 ./static 을 /srv/static 으로 읽기 전용 마운트)
+	handle /static/* {
+		root * /srv
+		encode zstd gzip
+		# 아이콘·이미지는 하루 동안 다시 묻지 않음
+		@img path *.png *.jpg *.jpeg *.webp *.svg *.ico
+		header @img Cache-Control "public, max-age=86400"
+		# 코드(css·js·html)는 매번 바뀌었는지만 확인(ETag) → 바뀌면 바로 반영, 안 바뀌면 304로 빠르게
+		@code not path *.png *.jpg *.jpeg *.webp *.svg *.ico
+		header @code Cache-Control "no-cache"
+		file_server
+	}
+
+	# 그 밖의 페이지는 Flask(gunicorn)로, 응답은 압축해서
 	handle {
+		encode zstd gzip
 		reverse_proxy web:8000
 	}
 }

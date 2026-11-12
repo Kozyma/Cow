@@ -156,7 +156,7 @@
       <div class="a-acts">
         {% if r['category']=='가축' %}
         <button type="button" class="btn cow-btn"
-                data-action="{{ url_for('livestock_info', row_id=r['id']) }}"
+                data-action="{{ url_id('livestock_info', r['id']) }}"
                 data-name="{{ r['name'] }}"
                 data-type="{{ r['cattle_type'] or '' }}"
                 data-owner="{{ r['owner'] or '' }}"
@@ -184,8 +184,8 @@
                 data-date="{{ r['sold_date'] or today }}">판매</button>
       </div>
       <div class="a-sub">
-        <a class="mini" href="{{ url_for('livestock', edit=r['id']) }}">수정</a>
-        <form method="post" action="{{ url_for('livestock_delete', row_id=r['id']) }}"
+        <a class="mini" href="{{ url_id('livestock', r['id'], 'edit') }}">수정</a>
+        <form method="post" action="{{ url_id('livestock_delete', r['id']) }}"
               onsubmit="return confirm('이 품목을 삭제할까요?');"><button class="mini del">삭제</button></form>
       </div>
     </div>
@@ -230,7 +230,7 @@
         <div class="d">{{ r['log_date'] }} · {{ r['item_label'] or (r['livestock_category'] ~ ' ' ~ r['livestock_name']) if (r['item_label'] or r['livestock_name']) else '미지정' }}{% if r['note'] %} · {{ r['note'] }}{% endif %}</div>
       </div>
       <div class="act">
-        <form method="post" action="{{ url_for('farmlog_delete', row_id=r['id']) }}"
+        <form method="post" action="{{ url_id('farmlog_delete', r['id']) }}"
               onsubmit="return confirm('이 일지를 삭제할까요?');"><button class="mini del">삭제</button></form>
       </div>
     </div>
@@ -394,8 +394,8 @@
           {%- if r['supplier'] %} · {{ r['supplier'] }}{% endif %}{% if r['note'] %} · {{ r['note'] }}{% endif %}</div>
       </div>
       <div class="act">
-        <a class="mini" href="{{ url_for('livestock', feedit=r['id']) }}#feed">수정</a>
-        <form method="post" action="{{ url_for('feed_delete', row_id=r['id']) }}"
+        <a class="mini" href="{{ url_id('livestock', r['id'], 'feedit') }}#feed">수정</a>
+        <form method="post" action="{{ url_id('feed_delete', r['id']) }}"
               onsubmit="return confirm('이 구매 내역을 삭제할까요?');"><button class="mini del">삭제</button></form>
       </div>
     </div>

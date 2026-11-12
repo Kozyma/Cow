@@ -91,10 +91,10 @@
       </div>
       <div class="x num">{{ won(r['revenue']) }}<span class="u">원</span></div>
       <div class="act">
-        <a class="ibtn" href="{{ url_for('solar', edit=r['id']) }}#" aria-label="수정">
+        <a class="ibtn" href="{{ url_id('solar', r['id'], 'edit') }}#" aria-label="수정">
           <svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
         </a>
-        <form method="post" action="{{ url_for('solar_delete', row_id=r['id']) }}"
+        <form method="post" action="{{ url_id('solar_delete', r['id']) }}"
               onsubmit="return confirm('이 기록을 삭제할까요?');">
           <button class="ibtn del" aria-label="삭제">
             <svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M6 7l1 13a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-13"/></svg>

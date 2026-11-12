@@ -174,8 +174,8 @@
           {%- if p['paid_date'] %} · 지급 {{ p['paid_date'] }}{% endif %}{% if p['note'] %} · {{ p['note'] }}{% endif %}</div>
       </div>
       <div class="act">
-        <a class="mini" href="{{ url_for('staff', pedit=p['id']) }}#pay">수정</a>
-        <form method="post" action="{{ url_for('payroll_delete', row_id=p['id']) }}"
+        <a class="mini" href="{{ url_id('staff', p['id'], 'pedit') }}#pay">수정</a>
+        <form method="post" action="{{ url_id('payroll_delete', p['id']) }}"
               onsubmit="return confirm('이 급여 내역을 삭제할까요?');"><button class="mini del">삭제</button></form>
       </div>
     </div>
@@ -234,11 +234,11 @@
       </div>
       <div class="act">
         {% if w['status']=='완료' %}
-        <form method="post" action="{{ url_for('work_reopen', row_id=w['id']) }}"><button class="mini">되돌리기</button></form>
+        <form method="post" action="{{ url_id('work_reopen', w['id']) }}"><button class="mini">되돌리기</button></form>
         {% else %}
-        <a class="mini" href="{{ url_for('staff', wedit=w['id']) }}#work">수정</a>
+        <a class="mini" href="{{ url_id('staff', w['id'], 'wedit') }}#work">수정</a>
         {% endif %}
-        <form method="post" action="{{ url_for('work_delete', row_id=w['id']) }}"
+        <form method="post" action="{{ url_id('work_delete', w['id']) }}"
               onsubmit="return confirm('이 작업지시를 삭제할까요?');"><button class="mini del">삭제</button></form>
       </div>
     </div>

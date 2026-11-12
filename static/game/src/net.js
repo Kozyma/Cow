@@ -11,6 +11,7 @@ import { buildSaveData, applySaveData } from './save.js';
 import { addLabel, removeLabel, toast, addVehicleUI } from './ui.js';
 import { damp, dampAngle, clamp } from './util.js';
 import { sfx } from './audio.js';
+import { addEntry, applyBoardSync } from './board.js';
 
 const lookFor = (id) => LOOKS[id % LOOKS.length];
 
@@ -85,6 +86,7 @@ function onMessage(m) {
     else if (m.t === 'm') applyMid(m);
     else if (m.t === 'w') applyWorld(m);
     else if (m.t === 'toast') toast(m.msg, m.icon, m.ms);
+    else if (m.t === 'bd') applyBoardSync(m.b);
     else if (m.t === 'hostgone') { toast('호스트가 방을 닫았어요', '🚪', 4000); }
   }
 }
@@ -141,6 +143,9 @@ function onGuestMessage(id, m) {
     if (v) { v.setAuto(!!m.on); if (v.ui) v.ui.cb.checked = v.auto; }
   } else if (m.t === 'ing') {
     if (p.driving?.type === 'mixer') p.driving.addIngredient(m.kind);
+  } else if (m.t === 'gb') {
+    // 친구가 알림판 방명록에 글을 남김 (방장이 받아서 저장하고 모두에게 다시 보냄)
+    if (addEntry(p.name, m.msg, `g${id}`)) toast(`${p.name}님이 방명록을 남겼어요`, '✍️', 2200);
   } else if (m.t === 'chat') {
     const msg = String(m.msg || '').slice(0, 80);
     toast(`${p.name}: ${msg}`, '💬', 4000);
@@ -475,7 +480,13 @@ export const guestCmd = {
   auto: (v, on) => sendRaw({ t: 'auto', vi: G.vehicles.indexOf(v), on }),
   ing: (kind) => sendRaw({ t: 'ing', kind }),
   chat: (msg) => sendRaw({ t: 'chat', msg }),
+  gb: (msg) => sendRaw({ t: 'gb', msg: String(msg).slice(0, 80) }),
 };
+
+/** 방장: 알림판(공지·방명록)이 바뀌면 모두에게 */
+export function hostBoard(b) {
+  if (net.role === 'host' && net.remotes.size) toGuests({ t: 'bd', b });
+}
 
 /** 호스트: 광장 게시판에 내 농장 올리기/내리기 */
 export function setPublic(on) {

@@ -17,10 +17,11 @@ import { enterBuild, exitBuild, updateBuild, buildPointer, buildClick, buildCanc
 import * as HOUSE from './house.js';
 import { initAudio, updateEngine, sfx, setVolumes } from './audio.js';
 import { saveGame, loadGame, hasSave, clearSave } from './save.js';
+import { buildBoard, nearBoard, openBoard, initBoardUI, bindBoardNet, setBoardData } from './board.js';
 import { loadSettings } from './settings.js';
 import { damp, dampAngle, clamp, wrapAngle } from './util.js';
 import { blockedAt } from './physics.js';
-import { net, connect, hostStep, hostEndFrame, guestStep, guestCmd, updatePeersUI, setPublic } from './net.js';
+import { net, connect, hostStep, hostEndFrame, guestStep, guestCmd, updatePeersUI, setPublic, hostBoard } from './net.js';
 import { plaza, enterPlaza, updatePlaza } from './plaza.js';
 const isGuest = () => net.role === 'guest';
 const guestOnly = (what) => { toast(`${what}은(는) 방장만 할 수 있어요`, '👑', 1800); };
@@ -57,6 +58,8 @@ createVehicles();
 G.player = new Player(scene);
 G.players = [G.player];
 HOUSE.buildHouse(scene);
+setBoardData(null);
+buildBoard(scene, G.farmhouse);
 rollPrices();
 
 function rollPrices() {
@@ -382,12 +385,15 @@ function handleInput() {
       const v = nearestVehicle(2.2);
       if (v) enterVehicle(v);
       else if (HOUSE.nearHouseDoor(G.player.pos)) HOUSE.enterHouse();
+      else if (nearBoard(G.player.pos)) openBoard();
       else {
         const a = nearestAnimal(2.4);
         if (a) a.pet();
       }
     }
   }
+  // 친구(게스트)도 알림판은 내 화면에서 바로 연다
+  if (k.pressed('KeyE') && isGuest() && !G.driving && !G.riding && nearBoard(G.player.pos)) openBoard();
   if (k.pressed('Space') && !isGuest()) {
     if (G.driving) G.driving.action();
     else G.player.hop();
@@ -411,14 +417,16 @@ function handleInput() {
   else {
     const v = nearestVehicle(2.2);
     const door = !v && !isGuest() && HOUSE.nearHouseDoor(G.player.pos);
-    const a = !v && !door && nearestAnimal(2.4);
+    const bd = !v && !door && nearBoard(G.player.pos);
+    const a = !v && !door && !bd && nearestAnimal(2.4);
     const icon = a && ({ cow: '🐮', hanwoo: '🐂', pig: '🐷', chicken: '🐔' })[a.type];
     if (v) setPrompt(`<kbd>E</kbd> ${v.def.icon} ${v.def.name} 타기`);
     else if (door) setPrompt('<kbd>E</kbd> 🏠 집에 들어가기');
+    else if (bd) setPrompt(`<kbd>E</kbd> 🪧 알림판 · 방명록 보기${isGuest() ? '' : ' (공지 쓰기)'}`);
     else if (a) setPrompt(`<kbd>E</kbd> ${icon} 쓰다듬기`);
     else setPrompt(null);
     // 모바일 행동 버튼 글자도 상황에 맞게
-    setActionLabel(v ? `${v.def.icon} 타기` : door ? '🏠 들어가기' : a ? `${icon} 쓰다듬기` : null);
+    setActionLabel(v ? `${v.def.icon} 타기` : door ? '🏠 들어가기' : bd ? '🪧 알림판' : a ? `${icon} 쓰다듬기` : null);
   }
 }
 
@@ -659,12 +667,21 @@ function lockScreen() {
 // 시작 화면 버튼을 누르는 순간(사용자 동작이 있어야 전체화면 가능) 회전 고정
 document.getElementById('title').addEventListener('click', (e) => { if (e.target.closest('button.big')) lockScreen(); }, true);
 
+let boardUI = false;
+function initBoardOnce() {
+  if (boardUI) return;
+  boardUI = true;
+  initBoardUI();
+  bindBoardNet({ isGuest, myName, sendEntry: (m) => guestCmd.gb(m), broadcast: hostBoard });
+}
+
 function start(fresh) {
   initAudio();
   setVolumes(G.settings.music, G.settings.sfx);
   if (fresh) clearSave();
   else if (hasSave()) loadGame();
   initUI(api);
+  initBoardOnce();
   title.classList.add('out');
   setTimeout(() => title.remove(), 700);
   document.getElementById('hud').classList.remove('hidden');
@@ -747,6 +764,7 @@ function startGuest() {
   initAudio();
   setVolumes(G.settings.music, G.settings.sfx);
   initUI(api);
+  initBoardOnce();
   title.classList.add('out');
   setTimeout(() => title.remove(), 700);
   document.getElementById('hud').classList.remove('hidden');

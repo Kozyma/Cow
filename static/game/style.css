@@ -641,3 +641,28 @@ body.mobile .pill.notice { top: 200px; }
   body:not(.mobile) #top-left .pill.net-btn { padding: 8px 12px; }
   body:not(.mobile) #top-left .pill.net-btn[data-armed] .lbl { display: inline; font-size: 13px; }
 }
+
+/* ---------- 🪧 집 앞 알림판 · 방명록 ---------- */
+.board-sheet { width: min(520px, 94vw); }
+.board-notice { background: #2f5d4a; color: #fffaf0; border: 4px solid #b07a4f; border-radius: 18px; padding: 10px 14px 12px; margin-bottom: 12px; }
+.bn-title { font-family: 'Jua'; color: #ffe9a8; font-size: 16px; margin-bottom: 4px; }
+.bn-view { font-family: 'Jua'; font-size: 19px; line-height: 1.35; white-space: pre-wrap; word-break: break-all; }
+.bn-view.empty { opacity: 0.55; font-size: 15px; }
+.bn-edit { display: flex; gap: 6px; margin-top: 8px; }
+.bn-edit.hidden { display: none; }
+.board-sheet input { flex: 1; min-width: 0; border: 3px solid var(--line); border-radius: 14px; padding: 7px 12px; font: inherit; font-size: 15px; background: #fff; color: var(--ink); }
+.board-sheet .btn { flex: none; border: 3px solid var(--line); background: var(--yellow); color: var(--ink); border-radius: 14px; padding: 6px 12px; font-family: 'Jua'; font-size: 15px; cursor: pointer; }
+.board-sheet .btn:active { transform: translateY(1px); }
+.board-book-head { font-family: 'Jua'; font-size: 17px; margin: 4px 2px 6px; }
+.board-book-head span { color: var(--ink2); font-size: 13px; }
+.board-write { display: flex; gap: 6px; margin-bottom: 10px; }
+#board-book { display: grid; gap: 7px; }
+.board-entry { background: #fff; border: 3px solid var(--line); border-radius: 14px; padding: 6px 10px 8px; }
+.be-head { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--ink2); }
+.be-head b { color: var(--ink); font-size: 14.5px; }
+.be-head span { flex: 1; }
+.be-del { border: none; background: none; color: var(--ink2); cursor: pointer; font-size: 13px; padding: 2px 4px; }
+.be-msg { font-size: 15.5px; margin-top: 2px; word-break: break-all; }
+.board-empty { color: var(--ink2); text-align: center; margin: 8px 0; }
+body.mobile .board-sheet { padding: 12px 14px 16px; }
+body.mobile .bn-view { font-size: 16px; }

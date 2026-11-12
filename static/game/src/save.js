@@ -8,6 +8,7 @@ import { relocateDock, dockFootprint } from './world.js';
 import { clearSite, parkRows, setParkingRows } from './layout.js';
 import { buildGrid } from './pathfinding.js';
 import { reloadHouse } from './house.js';
+import { setBoardData } from './board.js';
 
 const KEY = 'monggle-farm-save-v4';
 
@@ -48,6 +49,7 @@ export function buildSaveData() {
     vehicles: G.vehicles.map((v) => ({ type: v.type, ...v.serialize() })),
     autoV: 2,   // 자동 운전 기본 꺼짐 이후 저장본
     house: G.house,
+    board: G.board,   // 집 앞 알림판: 공지 · 방명록
   };
 }
 
@@ -131,6 +133,7 @@ export function applySaveData(d) {
   }
   for (const [x, z, a] of d.muck || []) addMuck(x, z, a);
   if (d.house) { G.house = d.house; reloadHouse(); }
+  setBoardData(d.board);
   buildGrid(1.75);
   return true;
 }

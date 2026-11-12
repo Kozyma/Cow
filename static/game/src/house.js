@@ -48,15 +48,27 @@ export function defaultHouse() {
       { id: 'desk', c: 9, r: 0, rot: 0 },
       { id: 'rug', c: 4, r: 3, rot: 0 },
       { id: 'table', c: 4, r: 3, rot: 0 },
-      { id: 'chair', c: 3, r: 3, rot: 1 },
-      { id: 'chair', c: 6, r: 4, rot: 3 },
+      { id: 'chair', c: 3, r: 3, rot: 3 },   // 식탁 왼쪽, 식탁을 바라봄
+      { id: 'chair', c: 6, r: 3, rot: 1 },   // 식탁 오른쪽, 식탁을 바라봄
       { id: 'tv', c: 0, r: 7, rot: 2 },
       { id: 'catbed', c: 2, r: 7, rot: 0 },
       { id: 'plant', c: 11, r: 0, rot: 0 },
     ],
     inventory: {},
     plants: {},
+    v: 2,
   };
+}
+
+/** 예전 기본 배치(의자가 식탁 반대쪽을 보고 엇갈려 있던 것)를 저장본에서 한 번만 바로잡기 */
+function migrateHouse(h) {
+  if (!h || h.v >= 2) return;
+  h.v = 2;
+  const at = (id, c, r) => h.placed.find((p) => p.id === id && p.c === c && p.r === r);
+  if (!at('table', 4, 3)) return;
+  const a = at('chair', 3, 3), b = at('chair', 6, 4);
+  if (a && a.rot === 1) a.rot = 3;
+  if (b && b.rot === 3) { b.rot = 1; if (!h.placed.some((p) => p !== b && p.c <= 6 && p.c + dims(p).w > 6 && p.r <= 3 && p.r + dims(p).d > 3 && !FURNITURE[p.id].flat)) b.r = 3; }
 }
 
 // ---------------- 가구 모델 ----------------
@@ -225,6 +237,7 @@ export const houseState = H;
 
 export function buildHouse(scene) {
   if (!G.house) G.house = defaultHouse();
+  migrateHouse(G.house);
   const root = group(scene);
   H.root = root;
   root.visible = false;
@@ -281,6 +294,38 @@ function rebuildFurniture() {
   H.items = [];
   H.colliders = [];
   for (const p of G.house.placed) addFurnitureMesh(p);
+  tuckChairs();
+}
+
+/**
+ * 식탁 옆에 놓인 의자·식탁 아래 러그는 식탁 가운데에 줄을 맞춰 보이게 한다 (칸은 1칸·식탁은 2칸이라 반 칸 어긋나는 것 보정)
+ * 보이는 위치만 옮기고, 저장되는 칸 위치는 그대로
+ */
+function tuckChairs() {
+  const tables = H.items.filter((it) => it.p.id === 'table');
+  // 식탁 아래 깔린 러그도 식탁 가운데로
+  for (const it of H.items) {
+    if (it.p.id !== 'rug') continue;
+    const r = it.rect, cx = (r.minX + r.maxX) / 2, cz = (r.minZ + r.maxZ) / 2;
+    it.mesh.position.x = cx; it.mesh.position.z = cz;
+    const t = tables.find((t) => t.rect.minX >= r.minX && t.rect.maxX <= r.maxX && t.rect.minZ >= r.minZ && t.rect.maxZ <= r.maxZ);
+    if (!t) continue;
+    const tx = (t.rect.minX + t.rect.maxX) / 2, tz = (t.rect.minZ + t.rect.maxZ) / 2;
+    if (Math.abs(tx - cx) <= 0.5) it.mesh.position.x = tx;
+    if (Math.abs(tz - cz) <= 0.5) it.mesh.position.z = tz;
+  }
+  for (const it of H.items) {
+    if (it.p.id !== 'chair') continue;
+    const r = it.rect, cx = (r.minX + r.maxX) / 2, cz = (r.minZ + r.maxZ) / 2;
+    it.mesh.position.x = cx; it.mesh.position.z = cz;
+    for (const t of tables) {
+      const q = t.rect, tx = (q.minX + q.maxX) / 2, tz = (q.minZ + q.maxZ) / 2;
+      const side = (r.maxX === q.minX || r.minX === q.maxX) && r.minZ < q.maxZ && r.maxZ > q.minZ;   // 식탁 왼쪽·오른쪽
+      const end = (r.maxZ === q.minZ || r.minZ === q.maxZ) && r.minX < q.maxX && r.maxX > q.minX;    // 식탁 위·아래
+      if (side && Math.abs(tz - cz) <= 0.5) { it.mesh.position.z = tz; break; }
+      if (end && Math.abs(tx - cx) <= 0.5) { it.mesh.position.x = tx; break; }
+    }
+  }
 }
 
 function addFurnitureMesh(p) {
@@ -549,7 +594,7 @@ function cancelHold() {
   const h = H.holding;
   H.root.remove(h.mesh);
   if (h.fromInv) G.house.inventory[h.p.id] = (G.house.inventory[h.p.id] || 0) + 1;
-  else { G.house.placed.push(h.orig); addFurnitureMesh(h.orig); }
+  else { G.house.placed.push(h.orig); addFurnitureMesh(h.orig); tuckChairs(); }
   H.holding = null;
   setHouseHud(true);
 }
@@ -563,6 +608,7 @@ export function decorClick() {
     const p = { id: h.p.id, c: h.p.c, r: h.p.r, rot: h.p.rot };
     G.house.placed.push(p);
     addFurnitureMesh(p);
+    tuckChairs();
     H.holding = null;
     sfx('drop');
     burst('star', h.mesh.position.x, 0.8, h.mesh.position.z, 6, { vy: 3 });
@@ -577,6 +623,7 @@ export function decorClick() {
   H.root.remove(it.mesh);
   H.items.splice(H.items.indexOf(it), 1);
   G.house.placed.splice(G.house.placed.indexOf(it.p), 1);
+  tuckChairs();
   startHold({ ...it.p }, false);
   H.holding.orig = it.p;
   sfx('pickup');
@@ -665,6 +712,7 @@ export const roomCenter = () => ({ x: ROOM.x, z: ROOM.z });
 
 /** 저장된 집 상태 다시 적용 */
 export function reloadHouse() {
+  migrateHouse(G.house);
   applyRoomColors();
   rebuildFurniture();
   applyExterior();

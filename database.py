@@ -68,8 +68,12 @@ class Database:
         self.conn = sqlite3.connect(path, check_same_thread=False)
         self.conn.row_factory = sqlite3.Row          # 결과를 dict처럼 접근
         self.conn.execute("PRAGMA foreign_keys = ON")
+        # 성능 PRAGMA(연결 단위, 데이터·결과에는 영향 없음)
+        self.conn.execute("PRAGMA temp_store = MEMORY")   # 정렬/임시 B-tree 를 메모리에서
+        self.conn.execute("PRAGMA cache_size = -16000")   # 페이지 캐시 약 16MB
         self._create_tables()
         self._migrate()
+        self._create_indexes()
         self._init_settings()
         if init_admin:
             self._init_admin()
@@ -243,6 +247,26 @@ class Database:
             );
             """
         )
+        self.conn.commit()
+
+    def _create_indexes(self):
+        """조회 속도용 인덱스(결과는 동일, 이미 있으면 건너뜀) — 기존 DB도 시작 시 자동 추가.
+
+        정렬 기준이 완전하지 않은(동점 순서가 계획에 따라 바뀔 수 있는) 조회가 걸린
+        테이블(livestock·users·payroll·work_order)에는 일부러 인덱스를 두지 않는다.
+        """
+        for ddl in (
+            "CREATE INDEX IF NOT EXISTS idx_finance_auto_key ON finance(auto_key)",        # 자동반영 갱신
+            "CREATE INDEX IF NOT EXISTS idx_finance_tx_date ON finance(tx_date)",          # 재무 목록 정렬
+            "CREATE INDEX IF NOT EXISTS idx_farm_log_date ON farm_log(log_date)",          # 일지 목록 정렬
+            "CREATE INDEX IF NOT EXISTS idx_farm_log_livestock ON farm_log(livestock_id)", # 품목 삭제(FK)
+            "CREATE INDEX IF NOT EXISTS idx_feed_purchase_owner ON feed_purchase(owner, cattle_type)",
+            "CREATE INDEX IF NOT EXISTS idx_feed_purchase_date ON feed_purchase(purchase_date)",
+        ):
+            try:
+                self.conn.execute(ddl)
+            except sqlite3.DatabaseError:
+                pass                      # 인덱스는 선택 사항 — 실패해도 앱은 그대로 동작
         self.conn.commit()
 
     def _init_settings(self):
@@ -499,11 +523,27 @@ class Database:
 
     def solar_net_kwh(self, kwh):
         """손실률을 반영한 실(정산) 발전량 = 입력 발전량 × (1 − 손실률)."""
-        return kwh * (1 - self.solar_loss_rate() / 100.0)
+        return self.net_kwh_at(kwh, self.solar_loss_rate())
 
     def solar_revenue(self, kwh):
         """발전량(kWh)에 대한 예상 수익(원, 정수). 손실률을 반영해 계산한다."""
-        return int(round(self.solar_net_kwh(kwh) * self.solar_unit_revenue()))
+        return self.revenue_at(kwh, self.solar_loss_rate(), self.solar_unit_revenue())
+
+    # 여러 행을 한꺼번에 계산할 때: 설정(손실률·단가)을 한 번만 읽고 아래 계산식을 재사용
+    #   (행마다 solar_revenue 를 부르면 행당 설정 조회가 5번씩 일어난다)
+    def solar_rates(self):
+        """(손실률%, 1kWh당 정산 단가) — solar_net_kwh/solar_revenue 와 같은 값."""
+        return self.solar_loss_rate(), self.solar_unit_revenue()
+
+    @staticmethod
+    def net_kwh_at(kwh, loss):
+        """solar_net_kwh 와 같은 계산(손실률을 인자로)."""
+        return kwh * (1 - loss / 100.0)
+
+    @staticmethod
+    def revenue_at(kwh, loss, unit):
+        """solar_revenue 와 같은 계산(손실률·단가를 인자로)."""
+        return int(round(Database.net_kwh_at(kwh, loss) * unit))
 
     def solar_expected_daily(self):
         """하루 예상 발전량(kWh) = 용량(kW) × 일사시간(h) × (1 − 손실률).
@@ -1351,26 +1391,21 @@ class Database:
         """
         y = str(year)
 
-        def _income(sector):
-            return self.conn.execute(
-                "SELECT COALESCE(SUM(amount),0) AS s FROM finance "
-                "WHERE tx_type='수입' AND sector=? AND strftime('%Y',tx_date)=?",
-                (sector, y),
-            ).fetchone()["s"]
-
-        solar_income = _income("태양광")
-        farm_income = _income("농축산")
-        income = self.conn.execute(
-            "SELECT COALESCE(SUM(amount),0) AS s FROM finance "
-            "WHERE tx_type='수입' AND strftime('%Y',tx_date)=?",
+        # 4가지 합계를 한 번의 스캔으로(조건부 SUM — 따로 구한 것과 결과 동일)
+        row = self.conn.execute(
+            "SELECT "
+            "COALESCE(SUM(CASE WHEN tx_type='수입' AND sector='태양광' THEN amount END),0) AS solar_income, "
+            "COALESCE(SUM(CASE WHEN tx_type='수입' AND sector='농축산' THEN amount END),0) AS farm_income, "
+            "COALESCE(SUM(CASE WHEN tx_type='수입' THEN amount END),0) AS income, "
+            "COALESCE(SUM(CASE WHEN tx_type='지출' "
+            "    AND (auto_key IS NULL OR auto_key NOT LIKE 'tax-%') THEN amount END),0) AS expense "
+            "FROM finance WHERE strftime('%Y',tx_date)=?",
             (y,),
-        ).fetchone()["s"]
-        expense = self.conn.execute(
-            "SELECT COALESCE(SUM(amount),0) AS s FROM finance "
-            "WHERE tx_type='지출' AND strftime('%Y',tx_date)=? "
-            "AND (auto_key IS NULL OR auto_key NOT LIKE 'tax-%')",
-            (y,),
-        ).fetchone()["s"]
+        ).fetchone()
+        solar_income = row["solar_income"]
+        farm_income = row["farm_income"]
+        income = row["income"]
+        expense = row["expense"]
 
         vat_rate_solar = self.get_setting_float("vat_rate_solar", 10)
         vat_rate_farm = self.get_setting_float("vat_rate_farm", 0)
@@ -1443,6 +1478,7 @@ class Database:
         ).fetchall()
 
         unit = self.solar_unit_revenue()
+        loss = self.solar_loss_rate()        # 설정은 루프 밖에서 한 번만 읽는다
         months = 0
         total = 0
         for r in rows:
@@ -1450,13 +1486,12 @@ class Database:
             if not ym:
                 continue
             kwh = r["kwh"]
-            revenue = self.solar_revenue(kwh)
+            revenue = self.revenue_at(kwh, loss, unit)
             if revenue <= 0:
                 continue
             auto_key = f"solar-{ym}"
             tx_date = f"{ym}-01"
             item = f"발전 정산금(자동) {ym}"
-            loss = self.solar_loss_rate()
             if loss > 0:
                 note = f"{kwh:g}kWh × (1−{loss:g}%손실) × {unit:g}원/kWh"
             else:
@@ -1488,17 +1523,14 @@ class Database:
         """(총수입, 총지출) 반환. year 지정 시 해당 연도만."""
         where = "WHERE strftime('%Y', tx_date) = ?" if year else ""
         params = (str(year),) if year else ()
-        income = self.conn.execute(
-            f"SELECT COALESCE(SUM(amount),0) AS s FROM finance "
-            f"WHERE tx_type='수입' {('AND ' + where[6:]) if where else ''}",
+        # 수입·지출을 한 번의 스캔으로 함께 합산(조건부 SUM — 결과는 따로 구한 것과 동일)
+        row = self.conn.execute(
+            "SELECT COALESCE(SUM(CASE WHEN tx_type='수입' THEN amount END),0) AS i, "
+            "       COALESCE(SUM(CASE WHEN tx_type='지출' THEN amount END),0) AS e "
+            f"FROM finance {where}",
             params,
-        ).fetchone()["s"]
-        expense = self.conn.execute(
-            f"SELECT COALESCE(SUM(amount),0) AS s FROM finance "
-            f"WHERE tx_type='지출' {('AND ' + where[6:]) if where else ''}",
-            params,
-        ).fetchone()["s"]
-        return income, expense
+        ).fetchone()
+        return row["i"], row["e"]
 
     def finance_monthly(self, year):
         """해당 연도의 월별 (수입, 지출) → {1: (수입,지출), ... 12: ...}"""

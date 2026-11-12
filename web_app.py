@@ -351,7 +351,13 @@ def current_user():
     d = getattr(g, "farm_db", None)
     if not uid or d is None:
         return None
-    return d.get_user(uid)
+    # 한 요청 안에서 여러 번(로그인 검사·템플릿 공용값) 불리므로 같은 (농장, uid)면 재사용
+    cached = g.get("_cu")
+    if cached is not None and cached[0] is d and cached[1] == uid:
+        return cached[2]
+    u = d.get_user(uid)
+    g._cu = (d, uid, u)
+    return u
 
 
 @app.before_request
@@ -689,6 +695,27 @@ def md_filter(date_str):
         return date_str
 
 
+# 목록(수백 행)에서 행마다 url_for 를 부르면 라우팅 빌드 비용이 커진다.
+# 같은 엔드포인트의 URL 앞/뒤 조각을 요청당 한 번만 만들고 id 만 끼워 넣는다(결과는 url_for 와 동일).
+_URL_MARK = "918273645"
+
+
+@app.template_global()
+def url_id(endpoint, value, key="row_id"):
+    """url_for(endpoint, **{key: value}) 와 같은 문자열을 빠르게 만든다(value 는 정수 id)."""
+    if type(value) is not int or value < 0:
+        return url_for(endpoint, **{key: value})
+    cache = g.setdefault("_url_id", {})
+    parts = cache.get((endpoint, key))
+    if parts is None:
+        u = url_for(endpoint, **{key: int(_URL_MARK)})
+        parts = tuple(u.split(_URL_MARK)) if u.count(_URL_MARK) == 1 else ()
+        cache[(endpoint, key)] = parts
+    if not parts:                       # 혹시 모를 예외 상황은 원래 방식으로
+        return url_for(endpoint, **{key: value})
+    return parts[0] + str(value) + parts[1]
+
+
 @app.context_processor
 def inject_helpers():
     d = getattr(g, "farm_db", None)      # 로그인 전(로그인·가입 화면)엔 농장이 없다
@@ -925,10 +952,11 @@ LOG_PER_PAGE = 10
 
 @app.route("/livestock")
 def livestock():
+    items = db.list_livestock()          # 한 번만 조회해 목록·수정행·일지 품목에 재사용
     edit_id = request.args.get("edit", type=int)
     edit_row = None
     if edit_id:
-        for r in db.list_livestock():
+        for r in items:
             if r["id"] == edit_id:
                 edit_row = r
                 break
@@ -945,7 +973,7 @@ def livestock():
 
     return render_template(
         "livestock.html",
-        items=db.list_livestock(),
+        items=items,
         logs=logs,
         choices=db.livestock_choices(),
         edit_row=edit_row,
@@ -960,7 +988,7 @@ def livestock():
         feed_summary=db.feed_purchase_summary(),
         feed_edit=db.get_feed_purchase(request.args.get("feedit", type=int))
                   if request.args.get("feedit", type=int) else None,
-        log_items=[r["name"] for r in db.list_livestock()],
+        log_items=[r["name"] for r in items],
         log_activities=sorted(set(FARM_ACTIVITIES) | set(db.farmlog_activities())),
     )
 
@@ -1594,7 +1622,8 @@ def feed_delete(row_id):
 def feed_report():
     """명의별 사료 구매 내역서(인쇄용). owner 미지정 시 전체 명의."""
     owner = _arg("owner")
-    owners = [owner] if owner else db.feed_owners()
+    all_owners = db.feed_owners()
+    owners = [owner] if owner else all_owners
     groups = []
     for o in owners:
         rows = db.list_feed_purchase(owner=o)
@@ -1606,7 +1635,7 @@ def feed_report():
     grand_total = sum(g["total"] for g in groups)
     return render_template(
         "feed_report.html", groups=groups, grand_total=grand_total,
-        owner=owner, all_owners=db.feed_owners(),
+        owner=owner, all_owners=all_owners,
     )
 
 
@@ -1620,7 +1649,8 @@ def _yymmdd(d):
 def feed_statement():
     """간이 사료 구매내역서(엑셀 양식 형태): 날짜·품목·수량·단가·금액 + 월별 누계."""
     owner = _arg("owner")
-    owners = [owner] if owner else db.feed_owners()
+    all_owners = db.feed_owners()
+    owners = [owner] if owner else all_owners
     sheets = []
     for o in owners:
         rows = sorted(db.list_feed_purchase(owner=o),
@@ -1653,7 +1683,7 @@ def feed_statement():
         sheets.append(dict(owner=o, rows=display, total=cumulative))
     return render_template(
         "feed_statement.html", sheets=sheets,
-        owner=owner, all_owners=db.feed_owners(),
+        owner=owner, all_owners=all_owners,
     )
 
 
@@ -1870,11 +1900,12 @@ def api_notifications():
 @app.route("/solar")
 def solar():
     rows = db.list_solar(limit=400)
+    loss, unit = db.solar_rates()       # 설정은 한 번만 읽고 행마다 같은 계산식 재사용
     enriched = [
         dict(id=r["id"], log_date=r["log_date"],
              generation_kwh=r["generation_kwh"],
-             net_kwh=db.solar_net_kwh(r["generation_kwh"]),
-             revenue=db.solar_revenue(r["generation_kwh"]),
+             net_kwh=db.net_kwh_at(r["generation_kwh"], loss),
+             revenue=db.revenue_at(r["generation_kwh"], loss, unit),
              note=r["note"] or "")
         for r in rows
     ]
@@ -2134,11 +2165,12 @@ def reports():
         income=sum(income), expense=sum(expense),
         net=sum(income) - sum(expense),
     )
+    loss, unit = db.solar_rates()       # 설정은 한 번만 읽는다
     solar_rows = [
-        dict(month=m, kwh=sm[m], revenue=db.solar_revenue(sm[m]))
+        dict(month=m, kwh=sm[m], revenue=db.revenue_at(sm[m], loss, unit))
         for m in range(1, 13) if sm[m]
     ]
-    solar_year = dict(kwh=sum(kwh), revenue=db.solar_revenue(sum(kwh)))
+    solar_year = dict(kwh=sum(kwh), revenue=db.revenue_at(sum(kwh), loss, unit))
 
     growth = db.livestock_growth_stats()
 

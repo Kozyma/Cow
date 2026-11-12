@@ -40,6 +40,7 @@ services:
       - "443:443"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./static:/srv/static:ro   # 정적 파일(css·js·아이콘·게임)은 Caddy가 직접 압축해서 보냄
       - caddy-data:/data     # 발급받은 Let's Encrypt 인증서 보관(재시작에도 유지)
       - caddy-config:/config
     depends_on:

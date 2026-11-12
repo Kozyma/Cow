@@ -62,12 +62,13 @@ def export_all(db, folder):
          for r in db.list_feed_purchase()],
     ))
 
-    # 3) 태양광 발전 기록 (예상수익 포함)
+    # 3) 태양광 발전 기록 (예상수익 포함) — 손실률·단가는 한 번만 읽어 행마다 재사용
+    loss, unit = db.solar_rates()
     written.append(_write_csv(
         folder, "태양광_발전기록.csv",
         ["날짜", "발전량(kWh)", "예상수익(원)", "메모"],
         [(r["log_date"], r["generation_kwh"],
-          db.solar_revenue(r["generation_kwh"]), r["note"] or "")
+          db.revenue_at(r["generation_kwh"], loss, unit), r["note"] or "")
          for r in db.list_solar(limit=1000000)],
     ))
 
@@ -111,7 +112,7 @@ def export_all(db, folder):
                 continue
             summary.append((
                 f"{year}-{m:02d}", income, expense, income - expense,
-                round(kwh, 1), db.solar_revenue(kwh),
+                round(kwh, 1), db.revenue_at(kwh, loss, unit),
             ))
     summary.sort()
     written.append(_write_csv(
