@@ -1,8 +1,6 @@
-// 🔧 모델(등급)별 외형 키트: 차종마다 모양이 달라도, 차체를 광선으로 훑어서 지붕 끝·앞면·뒷면·옆면·바퀴를
-// 찾아 그 자리에 등급 부품을 붙인다. 그래서 같은 '터보'라도 트랙터·트럭·지게차마다 생김새가 다르다.
-//  ⚡ 터보   : 지붕 스포일러 · 쌍 크롬 머플러 · 차체 곡면을 따라가는 레이싱 줄무늬 · 옆면 번개 · 빨간 휠
-//  🌀 컴팩트 : 지붕 리본 · 방울 안테나 · 앞뒤 말랑 범퍼 · 옆면 물방울 스티커 · 민트 휠캡
-//  👑 프로   : 지붕 LED 라이트바 · 크롬 불바 · 금색 왕관 엠블럼 · 금색 핀스트라이프 · 금색 휠 · 머드플랩
+// 🔧 차량 외형: ① 브랜드별 차체 모양(늘이기·줄이기·넓히기) · 투톤 도색 · 엠블럼  ② 자리별 커스텀 파츠
+// 차종마다 모양이 달라도, 차체를 광선으로 훑어서 지붕 끝·앞면·뒷면·옆면·보닛·바퀴 자리를 찾아 그 자리에 붙인다.
+// 그래서 같은 파츠라도 트랙터·트럭·지게차마다 크기와 위치가 알맞게 달라진다.
 import * as THREE from 'three';
 import { mat, glow } from './materials.js';
 import { part, group, rbox, box, sphere, cyl, cone, torus } from './util.js';
@@ -152,7 +150,8 @@ function onSurface(v, hits, add, make) {
     const lp = parent.worldToLocal(h.p.clone().addScaledVector(h.n, 0.012));
     const piece = make(c);
     piece.position.copy(lp);
-    piece.quaternion.setFromUnitVectors(UP, h.n);
+    const own = piece.quaternion.clone();                       // 조각 자체의 기울기(예: 눕힌 불꽃)는 살리고
+    piece.quaternion.setFromUnitVectors(UP, h.n).multiply(own); // 면의 기울기를 그 위에 더한다
   }
   g0.position.copy(saved.p); g0.rotation.copy(saved.r);
   g0.updateMatrixWorld(true);
@@ -171,80 +170,66 @@ function wheelsOf(v) {
   return out;
 }
 
-// ---------------- 등급별 키트 ----------------
+// ---------------- 커스텀 파츠 (자리별로 하나씩) ----------------
 const C = {
   chrome: () => mat(0xd9dde4), dark: () => mat(0x3a3f4a), gold: () => mat(0xf0b62a),
   red: () => mat(0xff5a5f), yellow: () => mat(0xffd34d), mint: () => mat(0x7fe0c4), pink: () => mat(0xff9eb5), white: () => mat(0xfffaf0),
 };
 
-function turbo(v, a, add) {
-  // 지붕 끝 스포일러
-  if (a.roofBack) {
+const B = {
+  // ---- 지붕 ----
+  spoiler(v, a, add) {
+    if (!a.roofBack) return;
     const k = add(at(v, a.roofBack, 0, 0, -0.02));
     const w = Math.min(a.roofW * 1.05, a.W * 0.9);
     for (const sx of [-1, 1]) part(k, box(0.07, 0.48, 0.12), C.dark(), sx * w * 0.32, 0.22, 0.05, 0.25, 0, 0);
     part(k, rbox(w, 0.07, 0.5, 0.03), C.red(), 0, 0.48, -0.08, -0.22, 0, 0);
     for (const sx of [-1, 1]) part(k, rbox(0.06, 0.3, 0.55, 0.02), C.yellow(), sx * w * 0.5, 0.45, -0.08);
-  }
-  // 보닛 불꽃 무늬 (뒤로 뻗는 주황·노랑 삼각)
-  const fo = mat(0xff8a3d), fy = C.yellow();
-  let fi = 0;
-  onSurface(v, a.hood, add, (c) => part(c, cone(0.1, 0.34, 3), (fi++ % 2) ? fy : fo, 0, 0, 0, -Math.PI / 2, 0, 0, 1, 1, 0.25));
-  // 앞 스플리터 · 옆 사이드스커트 (낮고 길게)
-  if (a.front) {
-    const k = add(at(v, a.front, 0, a.box.min.y + 0.2 - a.front.p.y, 0.05));   // 앞면 아래쪽, 바닥에서 약간 위
-    part(k, rbox(Math.min(a.W * 0.9, 1.7), 0.05, 0.3, 0.02), C.dark(), 0, 0, 0.05);
-    part(k, box(Math.min(a.W * 0.9, 1.7), 0.03, 0.04), C.red(), 0, 0.035, 0.19);
-  }
-  // 쌍 크롬 머플러 (뒷면 아래쪽)
-  if (a.back) {
-    const k = add(at(v, a.back, 0, -Math.min(0.25, a.H * 0.12), -0.05));
-    for (const sx of [-1, 1]) {
-      part(k, cyl(0.07, 0.07, 0.4, 10), C.chrome(), sx * 0.22, 0, -0.1, Math.PI / 2, 0, 0);
-      part(k, cyl(0.075, 0.075, 0.03, 10), C.dark(), sx * 0.22, 0, -0.31, Math.PI / 2, 0, 0);
+  },
+  lightbar(v, a, add) {
+    if (!a.roofFront) return;
+    const k = add(at(v, a.roofFront, 0, 0, -0.12));
+    const w = Math.min(a.roofW * 0.9, a.W * 0.8);
+    part(k, rbox(w, 0.13, 0.2, 0.05), C.dark(), 0, 0.1, 0);
+    const n = Math.max(3, Math.round(w / 0.28));
+    for (let i = 0; i < n; i++) part(k, sphere(0.055, 8, 6), glow(0xfff3b0, 0.9), -w / 2 + 0.12 + (i * (w - 0.24)) / (n - 1), 0.1, 0.1, 0, 0, 0, 1, 1, 0.5);
+    for (const sx of [-1, 1]) part(k, box(0.04, 0.12, 0.04), C.chrome(), sx * w * 0.42, 0.02, 0);
+  },
+  bow(v, a, add) {
+    if (a.roof) {
+      const k = add(at(v, a.roof, 0, 0.02, 0));
+      k.scale.setScalar(1.5);
+      const p = C.pink();
+      for (const sx of [-1, 1]) part(k, cone(0.16, 0.3, 4), p, sx * 0.17, 0.14, 0, 0, 0, sx * Math.PI / 2, 1, 1, 0.55);
+      part(k, sphere(0.09, 10, 8), mat(0xff7b9c), 0, 0.14, 0);
+      for (const sx of [-1, 1]) part(k, box(0.07, 0.22, 0.02), p, sx * 0.07, 0.03, 0.06, 0, 0, sx * 0.35);
     }
-  }
-  // 레이싱 줄무늬 (차체 곡면을 따라 작은 조각을 이어 붙임)
-  const y = C.yellow();
-  onSurface(v, a.stripes.flat(), add, (c) => part(c, box(0.11, 0.02, 0.21), y));
-  // 옆면 번개
-  for (const [h, sx] of [[a.sideL, -1], [a.sideR, 1]]) {
-    if (!h) continue;
-    const k = add(at(v, h, sx * 0.015, 0, 0));
-    const y = C.yellow();
-    part(k, box(0.03, 0.07, 0.34), y, 0, 0.1, 0.12, 0.5, 0, 0);
-    part(k, box(0.03, 0.07, 0.3), y, 0, 0, -0.02, -0.5, 0, 0);
-    part(k, box(0.03, 0.07, 0.34), y, 0, -0.1, -0.16, 0.5, 0, 0);
-  }
-  return { hub: C.red(), hub2: C.yellow() };
-}
-
-function compact(v, a, add) {
-  // 지붕 리본
-  if (a.roof) {
-    const k = add(at(v, a.roof, 0, 0.02, 0));
-    const p = C.pink();
-    k.scale.setScalar(1.5);
-    for (const sx of [-1, 1]) part(k, cone(0.16, 0.3, 4), p, sx * 0.17, 0.14, 0, 0, 0, sx * Math.PI / 2, 1, 1, 0.55);
-    part(k, sphere(0.09, 10, 8), mat(0xff7b9c), 0, 0.14, 0);
-    for (const sx of [-1, 1]) part(k, box(0.07, 0.22, 0.02), p, sx * 0.07, 0.03, 0.06, 0, 0, sx * 0.35);
-  }
-  // 방울 안테나 (지붕 뒤쪽 오른편)
-  if (a.roofBack) {
-    const k = add(at(v, a.roofBack, Math.min(0.3, a.roofW * 0.35), 0, 0.15));
-    part(k, cyl(0.02, 0.02, 0.8, 6), C.white(), 0, 0.4, 0);
-    const ball = part(k, sphere(0.1, 10, 8), C.mint(), 0, 0.84, 0);
-    v.kitBob = ball;
-  }
-  // 앞뒤 말랑 범퍼
-  for (const [h, dz] of [[a.front, 1], [a.back, -1]]) {
-    if (!h) continue;
-    const k = add(at(v, h, 0, -Math.min(0.2, a.H * 0.1), dz * 0.1));
-    part(k, cyl(0.1, 0.1, Math.min(a.W * 0.85, 1.6), 12), C.mint(), 0, 0, 0, 0, 0, Math.PI / 2);
-    for (const sx of [-1, 1]) part(k, sphere(0.12, 10, 8), C.white(), sx * Math.min(a.W * 0.42, 0.8), 0, 0);
-  }
-  // 앞면 귀여운 얼굴: 큰 눈 + 반짝이 + 볼터치
-  if (a.front) {
+    if (a.roofBack) {
+      const k = add(at(v, a.roofBack, Math.min(0.3, a.roofW * 0.35), 0, 0.15));
+      part(k, cyl(0.02, 0.02, 0.8, 6), C.white(), 0, 0.4, 0);
+      v.kitBob = part(k, sphere(0.1, 10, 8), C.mint(), 0, 0.84, 0);
+    }
+  },
+  rack(v, a, add) {
+    if (!a.roof) return;
+    const k = add(at(v, a.roof, 0, 0.02, -0.05));
+    const w = Math.min(a.roofW * 0.8, 1.3);
+    for (const sx of [-1, 1]) part(k, box(0.04, 0.04, 0.8), C.chrome(), sx * w / 2, 0.06, 0);
+    for (const z of [-0.35, 0.35]) part(k, box(w, 0.04, 0.04), C.chrome(), 0, 0.06, z);
+    part(k, rbox(w * 0.7, 0.2, 0.55, 0.08), C.dark(), 0, 0.18, -0.05);
+    part(k, sphere(0.09, 10, 8), glow(0xffa94d, 0.9), w * 0.38, 0.14, 0.3);
+  },
+  // ---- 앞 ----
+  bullbar(v, a, add) {
+    if (!a.front) return;
+    const k = add(at(v, a.front, 0, 0, 0.14));
+    const w = Math.min(a.W * 0.7, 1.4), h = Math.min(a.H * 0.4, 0.7);
+    for (const sx of [-1, 1]) part(k, cyl(0.04, 0.04, h, 8), C.chrome(), sx * w / 2, -h * 0.25, 0);
+    part(k, cyl(0.04, 0.04, w, 8), C.chrome(), 0, h * 0.25, 0, 0, 0, Math.PI / 2);
+    part(k, cyl(0.04, 0.04, w * 0.8, 8), C.chrome(), 0, -h * 0.55, 0.04, 0, 0, Math.PI / 2);
+  },
+  eyes(v, a, add) {
+    if (!a.front) return;
     const k = add(at(v, a.front, 0, Math.min(0.14, a.H * 0.08), 0.03));
     const ex = Math.min(0.32, a.W * 0.2);
     for (const sx of [-1, 1]) {
@@ -253,45 +238,32 @@ function compact(v, a, add) {
       part(k, sphere(0.03, 8, 6), C.white(), sx * ex + 0.03, 0.03, 0.075);
       part(k, sphere(0.07, 10, 8), mat(0xffb3c8), sx * (ex + 0.17), -0.12, 0.0, 0, 0, 0, 1, 0.6, 0.3);
     }
-  }
-  // 옆면 물방울 스티커
-  for (const [h, sx] of [[a.sideL, -1], [a.sideR, 1]]) {
-    if (!h) continue;
-    const k = add(at(v, h, sx * 0.012, 0, 0));
-    for (const [dy, dz, r] of [[0.08, 0.18, 0.09], [-0.06, -0.05, 0.07], [0.1, -0.25, 0.06]]) part(k, cyl(r, r, 0.02, 12), C.white(), 0, dy, dz, 0, 0, Math.PI / 2);
-  }
-  return { hub: C.mint(), hub2: C.white() };
-}
-
-function pro(v, a, add) {
-  // 지붕 앞 LED 라이트바
-  if (a.roofFront) {
-    const k = add(at(v, a.roofFront, 0, 0, -0.12));
-    const w = Math.min(a.roofW * 0.9, a.W * 0.8);
-    part(k, rbox(w, 0.13, 0.2, 0.05), C.dark(), 0, 0.1, 0);
-    const n = Math.max(3, Math.round(w / 0.28));
-    for (let i = 0; i < n; i++) part(k, sphere(0.055, 8, 6), glow(0xfff3b0, 0.9), -w / 2 + 0.12 + (i * (w - 0.24)) / (n - 1), 0.1, 0.1, 0, 0, 0, 1, 1, 0.5);
-    for (const sx of [-1, 1]) part(k, box(0.04, 0.12, 0.04), C.chrome(), sx * w * 0.42, 0.02, 0);
-  }
-  // 크롬 불바 + 금색 왕관 엠블럼 (앞면)
-  if (a.front) {
-    const k = add(at(v, a.front, 0, 0, 0.14));
-    const w = Math.min(a.W * 0.7, 1.4), h = Math.min(a.H * 0.4, 0.7);
-    for (const sx of [-1, 1]) part(k, cyl(0.04, 0.04, h, 8), C.chrome(), sx * w / 2, -h * 0.25, 0);
-    part(k, cyl(0.04, 0.04, w, 8), C.chrome(), 0, h * 0.25, 0, 0, 0, Math.PI / 2);
-    part(k, cyl(0.04, 0.04, w * 0.8, 8), C.chrome(), 0, -h * 0.55, 0.04, 0, 0, Math.PI / 2);
-    const cr = group(k, 0, h * 0.55, -0.1);
-    const G = C.gold();
-    part(cr, box(0.28, 0.07, 0.04), G, 0, 0, 0);
-    for (const x of [-0.11, 0, 0.11]) part(cr, cone(0.045, 0.14, 4), G, x, 0.1, 0);
-    for (const x of [-0.11, 0, 0.11]) part(cr, sphere(0.025, 6, 4), mat(0xff6b9c), x, 0.18, 0);
-  }
-  // 금색 핀스트라이프 + 옆면 허리선
-  const gd = C.gold();
-  onSurface(v, a.gold.flat(), add, (c) => part(c, box(0.05, 0.02, 0.21), gd));
-  onSurface(v, [...a.bandL, ...a.bandR], add, (c) => part(c, box(0.07, 0.02, 0.21), gd));
-  // 지붕 뒤 세로 크롬 굴뚝 두 개 (큰 트럭처럼)
-  if (a.roofBack) {
+  },
+  splitter(v, a, add) {
+    if (!a.front) return;
+    const k = add(at(v, a.front, 0, a.box.min.y + 0.2 - a.front.p.y, 0.05));   // 앞면 아래쪽, 바닥에서 약간 위
+    part(k, rbox(Math.min(a.W * 0.9, 1.7), 0.05, 0.3, 0.02), C.dark(), 0, 0, 0.05);
+    part(k, box(Math.min(a.W * 0.9, 1.7), 0.03, 0.04), C.red(), 0, 0.035, 0.19);
+  },
+  bumper(v, a, add) {
+    for (const [h, dz] of [[a.front, 1], [a.back, -1]]) {
+      if (!h) continue;
+      const k = add(at(v, h, 0, -Math.min(0.2, a.H * 0.1), dz * 0.1));
+      part(k, cyl(0.1, 0.1, Math.min(a.W * 0.85, 1.6), 12), C.mint(), 0, 0, 0, 0, 0, Math.PI / 2);
+      for (const sx of [-1, 1]) part(k, sphere(0.12, 10, 8), C.white(), sx * Math.min(a.W * 0.42, 0.8), 0, 0);
+    }
+  },
+  // ---- 뒤 ----
+  muffler(v, a, add) {
+    if (!a.back) return;
+    const k = add(at(v, a.back, 0, -Math.min(0.25, a.H * 0.12), -0.05));
+    for (const sx of [-1, 1]) {
+      part(k, cyl(0.07, 0.07, 0.4, 10), C.chrome(), sx * 0.22, 0, -0.1, Math.PI / 2, 0, 0);
+      part(k, cyl(0.075, 0.075, 0.03, 10), C.dark(), sx * 0.22, 0, -0.31, Math.PI / 2, 0, 0);
+    }
+  },
+  stacks(v, a, add) {
+    if (!a.roofBack) return;
     const k = add(at(v, a.roofBack, 0, 0, -0.12));
     const x0 = Math.min(a.roofW / 2 + 0.06, a.W / 2 - 0.05);
     const h = Math.max(0.9, a.roofY - a.box.min.y - 0.3) + 0.45;
@@ -299,19 +271,10 @@ function pro(v, a, add) {
       part(k, cyl(0.07, 0.07, h, 10), C.chrome(), sx * x0, 0.45 - h / 2, 0);
       part(k, cyl(0.085, 0.07, 0.12, 10), C.dark(), sx * x0, 0.45, 0, 0.35, 0, 0);
     }
-  }
-  // 루프랙 + 짐상자 + 주황 경광등
-  if (a.roof) {
-    const k = add(at(v, a.roof, 0, 0.02, -0.05));
-    const w = Math.min(a.roofW * 0.8, 1.3);
-    for (const sx of [-1, 1]) part(k, box(0.04, 0.04, 0.8), C.chrome(), sx * w / 2, 0.06, 0);
-    for (const z of [-0.35, 0.35]) part(k, box(w, 0.04, 0.04), C.chrome(), 0, 0.06, z);
-    part(k, rbox(w * 0.7, 0.2, 0.55, 0.08), C.dark(), 0, 0.18, -0.05);
-    part(k, sphere(0.09, 10, 8), glow(0xffa94d, 0.9), w * 0.38, 0.14, 0.3);
-  }
-  // 머드플랩 (가장 뒤 바퀴들 뒤)
-  const ws = wheelsOf(v);
-  if (ws.length) {
+  },
+  flaps(v, a, add) {
+    const ws = wheelsOf(v);
+    if (!ws.length) return;
     const backZ = Math.min(...ws.map((x) => x.w.steer.position.z));
     for (const x of ws) {
       if (Math.abs(x.w.steer.position.z - backZ) > 0.1) continue;
@@ -322,11 +285,122 @@ function pro(v, a, add) {
       part(k, rbox(Math.max(0.2, x.width * 0.9), x.r * 1.1, 0.04, 0.02), C.dark(), 0, -x.r * 0.35, 0);
       part(k, box(Math.max(0.2, x.width * 0.9), 0.05, 0.05), C.gold(), 0, x.r * 0.2, 0);
     }
+  },
+  // ---- 무늬 ----
+  stripes(v, a, add) { const y = C.yellow(); onSurface(v, a.stripes.flat(), add, (c) => part(c, box(0.11, 0.02, 0.21), y)); },
+  flames(v, a, add) {
+    const fo = mat(0xff8a3d), fy = C.yellow();
+    let fi = 0;
+    onSurface(v, a.hood, add, (c) => part(c, cone(0.11, 0.38, 3), (fi++ % 2) ? fy : fo, 0, 0, 0, -Math.PI / 2, 0, 0, 1, 1, 0.12));
+  },
+  goldline(v, a, add) {
+    const gd = C.gold();
+    onSurface(v, a.gold.flat(), add, (c) => part(c, box(0.05, 0.02, 0.21), gd));
+    onSurface(v, [...a.bandL, ...a.bandR], add, (c) => part(c, box(0.07, 0.02, 0.21), gd));
+  },
+  dots(v, a, add) {
+    for (const [h, sx] of [[a.sideL, -1], [a.sideR, 1]]) {
+      if (!h) continue;
+      const k = add(at(v, h, sx * 0.012, 0, 0));
+      for (const [dy, dz, r] of [[0.08, 0.18, 0.09], [-0.06, -0.05, 0.07], [0.1, -0.25, 0.06]]) part(k, cyl(r, r, 0.02, 12), C.white(), 0, dy, dz, 0, 0, Math.PI / 2);
+    }
+  },
+  bolts(v, a, add) {
+    for (const [h, sx] of [[a.sideL, -1], [a.sideR, 1]]) {
+      if (!h) continue;
+      const k = add(at(v, h, sx * 0.015, 0, 0));
+      const y = C.yellow();
+      part(k, box(0.03, 0.07, 0.34), y, 0, 0.1, 0.12, 0.5, 0, 0);
+      part(k, box(0.03, 0.07, 0.3), y, 0, 0, -0.02, -0.5, 0, 0);
+      part(k, box(0.03, 0.07, 0.34), y, 0, -0.1, -0.16, 0.5, 0, 0);
+    }
+  },
+};
+
+/** 커스텀 파츠 목록: 자리(slot) → 고를 수 있는 파츠. price = 처음 한 번 사면 모든 차에 쓸 수 있음 */
+export const SLOTS = {
+  roof: { name: '지붕', icon: '🎩', parts: { spoiler: ['🏁 리어 윙', 700], lightbar: ['💡 LED 라이트바', 900], bow: ['🎀 리본·방울 안테나', 500], rack: ['🧳 루프랙·짐상자', 800] } },
+  front: { name: '앞', icon: '🛡️', parts: { bullbar: ['🛡️ 크롬 불바', 800], eyes: ['👀 큰 눈·볼터치', 600], splitter: ['🏎️ 스플리터', 600], bumper: ['🍡 말랑 범퍼', 500] } },
+  back: { name: '뒤', icon: '💨', parts: { muffler: ['💨 쌍 머플러', 600], stacks: ['🏭 크롬 굴뚝', 900], flaps: ['🟫 머드플랩', 400] } },
+  deco: { name: '무늬', icon: '✨', parts: { stripes: ['〰️ 레이싱 줄무늬', 600], flames: ['🔥 불꽃 무늬', 800], goldline: ['✨ 금 허리선', 900], dots: ['⚪ 물방울 스티커', 400], bolts: ['⚡ 번개 스티커', 500] } },
+  wheel: { name: '휠', icon: '🛞', parts: { red: ['🔴 빨간 휠', 300], mint: ['🟢 민트 휠', 300], gold: ['🟡 금색 휠', 700], chrome: ['⚪ 크롬 휠', 500] } },
+};
+const WHEELS = { red: [0xff5a5f, 0xffd34d], mint: [0x7fe0c4, 0xfffaf0], gold: [0xf0b62a, 0xd9dde4], chrome: [0xd9dde4, 0x3a3f4a] };
+
+// ---------------- 브랜드 차체 모양 · 투톤 · 엠블럼 ----------------
+/**
+ * 브랜드별 차체 변형 (움직이지 않는 차체 정점만, 바퀴·작업기·좌석은 그대로)
+ * hood: 앞쪽(앞 35%) 길이 배율 · roof: 지붕 높이 배율(위쪽 30%만) · wide: 바퀴 위 부분 폭 배율
+ */
+export function morphBody(v, shape) {
+  const meshes = staticBody(v);
+  const g0 = v.group;
+  const saved = { p: g0.position.clone(), r: g0.rotation.clone() };
+  g0.position.set(0, 0, 0); g0.rotation.set(0, 0, 0);
+  g0.updateMatrixWorld(true);
+  // 원래 모양 기준 크기 (한 번만 재 둔다)
+  if (!v.bodyBox) { v.bodyBox = new THREE.Box3(); for (const m of meshes) { restore(m); if (m.material.vertexColors) v.bodyBox.expandByObject(m); } }
+  const bx = v.bodyBox, H = bx.max.y - bx.min.y, D = bx.max.z - bx.min.z;
+  const wheelTop = Math.max(0.3, ...wheelsOf(v).map((x) => x.w.steer.position.y + x.r));
+  const zH = bx.max.z - D * 0.35, yR = bx.min.y + H * 0.7;
+  const hood = shape?.hood ?? 1, roof = shape?.roof ?? 1, wide = shape?.wide ?? 1;
+  const w = new THREE.Vector3(), inv = new THREE.Matrix4();
+  for (const m of meshes) {
+    const pos = m.geometry.attributes.position;
+    const orig = m.userData.origPos || (m.userData.origPos = Float32Array.from(pos.array));
+    const M = m.matrixWorld;
+    inv.copy(M).invert();
+    const arr = pos.array;
+    for (let i = 0; i < arr.length; i += 3) {
+      w.set(orig[i], orig[i + 1], orig[i + 2]).applyMatrix4(M);
+      if (w.z > zH) w.z = zH + (w.z - zH) * hood;
+      if (w.y > yR) w.y = yR + (w.y - yR) * roof;
+      if (w.y > wheelTop) w.x *= 1 + (wide - 1) * Math.min(1, (w.y - wheelTop) / 0.3);
+      w.applyMatrix4(inv);
+      arr[i] = w.x; arr[i + 1] = w.y; arr[i + 2] = w.z;
+    }
+    pos.needsUpdate = true;
+    m.geometry.computeBoundingSphere();
+    m.geometry.computeBoundingBox();
   }
-  return { hub: C.gold(), hub2: C.chrome() };
+  g0.position.copy(saved.p); g0.rotation.copy(saved.r);
+  g0.updateMatrixWorld(true);
+  v.anchors = null;   // 모양이 바뀌었으니 파츠 자리 다시 찾기
+}
+function restore(m) {
+  const o = m.userData.origPos;
+  if (o) { m.geometry.attributes.position.array.set(o); m.geometry.attributes.position.needsUpdate = true; }
+}
+/** 움직이지 않는 차체 메시 (합쳐진 정적 부품, 움직이는 작업기 제외) */
+function staticBody(v) {
+  if (v.bodyMeshes) return v.bodyMeshes;
+  const g = v.group, moving = movingSet(v);
+  const isMoving = (o) => { for (let p = o; p && p !== g; p = p.parent) if (moving.has(p)) return true; return false; };
+  // 칠한 차체뿐 아니라 유리·램프처럼 따로 남은 정적 메시도 함께 (안 그러면 창문만 튀어나온다)
+  v.bodyMeshes = (v.paintMeshes || []).filter((m) => !isMoving(m));
+  for (const m of v.bodyMeshes) {
+    // 합쳐지지 않은 메시는 도형을 다른 차와 함께 쓸 수 있으니, 바꾸기 전에 이 차 전용으로 복사
+    if (!m.material.vertexColors && !m.userData.ownGeo) { m.geometry = m.geometry.clone(); m.userData.ownGeo = true; }
+  }
+  return v.bodyMeshes;
 }
 
-const KITS = { turbo, compact, pro };
+/** 투톤: 차체 아래쪽(높이 low 이하)의 '도색 정점'을 브랜드 색으로. paintOf(i) = 그 정점이 도색 계열인지 */
+export function livery(v, m, i, out, two) {
+  if (!two || !v.bodyBox) return;
+  const pos = m.geometry.attributes.position.array;
+  const bx = v.bodyBox;
+  // 정적 차체는 부모가 차체 원점이라 정점 y가 곧 모델 높이
+  const y = pos[i + 1] + (m.position?.y || 0);
+  if (y < bx.min.y + (bx.max.y - bx.min.y) * two.below) out.setHex(two.color);
+}
+
+/** 브랜드 엠블럼 (앞면 위쪽) */
+const BADGES = {
+  popo(k) { const p = mat(0xffb3c8); for (let i = 0; i < 5; i++) { const a = (i / 5) * Math.PI * 2; part(k, sphere(0.055, 8, 6), p, Math.cos(a) * 0.07, Math.sin(a) * 0.07, 0, 0, 0, 0, 1, 1, 0.4); } part(k, sphere(0.045, 8, 6), mat(0xffd34d), 0, 0, 0.01, 0, 0, 0, 1, 1, 0.5); },
+  volt(k) { part(k, cyl(0.12, 0.12, 0.03, 16), C.dark(), 0, 0, 0, Math.PI / 2, 0, 0); const y = C.yellow(); part(k, box(0.04, 0.12, 0.03), y, 0.02, 0.04, 0.02, 0, 0, 0.5); part(k, box(0.04, 0.12, 0.03), y, -0.02, -0.04, 0.02, 0, 0, 0.5); },
+  titan(k) { const G = C.gold(); part(k, box(0.28, 0.07, 0.04), G, 0, 0, 0); for (const x of [-0.11, 0, 0.11]) part(k, cone(0.045, 0.14, 4), G, x, 0.1, 0); for (const x of [-0.11, 0, 0.11]) part(k, sphere(0.025, 6, 4), mat(0xff6b9c), x, 0.18, 0); },
+};
 
 // ---------------- 붙이기 / 떼기 ----------------
 export function clearKit(v) {
@@ -335,22 +409,31 @@ export function clearKit(v) {
   v.kitBob = null;
 }
 
-/** 등급 키트 붙이기 ('std'면 떼기만). 부품은 붙인 자리별로 합쳐서 그리기 호출을 줄인다 */
-export function applyKit(v, grade) {
+/**
+ * 외형 다시 붙이기: 브랜드 엠블럼 + 자리별 커스텀 파츠 + 휠. 부품은 붙은 자리별로 합쳐 그리기 호출을 줄인다
+ * custom = { roof, front, back, deco, wheel } (각각 파츠 id 또는 null)
+ */
+export function applyKit(v, custom = {}, badge = null) {
   clearKit(v);
-  const fn = KITS[grade];
-  if (!fn || v.def.air) return;
+  if (v.def.air) return;
   const a = analyze(v);
   const parts = [];
   const add = (k) => { parts.push(k); return k; };
-  const hub = fn(v, a, add);
-  // 휠캡 (바퀴와 함께 돈다)
-  for (const x of wheelsOf(v)) {
+  for (const slot of ['roof', 'front', 'back', 'deco']) {
+    const id = custom[slot];
+    if (id && B[id]) B[id](v, a, add);
+  }
+  if (badge && BADGES[badge] && a.front) {
+    const k = add(at(v, a.front, 0, Math.min(0.32, a.H * 0.16), 0.035));
+    BADGES[badge](k);
+  }
+  const wc = WHEELS[custom.wheel];
+  if (wc) for (const x of wheelsOf(v)) {
     const k = group(x.w.spin, x.side * (x.width / 2 + 0.015), 0, 0);
     k.userData.kit = true;
     parts.push(k);
-    part(k, cyl(x.r * 0.5, x.r * 0.5, 0.03, 16), hub.hub, 0, 0, 0, 0, 0, Math.PI / 2);
-    part(k, cyl(x.r * 0.18, x.r * 0.18, 0.05, 10), hub.hub2, x.side * 0.015, 0, 0, 0, 0, Math.PI / 2);
+    part(k, cyl(x.r * 0.5, x.r * 0.5, 0.03, 16), mat(wc[0]), 0, 0, 0, 0, 0, Math.PI / 2);
+    part(k, cyl(x.r * 0.18, x.r * 0.18, 0.05, 10), mat(wc[1]), x.side * 0.015, 0, 0, 0, 0, Math.PI / 2);
   }
   for (const k of parts) mergeStatic(k, {});
   v.kitParts = parts;

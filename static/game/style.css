@@ -709,3 +709,12 @@ body.mobile .bn-view { font-size: 16px; }
 .g-skin.tier-legend { background: linear-gradient(180deg, #fffaf0, #fff3d6); }
 .g-skin.tier-epic { background: linear-gradient(180deg, #fff, #f6efff); }
 .g-skins { grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); }
+.g-parts { display: grid; gap: 6px; background: #fff; border: 3px solid var(--line); border-radius: 14px; padding: 8px 10px; }
+.g-slot { display: grid; grid-template-columns: 62px 1fr; align-items: start; gap: 6px; }
+.g-slot-name { font-family: 'Jua'; font-size: 14px; padding-top: 4px; }
+.g-chips { display: flex; flex-wrap: wrap; gap: 5px; }
+.g-chip { border: 2px solid var(--line); background: var(--cream); border-radius: 99px; padding: 3px 9px; font: inherit; font-size: 12.5px; color: var(--ink); cursor: pointer; }
+.g-chip em { font-style: normal; font-size: 11px; color: var(--ink2); }
+.g-chip.on { border-color: var(--pink); background: #fff0f4; font-weight: bold; }
+.g-chip.locked { opacity: 0.85; }
+.g-chip:disabled { opacity: 0.45; cursor: default; }

@@ -1,11 +1,15 @@
-// 🎨 차고: 차량 모델(등급)과 페인트(스킨)
-// - 등급: 같은 차종이라도 성능이 다른 모델 (최고 속도 · 가속 · 회전). 항공기는 페인트만 바꿀 수 있다
+// 🎨 차고: 브랜드(모델) · 커스텀 파츠 · 페인트(스킨)
+// - 브랜드: 같은 차종이라도 회사마다 차체 모양(보닛 길이·지붕 높이·차폭)과 투톤 도색·엠블럼·성능이 다르다
+//   (가상의 브랜드: 몽글 · 포포 · 볼트 · 타이탄). 저장 키는 예전 등급 이름(std·compact·turbo·pro) 그대로
+// - 커스텀 파츠: 지붕·앞·뒤·무늬·휠 자리마다 하나씩 골라 붙인다 (한 번 사면 모든 차에)
+// - 항공기는 페인트만 바꿀 수 있다
 // - 스킨: 차체 '페인트 색 계열'만 골라 다른 색으로 바꾼다 (타이어·유리·램프·사람은 그대로)
 //   모델은 최적화로 부품을 합쳐 정점 색으로 구워 두므로, 그 정점 색을 다시 칠한다 → 모델을 새로 만들 필요 없음
 import * as THREE from 'three';
 import { G } from './state.js';
 import { mat } from './materials.js';
-import { applyKit, animateKit } from './kits.js';
+import { applyKit, animateKit, morphBody, SLOTS } from './kits.js';
+export { SLOTS };
 
 /** 희귀도: 모델·페인트 모두 등급별로 나뉘고, 등급이 높을수록 능력치가 좋다 */
 export const TIERS = {
@@ -15,12 +19,28 @@ export const TIERS = {
   legend: { name: '전설', color: '#e8a21c' },
 };
 
-/** 모델(성능). cost = 차 가격 대비 비율 */
+/**
+ * 브랜드(모델). cost = 차 가격 대비 비율
+ * shape: 차체 모양 (hood 보닛 길이 · roof 지붕 높이 · wide 차폭), two: 아래쪽 투톤 색, badge: 앞 엠블럼,
+ * kit: 브랜드를 사면 기본으로 달려 나오는 파츠 (사면 그 파츠도 함께 갖게 됨)
+ */
 export const GRADES = {
-  std: { name: '기본형', icon: '', tier: 'common', speed: 1, accel: 1, turn: 1, cost: 0, desc: '균형 잡힌 기본 모델' },
-  compact: { name: '컴팩트', icon: '🌀', tier: 'rare', speed: 0.92, accel: 1.2, turn: 1.35, cost: 0.4, flag: 0x5fd4b4, desc: '좁은 통로에서 잘 도는 날렵한 모델 · 🎀 리본·큰 눈·말랑 범퍼' },
-  turbo: { name: '터보', icon: '⚡', tier: 'rare', speed: 1.3, accel: 1.3, turn: 0.92, cost: 0.6, flag: 0xffd34d, desc: '최고 속도·가속 ↑ (회전은 살짝 둔함) · 🏁 스포일러·불꽃 무늬·머플러' },
-  pro: { name: '프로', icon: '👑', tier: 'legend', speed: 1.18, accel: 1.22, turn: 1.15, cost: 1.0, flag: 0xff8fab, desc: '속도·가속·회전 모두 ↑ · ✨ 라이트바·크롬 굴뚝·불바·금장' },
+  std: { name: '몽글 기본형', brand: '몽글', icon: '', tier: 'common', speed: 1, accel: 1, turn: 1, cost: 0, desc: '몽글 목장 표준 모델 · 균형 잡힌 성능', kit: {} },
+  compact: {
+    name: '포포 미니', brand: '포포', icon: '🌸', tier: 'rare', speed: 0.92, accel: 1.2, turn: 1.35, cost: 0.4,
+    shape: { hood: 0.72, roof: 1.22, wide: 1 }, two: { color: 0xfff1d6, below: 0.42 }, badge: 'popo',
+    desc: '짧은 보닛·높은 지붕의 동글동글 소형 브랜드 · 크림 투톤 · 회전 ↑', kit: { roof: 'bow', front: 'eyes', deco: 'dots', wheel: 'mint' },
+  },
+  turbo: {
+    name: '볼트 스포츠', brand: '볼트', icon: '⚡', tier: 'rare', speed: 1.3, accel: 1.3, turn: 0.92, cost: 0.6,
+    shape: { hood: 1.4, roof: 0.86, wide: 1 }, two: { color: 0x2f3542, below: 0.4 }, badge: 'volt',
+    desc: '길고 낮게 깔린 스포츠 브랜드 · 짙은 투톤 · 속도·가속 ↑', kit: { roof: 'spoiler', front: 'splitter', back: 'muffler', deco: 'flames', wheel: 'red' },
+  },
+  pro: {
+    name: '타이탄 헤비', brand: '타이탄', icon: '👑', tier: 'legend', speed: 1.18, accel: 1.22, turn: 1.15, cost: 1.0,
+    shape: { hood: 1.12, roof: 1.18, wide: 1.16 }, two: { color: 0x2b2b33, below: 0.42 }, badge: 'titan',
+    desc: '넓고 높은 고급 중장비 브랜드 · 블랙 투톤·금장 · 모든 성능 ↑', kit: { roof: 'lightbar', front: 'bullbar', back: 'stacks', deco: 'goldline', wheel: 'gold' },
+  },
 };
 
 /** 페인트. 희귀 이상은 작은 능력치 보너스 (지상 차량) */
@@ -57,12 +77,32 @@ export const gradeCost = (type, grade, shop) => Math.round(basePrice(type, shop)
 
 // ---------------- 등급 (성능) ----------------
 /** 차량 성능을 등급에 맞추기. v.def는 차종 정의(baseDef)를 물려받은 차량 전용 객체 */
-export function applyGrade(v, grade) {
+export function applyGrade(v, grade, withKit = false) {
   if (!GRADES[grade] || (v.def.air && grade !== 'std')) grade = 'std';
+  const g = GRADES[grade];
   v.grade = grade;
   recalc(v);
-  applyKit(v, grade);   // 등급별 외형 부품 (터보·컴팩트·프로마다 다르게)
+  if (v.def.air) { applySkin(v, v.skin || 'base'); return; }
+  morphBody(v, g.shape);                       // 브랜드별 차체 모양
+  applySkin(v, v.skin || 'base');              // 투톤 도색 다시
+  if (withKit) {                               // 브랜드를 새로 사면 그 브랜드 기본 파츠로
+    v.custom = { ...g.kit };
+    for (const id of Object.values(g.kit)) if (id && !G.partsOwned.includes(id)) G.partsOwned.push(id);
+  }
+  refreshKit(v);
 }
+
+/** 커스텀 파츠 · 엠블럼 다시 붙이기 */
+export function refreshKit(v) {
+  applyKit(v, v.custom || {}, GRADES[v.grade || 'std'].badge);
+}
+
+/** 파츠 하나 바꾸기 (id = null 이면 떼기) */
+export function setPart(v, slot, id) {
+  v.custom = { ...(v.custom || {}), [slot]: id || null };
+  refreshKit(v);
+}
+export const partPrice = (slot, id) => SLOTS[slot]?.parts[id]?.[1] || 0;
 
 /** 능력치 = 차종 기본값 × 모델 × 페인트 보너스 (항공기는 비행 역학이 따로라 페인트 보너스 없음) */
 function recalc(v) {
@@ -103,22 +143,35 @@ export function applySkin(v, skin) {
   v.def.color = sk.color || v.baseDef.color;
   new THREE.Color(v.baseDef.color).getHSL(_base, SRGB);
   if (sk.color) new THREE.Color(sk.color).getHSL(_skin, SRGB);
+  else Object.assign(_skin, _base);            // 기본색: 색은 그대로 두고 '도색 계열'만 판별
   if (sk.rainbow) { _skin.s = 0.8; _skin.l = Math.max(0.45, Math.min(0.62, _base.l)); }
   const out = new THREE.Color();
   const rb = sk.rainbow ? rainbowRange(v) : null;
+  // 브랜드 투톤: 차체 아래쪽 도색 부분을 브랜드 색으로 (높이는 원래 차체 크기 기준)
+  const two = !v.def.air && GRADES[v.grade || 'std'].two;
+  const bx = v.bodyBox;
+  const lowY = two && bx ? bx.min.y + (bx.max.y - bx.min.y) * two.below : -Infinity;
+  const twoC = two ? new THREE.Color(two.color) : null;
+  const _rel = new THREE.Matrix4();
   for (const m of v.paintMeshes || []) {
     const ca = m.geometry.attributes.color;
     if (ca && m.material.vertexColors) {
       // 합쳐진 메시: 원래 정점 색을 보관해 두고 거기서 다시 칠한다
       const orig = m.userData.origColors || (m.userData.origColors = Float32Array.from(ca.array));
       const a = ca.array, pos = m.geometry.attributes.position.array;
+      // 이 메시 좌표 → 차 모델 좌표 (높이만 쓰므로 세로 이동량만)
+      v.group.updateMatrixWorld(true);
+      _rel.copy(v.group.matrixWorld).invert().multiply(m.matrixWorld);
+      const ty = _rel.elements[13], sy = _rel.elements[5];
       for (let i = 0; i < a.length; i += 3) {
         if (rb) {   // 무지개: 차 앞뒤 위치에 따라 색상이 돈다
           const t = (pos[i + 2] + m.position.z - rb.min) / rb.len;
           _skin.h = ((t * 0.85) % 1 + 1) % 1;
         }
-        if (sk.color) { remap(orig[i], orig[i + 1], orig[i + 2], out); a[i] = out.r; a[i + 1] = out.g; a[i + 2] = out.b; }
-        else { a[i] = orig[i]; a[i + 1] = orig[i + 1]; a[i + 2] = orig[i + 2]; }
+        const painted = remap(orig[i], orig[i + 1], orig[i + 2], out);
+        if (!sk.color) out.setRGB(orig[i], orig[i + 1], orig[i + 2]);
+        if (painted && twoC && pos[i + 1] * sy + ty < lowY) out.copy(twoC);
+        a[i] = out.r; a[i + 1] = out.g; a[i + 2] = out.b;
       }
       ca.needsUpdate = true;
     } else if (m.material.userData?.plain || m.userData.origMat) {
@@ -152,10 +205,16 @@ export function collectPaint(v) {
   v.paintMeshes = list;
 }
 
-/** 저장본 → 차량 등급·스킨 */
-export function applyLook(v, grade, skin) {
+/** 저장본 → 차량 브랜드·파츠·스킨 */
+export function applyLook(v, grade, skin, custom) {
+  v.skin = SKINS[skin] ? skin : 'base';
+  if (custom && typeof custom === 'object') {
+    v.custom = {};
+    for (const slot of Object.keys(SLOTS)) if (SLOTS[slot].parts[custom[slot]]) v.custom[slot] = custom[slot];
+  } else if (GRADES[grade]) v.custom = { ...GRADES[grade].kit };   // 예전 저장본: 그 등급 기본 파츠
+  for (const id of Object.values(v.custom || {})) if (id && !G.partsOwned.includes(id)) G.partsOwned.push(id);   // 달고 있는 파츠는 가진 것으로
+  if ((grade || 'std') === 'std' && v.skin === 'base' && !Object.keys(v.custom || {}).length) return;   // 기본 그대로
   applyGrade(v, grade || 'std');
-  if ((skin || 'base') !== 'base' || v.skin !== 'base') applySkin(v, skin || 'base');
 }
 
 /** 등급·스킨 표시 이름 */

@@ -2678,7 +2678,7 @@ export class Vehicle {
   }
 
   serialize() {
-    return { grade: this.grade, skin: this.skin, x: this.pos.x, z: this.pos.z, y: this.pos.y, h: this.heading, auto: this.auto, bulk: this.bulk, bulkKind: this.bulkKind, load: this.load, loadKind: this.loadKind, mix: this.mix, mixT: this.mixT, disp: this.dispensed };
+    return { grade: this.grade, skin: this.skin, custom: this.custom || {}, x: this.pos.x, z: this.pos.z, y: this.pos.y, h: this.heading, auto: this.auto, bulk: this.bulk, bulkKind: this.bulkKind, load: this.load, loadKind: this.loadKind, mix: this.mix, mixT: this.mixT, disp: this.dispensed };
   }
 }
 

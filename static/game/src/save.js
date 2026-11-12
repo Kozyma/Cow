@@ -36,6 +36,7 @@ export function buildSaveData() {
     v: 4,
     coins: G.coins, day: G.day, time: G.time, prices: G.prices,
     skins: G.skinsOwned,   // 🎨 차고에서 사 둔 페인트
+    parts: G.partsOwned,   // 🎨 차고에서 사 둔 커스텀 파츠
     upgrades: G.upgrades, fertileTimer: G.fertileTimer, stats: G.stats,
     barns: G.barns.map((b) => ({
       id: b.id, cx: b.cx, front: b.front, n: b.animals.length, cap: b.capacity, exp: b.expansions,
@@ -70,6 +71,7 @@ export function applySaveData(d) {
   if (!d || d.v !== 4) return false;
   G.coins = d.coins; G.day = d.day; G.time = d.time;
   G.skinsOwned = Array.isArray(d.skins) ? d.skins.filter((x) => typeof x === 'string').slice(0, 40) : ['base'];
+  G.partsOwned = Array.isArray(d.parts) ? d.parts.filter((x) => typeof x === 'string').slice(0, 60) : [];
   Object.assign(G.prices, d.prices || {});
   Object.assign(G.upgrades, d.upgrades || {});
   G.fertileTimer = d.fertileTimer || 0;
@@ -114,7 +116,7 @@ export function applySaveData(d) {
   (d.vehicles || []).forEach((s, i) => {
     const v = G.vehicles[i];
     if (!v) return;
-    applyLook(v, s.grade, s.skin);   // 모델(등급) · 페인트
+    applyLook(v, s.grade, s.skin, s.custom);   // 브랜드 · 커스텀 파츠 · 페인트
     // 예전 저장본은 모두 기본값(자동 켜짐)이었으므로 꺼서 시작한다
     v.pos.set(s.x, 0, s.z); v.heading = s.h; v.auto = d.autoV === 2 ? !!s.auto : false;
     // 하늘에서 저장됐으면 착륙장으로 돌려놓는다

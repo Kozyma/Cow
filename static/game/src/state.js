@@ -8,6 +8,7 @@ export const G = {
   now: 0,                 // 실제 경과 시간(초)
   coins: 1000,
   skinsOwned: ["base"],   // 🎨 차고: 사 둔 페인트
+  partsOwned: [],         // 🎨 차고: 사 둔 커스텀 파츠
   day: 1,
   time: 6.5 * 60,         // 하루 중 분 (0~1440)
   timeScale: 4,           // 실제 1초 = 게임 4분 → 하루 6분

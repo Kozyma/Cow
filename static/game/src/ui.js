@@ -8,7 +8,7 @@ import { sfx } from './audio.js';
 import { Item, setOnDock, freeDockSlot, truckCargo, dockItems } from './items.js';
 import { burst } from './particles.js';
 import { saveSettings } from './settings.js';
-import { GRADES, SKINS, TIERS, gradeCost, applyGrade, applySkin, gradeLabel, skinBonus } from './garage.js';
+import { GRADES, SKINS, SLOTS, TIERS, gradeCost, applyGrade, applySkin, gradeLabel, skinBonus, setPart, partPrice } from './garage.js';
 
 const $ = (s) => document.querySelector(s);
 const el = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; };
@@ -908,10 +908,10 @@ function renderGarage(list) {
   wrap.appendChild(pick);
   const b = v.baseDef;
   const busy = v.driver && v.driver !== G.player;
-  wrap.appendChild(el('div', 'g-head', `<span class="g-ico">${v.def.icon}</span><div><b>${gradeLabel(v)}${v.def.name}</b><small>${GRADES[v.grade].name} · ${SKINS[v.skin].name}${busy ? ' · 다른 사람이 운전 중' : ''}</small></div>`));
+  wrap.appendChild(el('div', 'g-head', `<span class="g-ico">${v.def.icon}</span><div><b>${gradeLabel(v)}${v.def.name}</b><small>${v.def.air ? '' : `${GRADES[v.grade].name} · `}${SKINS[v.skin].name}${busy ? ' · 다른 사람이 운전 중' : ''}</small></div>`));
   if (!v.def.air) wrap.appendChild(el('div', 'g-stats', statBar('최고 속도', v.def.maxSpeed, b.maxSpeed) + statBar('가속', v.def.accel, b.accel) + statBar('회전', v.def.turn, b.turn)));
   // 모델(등급)
-  wrap.appendChild(el('div', 'g-title', v.def.air ? '✈️ 항공기는 페인트만 바꿀 수 있어요' : '🔧 모델 바꾸기 <small>성능이 달라져요</small>'));
+  wrap.appendChild(el('div', 'g-title', v.def.air ? '✈️ 항공기는 페인트만 바꿀 수 있어요' : '🏭 브랜드(모델) <small>회사마다 차체 모양·투톤·엠블럼·성능이 달라요 · 사면 그 브랜드 기본 파츠도 함께</small>'));
   if (!v.def.air) {
     const grid = el('div', 'g-grades');
     for (const [id, g] of Object.entries(GRADES)) {
@@ -924,16 +924,49 @@ function renderGarage(list) {
       btn.addEventListener('click', () => {
         if (cur || G.coins < cost) { sfx('error'); return; }
         G.coins -= cost;
-        applyGrade(v, id);
+        applyGrade(v, id, true);
         refreshVehicleCard(v);
         sfx('buy');
         burst('star', v.pos.x, 2.5, v.pos.z, 14, { vy: 5 });
-        toast(`${v.def.name} → ${g.icon} ${g.name} 모델로 바꿨어요`, v.def.icon, 2200);
+        toast(`${v.def.name} → ${g.icon} ${g.name}(으)로 바꿨어요`, v.def.icon, 2200);
         renderShop();
       });
       grid.appendChild(btn);
     }
     wrap.appendChild(grid);
+    // 커스텀 파츠: 자리마다 하나씩
+    wrap.appendChild(el('div', 'g-title', '🔧 커스텀 파츠 <small>자리마다 하나씩 · 한 번 사면 모든 차에 달 수 있어요</small>'));
+    const box = el('div', 'g-parts');
+    for (const [slot, def] of Object.entries(SLOTS)) {
+      const row = el('div', 'g-slot', `<span class="g-slot-name">${def.icon} ${def.name}</span>`);
+      const chips = el('div', 'g-chips');
+      const cur = v.custom?.[slot] || null;
+      const none = el('button', `g-chip ${!cur ? 'on' : ''}`, '없음');
+      none.addEventListener('click', () => { if (!cur) return; setPart(v, slot, null); sfx('click'); renderShop(); });
+      chips.appendChild(none);
+      for (const [id, [label, price]] of Object.entries(def.parts)) {
+        const owned = G.partsOwned.includes(id);
+        const on = cur === id;
+        const chip = el('button', `g-chip ${on ? 'on' : ''} ${owned ? '' : 'locked'}`, `${label}${owned || on ? '' : ` <em>🪙${price}</em>`}`);
+        chip.disabled = !on && !owned && G.coins < price;
+        chip.addEventListener('click', () => {
+          if (on) return;
+          if (!owned) {
+            if (G.coins < price) { sfx('error'); return; }
+            G.coins -= price;
+            G.partsOwned.push(id);
+          }
+          setPart(v, slot, id);
+          sfx('buy');
+          burst('star', v.pos.x, 2.5, v.pos.z, 8, { vy: 4 });
+          renderShop();
+        });
+        chips.appendChild(chip);
+      }
+      row.appendChild(chips);
+      box.appendChild(row);
+    }
+    wrap.appendChild(box);
   }
   // 페인트
   wrap.appendChild(el('div', 'g-title', `🎨 페인트 <small>한 번 사면 모든 차에 칠할 수 있어요${v.def.air ? '' : ' · 희귀 이상은 능력치 보너스'}</small>`));
