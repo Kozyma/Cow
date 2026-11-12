@@ -322,7 +322,7 @@ export function setHouseHud(show) {
         <span>🪵 바닥</span>${API.floors().map((c, i) => `<button class="sw ${G.house.floor === i ? 'on' : ''}" style="--c:#${c.toString(16).padStart(6, '0')}" data-floor="${i}"></button>`).join('')}</div>
       <div class="hh-row"><span>🏡 외벽</span>${API.extWalls().map((c, i) => `<button class="sw ${G.house.ext.wall === i ? 'on' : ''}" style="--c:#${c.toString(16).padStart(6, '0')}" data-ewall="${i}"></button>`).join('')}
         <span>🔺 지붕</span>${API.extRoofs().map((c, i) => `<button class="sw ${G.house.ext.roof === i ? 'on' : ''}" style="--c:#${c.toString(16).padStart(6, '0')}" data-eroof="${i}"></button>`).join('')}</div>
-    </div>` : '<div class="hh-tip">가구 앞에서 <kbd>E</kbd> — 🛏️ 잠자기 · 🍳 새참 · 💻 장부 · 📺 시세 · 🎹 피아노 · 🪴 물 주기 · 🐱 쓰다듬기</div>'}`;
+    </div>` : '<div class="hh-tip">가구 앞에서 <kbd>E</kbd> — 🛏️ 잠자기 · 🍳 새참 · 💻 장부 · 📺 시세 · 🎹 피아노 · 🪴 물 주기 · 🪧 방명록 · 🐱 쓰다듬기</div>'}`;
   hud.onclick = (e) => {
     const t = e.target.closest('button');
     if (!t) return;

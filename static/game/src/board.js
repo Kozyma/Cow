@@ -16,7 +16,8 @@ const NEAR = 2.0;
 export const defaultBoard = () => ({ notice: '', book: [] });
 const clean = (s, n) => String(s ?? '').replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, n);
 
-let B = null;   // { group, pos, tex, canvas }
+let B = null;   // 집 앞 알림판 { group, pos }
+let T = null;   // 칠판 글씨 { canvas, tex } — 집 앞·집 안 칠판이 함께 쓴다
 let netApi = null;   // net.js가 연결: { isGuest, isHost, sendEntry, broadcast, myName }
 export function bindBoardNet(api) { netApi = api; }
 const isGuest = () => !!netApi?.isGuest();
@@ -33,10 +34,21 @@ export function setBoardData(d) {
 }
 
 // ---------------- 모델 ----------------
-export function buildBoard(scene, fh) {
-  const x = fh.door.x - 4.4, z = fh.door.z + 0.2;
-  const g = group(scene, x, 0, z);
-  g.scale.setScalar(1.3);   // 멀리서도 글씨가 보이게 조금 크게
+function boardTex() {
+  if (T) return T;
+  const canvas = document.createElement('canvas');
+  canvas.width = 512; canvas.height = 320;
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  T = { canvas, tex };
+  refreshBoard();
+  return T;
+}
+
+/** A자 이젤 칠판 모델 (폭 약 1.9m, 앞면 +z). 집 앞 알림판과 집 안 '방명록 칠판' 가구가 함께 쓴다 */
+export function makeBoardModel(parent = null) {
+  const g = parent ? group(parent) : new THREE.Group();
   const wood = mat(0xb07a4f), woodD = mat(0x8a5f3c);
   // A자 이젤 다리
   for (const sx of [-0.75, 0.75]) {
@@ -44,11 +56,7 @@ export function buildBoard(scene, fh) {
     part(g, cyl(0.05, 0.06, 2.0, 6), woodD, sx, 0.95, -0.38, 0.32, 0, 0);
   }
   // 칠판 판 (앞면에 글씨 텍스처)
-  const canvas = document.createElement('canvas');
-  canvas.width = 512; canvas.height = 320;
-  const tex = new THREE.CanvasTexture(canvas);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  tex.anisotropy = 4;
+  const { tex } = boardTex();
   const frame = part(g, rbox(1.9, 1.3, 0.1, 0.05), wood, 0, 1.45, 0.05, -0.12, 0, 0);
   const face = new THREE.Mesh(new THREE.PlaneGeometry(1.72, 1.1), curved(new THREE.MeshBasicMaterial({ map: tex })));
   face.position.set(0, 0, 0.056);
@@ -57,16 +65,24 @@ export function buildBoard(scene, fh) {
   part(g, rbox(1.8, 0.06, 0.14, 0.02), woodD, 0, 0.83, 0.16, -0.12, 0, 0);
   part(g, rbox(0.16, 0.05, 0.05, 0.02), mat(0xfffaf0), -0.4, 0.88, 0.18);
   part(g, rbox(0.14, 0.05, 0.05, 0.02), mat(0xff9eb5), -0.15, 0.88, 0.18);
+  return g;
+}
+
+/** 집 앞 마당(문 왼쪽)의 알림판 */
+export function buildBoard(scene, fh) {
+  const x = fh.door.x - 4.4, z = fh.door.z + 0.2;
+  const g = makeBoardModel(scene);
+  g.position.set(x, 0, z);
+  g.scale.setScalar(1.3);   // 멀리서도 글씨가 보이게 조금 크게
   addCircle(x, z, 1.0);
-  B = { group: g, pos: { x, z }, tex, canvas };
-  refreshBoard();
+  B = { group: g, pos: { x, z } };
   return B;
 }
 
 /** 칠판 글씨 다시 그리기 */
 export function refreshBoard() {
-  if (!B || !G.board) return;
-  const c = B.canvas, g = c.getContext('2d');
+  if (!T || !G.board) return;
+  const c = T.canvas, g = c.getContext('2d');
   g.fillStyle = '#2f5d4a'; g.fillRect(0, 0, c.width, c.height);
   // 분필 얼룩
   g.fillStyle = 'rgba(255,255,255,0.05)';
@@ -81,7 +97,7 @@ export function refreshBoard() {
   lines.forEach((l, i) => g.fillText(l, c.width / 2, 78 + i * 42));
   g.fillStyle = '#ffb7c9'; g.font = '26px Jua, "Gowun Dodum", sans-serif';
   g.fillText(`✍️ 방명록 ${G.board.book.length}개 · E로 보기`, c.width / 2, 268);
-  B.tex.needsUpdate = true;
+  T.tex.needsUpdate = true;
 }
 
 function wrap(g, text, maxW) {

@@ -6,6 +6,7 @@ import { part, group, rbox, box, sbox, sphere, cyl, cone, torus, capsule, rand, 
 import { burst, emote, spawn } from './particles.js';
 import { toast, floatText, setHouseHud, openModalHtml } from './ui.js';
 import { sfx, playNote } from './audio.js';
+import { makeBoardModel, openBoard } from './board.js';
 
 export const ROOM = { x: 0, z: -400, cols: 12, rows: 9 };
 const X0 = ROOM.x - ROOM.cols / 2, Z0 = ROOM.z - ROOM.rows / 2;
@@ -31,6 +32,7 @@ export const FURNITURE = {
   catbed: { name: '고양이 방석', icon: '🐱', price: 150, w: 1, d: 1 },
   fireplace: { name: '벽난로', icon: '🔥', price: 900, w: 2, d: 1 },
   vase: { name: '꽃병 탁자', icon: '💐', price: 140, w: 1, d: 1 },
+  board: { name: '방명록 칠판', icon: '🪧', price: 300, w: 2, d: 1, act: 'board', actName: '칠판 보기' },   // 집 앞 알림판과 같은 내용
 };
 
 const WALLPAPERS = [0xfff1d6, 0xffd6de, 0xd8f2c8, 0xd6e8ff, 0xe8dcff, 0xfff3b0];
@@ -53,28 +55,54 @@ export function defaultHouse() {
       { id: 'tv', c: 0, r: 7, rot: 2 },
       { id: 'catbed', c: 2, r: 7, rot: 0 },
       { id: 'plant', c: 11, r: 0, rot: 0 },
+      { id: 'board', c: 2, r: 0, rot: 0 },   // 침대와 주방 사이 벽: 공지·방명록 칠판
     ],
     inventory: {},
     plants: {},
-    v: 2,
+    v: 3,
   };
 }
 
 /** 예전 기본 배치(의자가 식탁 반대쪽을 보고 엇갈려 있던 것)를 저장본에서 한 번만 바로잡기 */
 function migrateHouse(h) {
-  if (!h || h.v >= 2) return;
-  h.v = 2;
+  if (!h || h.v >= 3) return;
   const at = (id, c, r) => h.placed.find((p) => p.id === id && p.c === c && p.r === r);
-  if (!at('table', 4, 3)) return;
-  const a = at('chair', 3, 3), b = at('chair', 6, 4);
-  if (a && a.rot === 1) a.rot = 3;
-  if (b && b.rot === 3) { b.rot = 1; if (!h.placed.some((p) => p !== b && p.c <= 6 && p.c + dims(p).w > 6 && p.r <= 3 && p.r + dims(p).d > 3 && !FURNITURE[p.id].flat)) b.r = 3; }
+  // 칸(c, r)부터 w×d 영역이 다른 가구(러그 제외)와 겹치는지
+  const busy = (c, r, w, d, skip = null) => h.placed.some((p) => {
+    if (p === skip || FURNITURE[p.id]?.flat) return false;
+    const q = dims(p);
+    return c < p.c + q.w && c + w > p.c && r < p.r + q.d && r + d > p.r;
+  });
+  if (!(h.v >= 2)) {
+    // v2: 예전 기본 배치의 의자 방향
+    const a = at('chair', 3, 3), b = at('chair', 6, 4);
+    if (at('table', 4, 3)) {
+      if (a && a.rot === 1) a.rot = 3;
+      if (b && b.rot === 3) { b.rot = 1; if (!busy(6, 3, 1, 1, b)) b.r = 3; }
+    }
+  }
+  // v3: 집 안 방명록 칠판 — 빈 벽 쪽에 놓고, 자리가 없으면 보관함에
+  if (!h.placed.some((p) => p.id === 'board') && !(h.inventory?.board > 0)) {
+    // 벽에 붙는 자리만 (가구 앞을 막지 않게): 뒷벽(침대 옆) → 왼쪽 벽 → 오른쪽 벽 → 앞벽, 칠판 앞면은 방 안쪽으로
+    const spot = [[2, 0, 0], [0, 3, 3], [11, 2, 1], [11, 4, 1], [4, 8, 2], [6, 8, 2]].map(([c, r, rot]) => ({ id: 'board', c, r, rot })).find((p) => {
+      const { w, d } = dims(p);
+      return p.c + w <= ROOM.cols && p.r + d <= ROOM.rows && !(p.r + d > DOOR.r && p.c + w > DOOR.c && p.c < DOOR.c + 2) && !busy(p.c, p.r, w, d);
+    });
+    if (spot) h.placed.push(spot);
+    else { h.inventory ||= {}; h.inventory.board = (h.inventory.board || 0) + 1; }
+  }
+  h.v = 3;
 }
 
 // ---------------- 가구 모델 ----------------
 function buildFurniture(id) {
   const g = new THREE.Group();
   const wood = mat(0xc98a5a), woodL = mat(0xe0b077), white = mat(0xfffaf0), D = mat(0x4a4f5c);
+  if (id === 'board') {   // 집 앞 알림판과 같은 칠판 (조금 작게)
+    const b = makeBoardModel(g);
+    b.scale.setScalar(0.95);
+    return g;
+  }
   switch (id) {
     case 'bed':
       part(g, rbox(1.9, 0.4, 2.9, 0.12), wood, 0, 0.25, 0);
@@ -457,6 +485,7 @@ export function doActivity(a) {
     case 'tv': openModalHtml('📺 오늘의 뉴스', newsHtml()); sfx('ding'); break;
     case 'piano': openPiano(); break;
     case 'water': water(it); break;
+    case 'board': openBoard(); break;
   }
 }
 
