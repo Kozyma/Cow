@@ -450,7 +450,6 @@ export function updateUI(dt) {
     if (u.cb.checked !== v.auto) u.cb.checked = v.auto;
   }
   updateDrivePanel();
-  drawMinimap();
 }
 
 function setBar(e, v) {
@@ -629,11 +628,15 @@ export function renderStore(truck) {
 // ---------------- 미니맵 ----------------
 let mmBg = null;
 const MM = 470;
-function drawMinimapBg(size) {
+const MM_PX = 3;   // 배경 해상도 (픽셀/m)
+const MM_ZOOM = [75, 140, MM / 2];   // 미니맵에 보이는 반경(m): 가까이 · 중간 · 전체 (미니맵을 눌러 바꾸기)
+let mmZoom = 0, mmR = MM_ZOOM[0], mmF = 0;   // mmF: 0 = 내 위치 중심, 1 = 지도 중심 (부드럽게 전환)
+function drawMinimapBg() {
+  const size = MM * MM_PX;
   const c = document.createElement('canvas');
   c.width = c.height = size;
   const g = c.getContext('2d');
-  const s = size / MM;
+  const s = MM_PX;
   g.translate(size / 2, size / 2);
   g.scale(s, s);
   g.fillStyle = '#a6dc7e'; g.fillRect(-MM / 2, -MM / 2, MM, MM);
@@ -645,10 +648,10 @@ function drawMinimapBg(size) {
   g.fillStyle = '#7cb7f0'; g.fillRect(AF.hangar.x - 8, AF.hangar.z - 5.5, 16, 11);
   g.fillStyle = '#ffd34d'; g.beginPath(); g.arc(AF.heli.x, AF.heli.z, 6, 0, Math.PI * 2); g.fill();
   g.fillStyle = '#f3e2b3';
-  g.strokeStyle = 'rgba(107,79,58,0.25)'; g.lineWidth = 1; g.strokeRect(-LAYOUT.bound, -LAYOUT.bound, LAYOUT.bound * 2, LAYOUT.bound * 2);
+  g.strokeStyle = 'rgba(107,79,58,0.35)'; g.lineWidth = 1; g.strokeRect(-LAYOUT.bound, -LAYOUT.bound, LAYOUT.bound * 2, LAYOUT.bound * 2);
   g.fillRect(-4.8, -4, 3.6, 23);
   g.fillRect(-31, 19.5, 44, 18);
-    const f = LAYOUT.field;
+  const f = LAYOUT.field;
   g.fillStyle = '#7fc464'; g.fillRect(f.x0, f.z0, f.cols * f.tile, f.rows * f.tile);
   const p = LAYOUT.pond;
   g.fillStyle = '#7fd0ea'; g.beginPath(); g.arc(p.x, p.z, p.r, 0, Math.PI * 2); g.fill();
@@ -671,40 +674,94 @@ function drawMinimapBg(size) {
   return c;
 }
 
-function drawMinimap() {
+let mmBound = false;
+export function drawMinimap(dt = 0.016) {
+  if (G.mode === 'house') return;
   const cv = $('#minimap');
-  const size = cv.width;
-  if (!mmBg) mmBg = drawMinimapBg(size);
+  if (!mmBound) {
+    mmBound = true;
+    cv.style.pointerEvents = 'auto'; cv.style.cursor = 'pointer';
+    cv.title = '눌러서 확대/축소';
+    cv.addEventListener('pointerdown', (e) => {
+      e.stopPropagation(); e.preventDefault();
+      mmZoom = (mmZoom + 1) % MM_ZOOM.length;
+      sfx('click');
+    });
+  }
+  // 화면 크기 × 기기 배율에 맞춰 선명하게 (숨겨져 있으면 그리지 않음)
+  const css = cv.clientWidth;
+  if (!css) return;
+  const want = Math.round(css * Math.min(2, window.devicePixelRatio || 1));
+  if (cv.width !== want) { cv.width = cv.height = want; }
+  const size = cv.width, half = size / 2, px = size / css;   // px: CSS 1픽셀당 캔버스 픽셀
+  if (!mmBg) mmBg = drawMinimapBg();
+  const ease = Math.min(1, dt * 8);
+  mmR += (MM_ZOOM[mmZoom] - mmR) * ease;
+  mmF += ((mmZoom === MM_ZOOM.length - 1 ? 1 : 0) - mmF) * ease;
+  if (Math.abs(mmF - Math.round(mmF)) < 0.002) mmF = Math.round(mmF);
+  const R = mmR, sc = half / R;   // m → 캔버스 픽셀
+  const me = G.driving ? G.driving.pos : G.player.pos;
+  const hd = G.driving ? G.driving.heading : G.player.heading;
+  // 전체 지도에서는 지도 가운데 고정, 그 외에는 내 위치가 가운데
+  const cx = me.x * (1 - mmF), cz = me.z * (1 - mmF);
   const g = cv.getContext('2d');
   g.clearRect(0, 0, size, size);
   g.save();
-  g.beginPath(); g.arc(size / 2, size / 2, size / 2 - 2, 0, Math.PI * 2); g.clip();
-  g.translate(size / 2, size / 2);
+  g.beginPath(); g.arc(half, half, half - 1, 0, Math.PI * 2); g.clip();
+  g.fillStyle = '#86b866'; g.fillRect(0, 0, size, size);   // 맵 바깥
+  g.translate(half, half);
   const yaw = G.cam.fp ? (G.driving ? G.driving.heading + G.cam.fpOff : G.cam.fpYaw) + Math.PI : G.cam.yaw;
   g.rotate(yaw);
-  g.drawImage(mmBg, -size / 2, -size / 2);
-  const s = size / MM;
-  g.scale(s, s);
+  g.scale(sc, sc);
+  g.translate(-cx, -cz);
+  g.imageSmoothingEnabled = true;
+  g.drawImage(mmBg, -MM / 2, -MM / 2, MM, MM);
+  // 아이템 · 차량 · 다른 사람은 확대와 관계없이 일정한 크기로
+  const u = px / sc;   // CSS 1픽셀 = u m
   for (const b of G.items) {
     g.fillStyle = b.kind === 'bale' ? '#f4d36b' : '#b9874f';
-    g.fillRect(b.pos.x - 0.9, b.pos.z - 0.9, 1.8, 1.8);
+    const r = 1.6 * u;
+    g.fillRect(b.pos.x - r, b.pos.z - r, r * 2, r * 2);
   }
+  g.lineWidth = 1.2 * u; g.strokeStyle = '#fff';
   for (const v of G.vehicles) {
+    if (v === G.driving) continue;
     g.fillStyle = v.def.color;
-    g.strokeStyle = '#fff'; g.lineWidth = 0.6;
-    g.beginPath(); g.arc(v.pos.x, v.pos.z, v.isTruck ? 2.8 : 2.2, 0, Math.PI * 2); g.fill(); g.stroke();
+    g.beginPath(); g.arc(v.pos.x, v.pos.z, (v.isTruck ? 3.6 : 3) * u, 0, Math.PI * 2); g.fill(); g.stroke();
   }
-  const me = G.driving ? G.driving.pos : G.player.pos;
-  const hd = G.driving ? G.driving.heading : G.player.heading;
+  for (const pl of G.players || []) {
+    if (!pl || pl === G.player || !pl.pos || pl.driving) continue;
+    g.fillStyle = '#5aa9ff';
+    g.beginPath(); g.arc(pl.pos.x, pl.pos.z, 3 * u, 0, Math.PI * 2); g.fill(); g.stroke();
+  }
+  g.restore();
+
+  // 내 위치: 화면 기준 고정 크기 마커 (맥박 링 + 흰 테두리 화살표)
   g.save();
-  g.translate(me.x, me.z);
-  g.rotate(-hd);
-  g.fillStyle = '#ff6f91'; g.strokeStyle = '#fff'; g.lineWidth = 0.8;
-  g.beginPath(); g.moveTo(0, 3.6); g.lineTo(2.5, -2.2); g.lineTo(-2.5, -2.2); g.closePath(); g.fill(); g.stroke();
+  g.beginPath(); g.arc(half, half, half - 1, 0, Math.PI * 2); g.clip();
+  const dx = me.x - cx, dz = me.z - cz, cy = Math.cos(yaw), sy = Math.sin(yaw);
+  const mx = half + (dx * cy - dz * sy) * sc, my = half + (dx * sy + dz * cy) * sc;
+  const t = (performance.now() / 1000) % 1.4 / 1.4;
+  g.strokeStyle = `rgba(255,79,129,${0.75 * (1 - t)})`; g.lineWidth = 2.5 * px;
+  g.beginPath(); g.arc(mx, my, (7 + t * 12) * px, 0, Math.PI * 2); g.stroke();
+  g.translate(mx, my);
+  g.rotate(yaw - hd);
+  const k = px * (css < 110 ? 0.85 : 1);
+  g.shadowColor = 'rgba(60,30,20,0.45)'; g.shadowBlur = 4 * px;
+  g.fillStyle = '#ff4f81'; g.strokeStyle = '#fff'; g.lineWidth = 2.2 * px; g.lineJoin = 'round';
+  g.beginPath(); g.moveTo(0, 10 * k); g.lineTo(7 * k, -6 * k); g.lineTo(0, -2.5 * k); g.lineTo(-7 * k, -6 * k); g.closePath();
+  g.fill(); g.shadowBlur = 0; g.stroke();
   g.restore();
-  g.restore();
-  g.strokeStyle = '#f1e3c8'; g.lineWidth = 4;
-  g.beginPath(); g.arc(size / 2, size / 2, size / 2 - 2, 0, Math.PI * 2); g.stroke();
+
+  // 북쪽 표시 (지도가 시점에 따라 돌아가므로)
+  const nr = half - 9 * px;
+  const nx = half + Math.sin(yaw) * nr, ny = half - Math.cos(yaw) * nr;
+  g.fillStyle = 'rgba(255,255,255,0.9)'; g.beginPath(); g.arc(nx, ny, 7 * px, 0, Math.PI * 2); g.fill();
+  g.fillStyle = '#c0392b'; g.font = `bold ${9 * px}px sans-serif`; g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.fillText('N', nx, ny + 0.5 * px);
+
+  g.strokeStyle = '#f1e3c8'; g.lineWidth = 3 * px;
+  g.beginPath(); g.arc(half, half, half - 1.5 * px, 0, Math.PI * 2); g.stroke();
 }
 
 // ---------------- 상점 (탭) ----------------

@@ -12,7 +12,7 @@ import { buildGrid } from './pathfinding.js';
 import { INST } from './instancer.js';
 import { updateParticles, burst } from './particles.js';
 import { updateItems, spawnBale, setOnDock, dockSlots, Item } from './items.js';
-import { initUI, updateUI, updateLabels, setPrompt, setActionLabel, toast, renderShop, syncSettingsUI, renderStore, addVehicleUI } from './ui.js';
+import { initUI, updateUI, drawMinimap, updateLabels, setPrompt, setActionLabel, toast, renderShop, syncSettingsUI, renderStore, addVehicleUI } from './ui.js';
 import { enterBuild, exitBuild, updateBuild, buildPointer, buildClick, buildCancel, buildState } from './layout.js';
 import * as HOUSE from './house.js';
 import { initAudio, updateEngine, sfx, setVolumes } from './audio.js';
@@ -620,6 +620,7 @@ function frame() {
     updateLabels(dt);
     uiT -= dt;
     if (uiT <= 0) { uiT = 0.12; updateUI(0.12); }
+    drawMinimap(dt);
   }
   G.input.endFrame();
   // 그림자 "낮음": 그림자 지도는 2프레임에 한 번만 다시 그린다
