@@ -2,7 +2,7 @@
 // 정적 자산은 stale-while-revalidate(캐시 즉시 + 백그라운드 갱신),
 // 데이터(페이지/폼)는 네트워크 우선.
 // ※ 코드(css/js)를 고치면 이 버전 숫자를 올려야 옛 캐시가 정리됩니다.
-const CACHE = 'farm-solar-v38';
+const CACHE = 'farm-solar-v39';
 const ASSETS = [
   '/static/style.css',
   '/static/app.js',
@@ -28,6 +28,10 @@ self.addEventListener('fetch', (e) => {
   if (req.method !== 'GET') return; // 폼 전송(POST)은 항상 네트워크로
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return; // 외부 API(날씨 등)는 그대로 통과
+  // 몽글몽글 목장 게임(/static/game/)은 서비스워커가 건드리지 않는다.
+  //   ES 모듈 여러 개로 되어 있어서 캐시본이 섞이면 옛 버전이 보이거나 실행이 깨진다.
+  //   서버가 no-cache + ETag로 내려주므로 브라우저가 알아서 최신 파일을 확인한다.
+  if (url.pathname.startsWith('/static/game/') || url.pathname === '/game' || url.pathname.startsWith('/game/')) return;
 
   if (url.pathname.startsWith('/static/')) {
     // 정적 파일: stale-while-revalidate
