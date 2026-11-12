@@ -1075,7 +1075,7 @@ export class Vehicle {
   }
 
   animate(dt, st) {
-    if (this.gradeFlag) animateFlag(this, G.now || 0);
+    if (this.kitBob) animateFlag(this, G.now || 0);
     if (this.def.air) { this.animateAir(dt, st); return; }
     const m = this.m;
     const driven = !!this.driver;

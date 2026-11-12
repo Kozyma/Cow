@@ -5,7 +5,7 @@
 import * as THREE from 'three';
 import { G } from './state.js';
 import { mat } from './materials.js';
-import { part, group, cyl, sphere, cone, rbox } from './util.js';
+import { applyKit, animateKit } from './kits.js';
 
 /** 희귀도: 모델·페인트 모두 등급별로 나뉘고, 등급이 높을수록 능력치가 좋다 */
 export const TIERS = {
@@ -18,9 +18,9 @@ export const TIERS = {
 /** 모델(성능). cost = 차 가격 대비 비율 */
 export const GRADES = {
   std: { name: '기본형', icon: '', tier: 'common', speed: 1, accel: 1, turn: 1, cost: 0, desc: '균형 잡힌 기본 모델' },
-  compact: { name: '컴팩트', icon: '🌀', tier: 'rare', speed: 0.92, accel: 1.2, turn: 1.35, cost: 0.4, flag: 0x5fd4b4, desc: '좁은 축사·통로에서 잘 도는 날렵한 모델' },
-  turbo: { name: '터보', icon: '⚡', tier: 'rare', speed: 1.3, accel: 1.3, turn: 0.92, cost: 0.6, flag: 0xffd34d, desc: '최고 속도·가속 ↑ · 회전은 살짝 둔해요' },
-  pro: { name: '프로', icon: '👑', tier: 'legend', speed: 1.18, accel: 1.22, turn: 1.15, cost: 1.0, flag: 0xff8fab, desc: '속도·가속·회전 모두 ↑ 최고급 모델' },
+  compact: { name: '컴팩트', icon: '🌀', tier: 'rare', speed: 0.92, accel: 1.2, turn: 1.35, cost: 0.4, flag: 0x5fd4b4, desc: '좁은 통로에서 잘 도는 날렵한 모델 · 🎀 리본·큰 눈·말랑 범퍼' },
+  turbo: { name: '터보', icon: '⚡', tier: 'rare', speed: 1.3, accel: 1.3, turn: 0.92, cost: 0.6, flag: 0xffd34d, desc: '최고 속도·가속 ↑ (회전은 살짝 둔함) · 🏁 스포일러·불꽃 무늬·머플러' },
+  pro: { name: '프로', icon: '👑', tier: 'legend', speed: 1.18, accel: 1.22, turn: 1.15, cost: 1.0, flag: 0xff8fab, desc: '속도·가속·회전 모두 ↑ · ✨ 라이트바·크롬 굴뚝·불바·금장' },
 };
 
 /** 페인트. 희귀 이상은 작은 능력치 보너스 (지상 차량) */
@@ -61,7 +61,7 @@ export function applyGrade(v, grade) {
   if (!GRADES[grade] || (v.def.air && grade !== 'std')) grade = 'std';
   v.grade = grade;
   recalc(v);
-  setFlag(v, GRADES[grade].flag);
+  applyKit(v, grade);   // 등급별 외형 부품 (터보·컴팩트·프로마다 다르게)
 }
 
 /** 능력치 = 차종 기본값 × 모델 × 페인트 보너스 (항공기는 비행 역학이 따로라 페인트 보너스 없음) */
@@ -72,67 +72,8 @@ function recalc(v) {
   v.def.turn = b.turn * g.turn * (s.turn || 1);
 }
 
-/** 등급 깃발: 차체 맨 윗면(지붕·캐노피)에 작은 안테나 깃발. 그 부품에 붙여서 같이 흔들린다 */
-function setFlag(v, color) {
-  if (v.gradeFlag) { v.gradeFlag.parent?.remove(v.gradeFlag); v.gradeFlag = null; }
-  if (color == null) return;
-  const spot = v.flagSpot || (v.flagSpot = findTop(v));
-  const f = group(spot.parent, spot.x, spot.y, spot.z);
-  part(f, cyl(0.03, 0.03, 1.1, 6), mat(0xd9d4ca), 0, 0.55, 0);
-  part(f, sphere(0.07, 8, 6), mat(0xfffaf0), 0, 1.13, 0);
-  // 삼각 깃발 (뒤쪽으로 펄럭)
-  const flag = part(f, cone(0.22, 0.56, 3), mat(color), 0, 0.92, -0.3, Math.PI / 2, 0, 0, 1, 1, 0.45);
-  flag.rotation.z = Math.PI / 2;
-  f.userData.flag = flag;
-  v.gradeFlag = f;
-}
-
-const _ray = new THREE.Raycaster(), _o = new THREE.Vector3(), _d = new THREE.Vector3(0, -1, 0);
-/**
- * 모델 윗면의 안테나 자리: 위에서 아래로 광선을 여러 곳에 쏘아, 차체(합쳐진 정적 부품)의
- * 위를 향한 평평한 면 중 가장 높은 곳 (화물칸 바닥·통 안쪽처럼 낮은 곳은 고르지 않게)
- */
-function findTop(v) {
-  const g = v.group;
-  const saved = { p: g.position.clone(), r: g.rotation.clone(), s: g.scale.clone() };
-  g.position.set(0, 0, 0); g.rotation.set(0, 0, 0); g.scale.set(1, 1, 1);
-  g.updateMatrixWorld(true);
-  const all = (v.paintMeshes || []).filter((m) => m.visible);
-  const body = all.filter((m) => m.material.vertexColors);   // 움직이지 않는 차체
-  const meshes = body.length ? body : all;
-  const box = new THREE.Box3();
-  for (const m of meshes) box.expandByObject(m);
-  let best = null;
-  if (!box.isEmpty()) {
-    const w = box.max.x - box.min.x, d = box.max.z - box.min.z;
-    for (const fx of [0.2, 0, 0.35]) {
-      for (const fz of [0.25, 0.4, 0.55, 0.7, 0.15, 0.85]) {
-        _o.set(box.min.x + w * (0.5 + fx * 0.5), box.max.y + 2, box.min.z + d * fz);   // fx: 가운데→오른쪽, fz: 뒤→앞
-        _ray.set(_o, _d);
-        const hit = _ray.intersectObjects(meshes, false)[0];
-        if (!hit || !hit.face) continue;
-        const ny = hit.face.normal.clone().transformDirection(hit.object.matrixWorld).y;
-        if (ny < 0.7) continue;
-        if (!best || hit.point.y > best.point.y + 0.05) best = hit;
-      }
-    }
-  }
-  let out;
-  if (best) {
-    const parent = best.object.parent || g;
-    const p = parent.worldToLocal(best.point.clone());
-    out = { parent, x: p.x, y: p.y - 0.02, z: p.z };
-  } else out = { parent: g, x: 0, y: box.isEmpty() ? 2 : box.max.y, z: 0 };
-  g.position.copy(saved.p); g.rotation.copy(saved.r); g.scale.copy(saved.s);
-  g.updateMatrixWorld(true);
-  return out;
-}
-
-/** 깃발 펄럭임 (매 프레임) */
-export function animateFlag(v, t) {
-  const f = v.gradeFlag?.userData.flag;
-  if (f) f.rotation.y = Math.sin(t * 6 + v.id) * 0.25 * (0.4 + Math.min(1, Math.abs(v.speed) / 6));
-}
+/** 모델별 외형 키트 움직임 (매 프레임) */
+export function animateFlag(v, t) { animateKit(v, t); }
 
 // ---------------- 스킨 (페인트) ----------------
 const _c = new THREE.Color(), _hsl = { h: 0, s: 0, l: 0 }, _base = { h: 0, s: 0, l: 0 }, _skin = { h: 0, s: 0, l: 0 };
