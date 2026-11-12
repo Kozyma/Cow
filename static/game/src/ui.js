@@ -8,6 +8,7 @@ import { sfx } from './audio.js';
 import { Item, setOnDock, freeDockSlot, truckCargo, dockItems } from './items.js';
 import { burst } from './particles.js';
 import { saveSettings } from './settings.js';
+import { GRADES, SKINS, TIERS, gradeCost, applyGrade, applySkin, gradeLabel, skinBonus } from './garage.js';
 
 const $ = (s) => document.querySelector(s);
 const el = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; };
@@ -163,7 +164,7 @@ export function addVehicleUI(v) {
   if (v.ui) return;
   const i = G.vehicles.indexOf(v);
   const c = el('div', 'vcard', `
-    <div class="v-top"><span class="v-num">${i + 1}</span><span class="v-ico">${v.def.icon}</span><b>${v.def.name}</b></div>
+    <div class="v-top"><span class="v-num">${i + 1}</span><span class="v-ico">${v.def.icon}</span><b>${gradeLabel(v)}${v.def.name}</b></div>
     <div class="v-status"></div>
     <div class="v-actions">
       <label class="switch" title="자동 운전"><input type="checkbox" ${v.auto ? 'checked' : ''}><span></span></label><span class="sw-lbl">자동</span>
@@ -814,9 +815,13 @@ const MAX_PER_TYPE = 5;
 const EQUIP_ITEMS = () => [parkingItem(), ...Object.entries(VEHICLE_SHOP).map(([type, price]) => {
   const def = API.vehDefs()[type];
   const owned = G.vehicles.filter((v) => v.type === type).length;
+  const max = def.air ? 1 : MAX_PER_TYPE;   // 항공기는 주기장 자리가 하나씩
+  const t = def.tier ? TIERS[def.tier] : null;
+  const fly = def.fly ? (type === 'jet' ? ' · 추력이 아주 커서 빠르고 날렵해요, 부스트는 애프터버너 🔥' : ' · 묵직하게 길게 달려 이륙하고, 빠르게 순항해요') : '';
   return {
-    icon: def.icon, name: owned ? `${def.name} 한 대 더` : `${def.name}`, desc: `보유 ${owned}대 · 사면 주차장에 도착해요 (자동 운전 일꾼 포함)`,
-    price, can: owned < MAX_PER_TYPE && G.vehicles.length < maxVehicles(), why: owned >= MAX_PER_TYPE ? `최대 ${MAX_PER_TYPE}대` : '주차장이 가득', buy: () => API.buyVehicle(type),
+    icon: def.icon, name: `${t ? `<span class="g-tier" style="--tc:${t.color}">${t.name}</span> ` : ''}${owned && max > 1 ? `${def.name} 한 대 더` : def.name}`,
+    desc: `보유 ${owned}대 · ${def.air ? '비행장에 도착해요' : '사면 주차장에 도착해요 (자동 운전 일꾼 포함)'}${fly}`,
+    price, can: owned < max && G.vehicles.length < maxVehicles(), why: owned >= max ? (max === 1 ? '보유 중' : `최대 ${max}대`) : '주차장이 가득', buy: () => API.buyVehicle(type),
   };
 })];
 /** 🅿️ 주차장 넓히기: 남쪽으로 한 줄(8칸)씩 */
@@ -857,6 +862,7 @@ export function renderShop() {
   const list = $('#shop-list');
   list.innerHTML = '';
   document.querySelectorAll('#shop-tabs button').forEach((b) => b.classList.toggle('on', b.dataset.tab === shopTab));
+  if (shopTab === 'garage') { renderGarage(list); $('#shop-coins').textContent = G.coins.toLocaleString('ko-KR'); return; }
   const items = shopTab === 'animal' ? FARM_ITEMS() : shopTab === 'equip' ? EQUIP_ITEMS() : shopTab === 'furn' ? FURN_ITEMS() : ETC_ITEMS();
   for (const it of items) {
     const afford = G.coins >= it.price;
@@ -870,12 +876,103 @@ export function renderShop() {
       G.coins -= it.price;
       it.buy();
       sfx('buy');
-      toast(it.after || `${it.name} 구매 완료!`, it.icon, 2400);
+      toast(it.after || `${it.name.replace(/<[^>]+>/g, '')} 구매 완료!`, it.icon, 2400);
       renderShop();
     });
     list.appendChild(row);
   }
   $('#shop-coins').textContent = G.coins.toLocaleString('ko-KR');
+}
+
+// ---------------- 🎨 차고: 모델(등급) · 페인트 ----------------
+let garageSel = 0;
+const statBar = (label, val, base) => {
+  const pct = Math.round(Math.min(1, val / (base * 1.35)) * 100);
+  const d = val / base - 1;
+  const tag = Math.abs(d) < 0.01 ? '' : `<em class="${d > 0 ? 'up' : 'down'}">${d > 0 ? '+' : ''}${Math.round(d * 100)}%</em>`;
+  return `<div class="g-stat"><span>${label}</span><i><b style="width:${pct}%"></b></i>${tag}</div>`;
+};
+function renderGarage(list) {
+  const vs = G.vehicles;
+  if (garageSel >= vs.length) garageSel = 0;
+  const v = vs[garageSel];
+  const wrap = el('div', 'garage');
+  // 차량 고르기
+  const pick = el('div', 'g-pick');
+  vs.forEach((x, i) => {
+    const b = el('button', `g-car ${i === garageSel ? 'on' : ''}`, `<span>${x.def.icon}</span><small>${i + 1}. ${gradeLabel(x)}${x.def.name}</small>`);
+    b.style.setProperty('--vc', x.def.color);
+    b.addEventListener('click', () => { garageSel = i; sfx('click'); renderShop(); });
+    pick.appendChild(b);
+  });
+  wrap.appendChild(pick);
+  const b = v.baseDef;
+  const busy = v.driver && v.driver !== G.player;
+  wrap.appendChild(el('div', 'g-head', `<span class="g-ico">${v.def.icon}</span><div><b>${gradeLabel(v)}${v.def.name}</b><small>${GRADES[v.grade].name} · ${SKINS[v.skin].name}${busy ? ' · 다른 사람이 운전 중' : ''}</small></div>`));
+  if (!v.def.air) wrap.appendChild(el('div', 'g-stats', statBar('최고 속도', v.def.maxSpeed, b.maxSpeed) + statBar('가속', v.def.accel, b.accel) + statBar('회전', v.def.turn, b.turn)));
+  // 모델(등급)
+  wrap.appendChild(el('div', 'g-title', v.def.air ? '✈️ 항공기는 페인트만 바꿀 수 있어요' : '🔧 모델 바꾸기 <small>성능이 달라져요</small>'));
+  if (!v.def.air) {
+    const grid = el('div', 'g-grades');
+    for (const [id, g] of Object.entries(GRADES)) {
+      const cost = gradeCost(v.type, id, VEHICLE_SHOP);
+      const cur = v.grade === id;
+      const t = TIERS[g.tier];
+      const btn = el('button', `g-grade ${cur ? 'on' : ''}`, `<span class="g-tier" style="--tc:${t.color}">${t.name}</span><b>${g.icon} ${g.name}</b><small>${g.desc}</small><span class="g-price">${cur ? '사용 중' : cost ? `🪙 ${cost.toLocaleString('ko-KR')}` : '무료'}</span>`);
+      btn.style.setProperty('--tc', t.color);
+      btn.disabled = cur || G.coins < cost;
+      btn.addEventListener('click', () => {
+        if (cur || G.coins < cost) { sfx('error'); return; }
+        G.coins -= cost;
+        applyGrade(v, id);
+        refreshVehicleCard(v);
+        sfx('buy');
+        burst('star', v.pos.x, 2.5, v.pos.z, 14, { vy: 5 });
+        toast(`${v.def.name} → ${g.icon} ${g.name} 모델로 바꿨어요`, v.def.icon, 2200);
+        renderShop();
+      });
+      grid.appendChild(btn);
+    }
+    wrap.appendChild(grid);
+  }
+  // 페인트
+  wrap.appendChild(el('div', 'g-title', `🎨 페인트 <small>한 번 사면 모든 차에 칠할 수 있어요${v.def.air ? '' : ' · 희귀 이상은 능력치 보너스'}</small>`));
+  const sw = el('div', 'g-skins');
+  for (const [id, s] of Object.entries(SKINS)) {
+    const owned = id === 'base' || G.skinsOwned.includes(id);
+    const cur = v.skin === id;
+    const t = TIERS[s.tier];
+    const bonus = v.def.air ? '' : skinBonus(s);
+    const chip = s.rainbow ? 'linear-gradient(135deg,#ff6b7a,#ffd84d,#5fd4b4,#6fb8f0,#b49cf0)' : (s.color || b.color);
+    const btn = el('button', `g-skin ${cur ? 'on' : ''} ${owned ? '' : 'locked'} tier-${s.tier}`, `<span class="g-tier" style="--tc:${t.color}">${t.name}</span><i style="background:${chip}"></i><b>${s.name}</b>${bonus ? `<em>${bonus}</em>` : ''}<small>${cur ? '칠함' : owned ? '칠하기' : `🪙 ${s.price.toLocaleString('ko-KR')}`}</small>`);
+    btn.style.setProperty('--tc', t.color);
+    btn.disabled = cur || (!owned && G.coins < s.price);
+    btn.addEventListener('click', () => {
+      if (cur) return;
+      if (!owned) {
+        if (G.coins < s.price) { sfx('error'); return; }
+        G.coins -= s.price;
+        G.skinsOwned.push(id);
+      }
+      applySkin(v, id);
+      sfx('buy');
+      burst('star', v.pos.x, 2.5, v.pos.z, 12, { vy: 4 });
+      toast(`${v.def.name}을(를) ${s.name}으로 칠했어요`, '🎨', 2000);
+      renderShop();
+    });
+    sw.appendChild(btn);
+  }
+  wrap.appendChild(sw);
+  wrap.appendChild(el('div', 'g-eye', ''));
+  const eye = el('button', 'g-view', '👁 이 차 보러 가기');
+  eye.addEventListener('click', () => { API.closeModals(); API.view(v); });
+  wrap.lastChild.appendChild(eye);
+  list.appendChild(wrap);
+}
+/** 차량 카드 이름(등급 표시) 다시 쓰기 */
+export function refreshVehicleCard(v) {
+  const n = v.ui?.card.querySelector('.v-top b');
+  if (n) n.textContent = `${gradeLabel(v)}${v.def.name}`;
 }
 
 // ---------------- 설정 ----------------

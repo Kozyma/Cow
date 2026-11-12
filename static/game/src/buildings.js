@@ -343,7 +343,9 @@ export function buildAirfield(scene, A) {
     for (const s2 of [-1, 1]) INST.add('rwlight', sphere(0.16, 8, 6), mat(0xffffff), x, 0.18, R.z + s2 * (R.w / 2 + 0.8), 0, 0, 0, 1, 1, 1, x % 20 === 0 ? 0xffd34d : 0x8fd16a, false);
   }
   // 주기장 · 유도로
-  flat(A.plane.x, R.z + R.w / 2 + 1 + 9, 18, 18, 0xc9c4b8, 0.045);
+  flat(A.apron.x, A.apron.z, A.apron.w, A.apron.d, 0xc9c4b8, 0.045);
+  // 주기 칸 표시 (노란 T자)
+  for (const k of ['plane', 'liner', 'jet']) { const s = A[k]; flat(s.x, s.z - 3.5, 0.3, 5, 0xffd34d, 0.06); flat(s.x, s.z - 6, 3, 0.3, 0xffd34d, 0.06); }
   // 격납고 (둥근 지붕, 앞이 열림)
   const H = A.hangar;
   const hg = group(g, H.x, 0, H.z);
@@ -380,13 +382,14 @@ export function buildAirfield(scene, A) {
   for (const [x, z, w, d] of [[-1.6, 0, 0.7, 4.6], [1.6, 0, 0.7, 4.6], [0, 0, 2.6, 0.7]]) part(hp, box(w, 0.02, d), mat(0xfffaf0), x, 0.05, z).castShadow = false;
   for (let i = 0; i < 8; i++) { const a = (i / 8) * Math.PI * 2; part(hp, sphere(0.14, 8, 6), glow(0xffd34d, 0.4), Math.cos(a) * 6.9, 0.16, Math.sin(a) * 6.9); }
   // 바람자루
-  const ws = group(g, R.x - R.len / 2 + 8, 0, R.z + R.w / 2 + 6);
+  // 주기장 서쪽 끝 바깥 (비행기 칸·유도 길을 막지 않게)
+  const ws = group(g, A.apron.x - A.apron.w / 2 - 3, 0, R.z + R.w / 2 + 4);
   part(ws, cyl(0.08, 0.08, 5, 8), mat(0xfffaf0), 0, 2.5, 0);
   const sock = group(ws, 0, 4.8, 0);
   for (let i = 0; i < 4; i++) part(sock, cyl(0.35 - i * 0.06, 0.3 - i * 0.06, 0.55, 12), mat(i % 2 ? 0xfffaf0 : 0xff7b6b), 0.35 + i * 0.52, 0, 0, 0, 0, Math.PI / 2);
   addCircle(ws.position.x, ws.position.z, 0.3);
   // 관제탑 (작고 귀여운)
-  const tw = group(g, R.x - R.len / 2 + 24, 0, R.z + R.w / 2 + 12);
+  const tw = group(g, A.apron.x - A.apron.w / 2 - 4, 0, A.apron.z + 5);
   part(tw, rbox(3, 6, 3, 0.3), mat(0xfff1d6), 0, 3, 0);
   part(tw, rbox(4, 1.8, 4, 0.4), glassMat(), 0, 6.9, 0);
   part(tw, rbox(4.4, 0.35, 4.4, 0.15), mat(0xff9eb5), 0, 7.95, 0);

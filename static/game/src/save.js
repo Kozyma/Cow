@@ -9,6 +9,7 @@ import { clearSite, parkRows, setParkingRows } from './layout.js';
 import { buildGrid } from './pathfinding.js';
 import { reloadHouse } from './house.js';
 import { setBoardData } from './board.js';
+import { applyLook } from './garage.js';
 
 const KEY = 'monggle-farm-save-v4';
 
@@ -34,6 +35,7 @@ export function buildSaveData() {
   return {
     v: 4,
     coins: G.coins, day: G.day, time: G.time, prices: G.prices,
+    skins: G.skinsOwned,   // 🎨 차고에서 사 둔 페인트
     upgrades: G.upgrades, fertileTimer: G.fertileTimer, stats: G.stats,
     barns: G.barns.map((b) => ({
       id: b.id, cx: b.cx, front: b.front, n: b.animals.length, cap: b.capacity, exp: b.expansions,
@@ -67,6 +69,7 @@ export function loadGame() {
 export function applySaveData(d) {
   if (!d || d.v !== 4) return false;
   G.coins = d.coins; G.day = d.day; G.time = d.time;
+  G.skinsOwned = Array.isArray(d.skins) ? d.skins.filter((x) => typeof x === 'string').slice(0, 40) : ['base'];
   Object.assign(G.prices, d.prices || {});
   Object.assign(G.upgrades, d.upgrades || {});
   G.fertileTimer = d.fertileTimer || 0;
@@ -111,10 +114,13 @@ export function applySaveData(d) {
   (d.vehicles || []).forEach((s, i) => {
     const v = G.vehicles[i];
     if (!v) return;
+    applyLook(v, s.grade, s.skin);   // 모델(등급) · 페인트
     // 예전 저장본은 모두 기본값(자동 켜짐)이었으므로 꺼서 시작한다
     v.pos.set(s.x, 0, s.z); v.heading = s.h; v.auto = d.autoV === 2 ? !!s.auto : false;
     // 하늘에서 저장됐으면 착륙장으로 돌려놓는다
     if (v.def.air && (s.y || 0) > 0.5) { v.pos.set(v.park.x, 0, v.park.z); v.heading = v.park.h ?? v.heading; }
+    // 비행기는 늘 주기장 자기 칸에서 시작 (예전 저장본의 활주로 위 자리도 정리)
+    if (v.def.air === 'plane') { v.pos.set(v.park.x, 0, v.park.z); v.heading = v.park.h ?? v.heading; }
     v.bulk = s.bulk || 0; v.bulkKind = s.bulkKind || null; v.load = s.load || 0; v.loadKind = s.loadKind || null;
     if (s.mix) { v.mix = s.mix; v.mixT = s.mixT || 0; v.dispensed = s.disp || 0; }
     v.syncVisual();

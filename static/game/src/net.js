@@ -180,7 +180,7 @@ export function hostEndFrame(dt) {
 
 /** 축사·차량·시설 배치가 바뀌었는지 (바뀌면 게스트를 통째로 다시 맞춘다) */
 function structSig() {
-  return JSON.stringify([G.barns.map((b) => [b.id, b.cx, b.front, b.capacity]), G.vehicles.map((v) => v.type), LAYOUT.station.x, LAYOUT.station.z, LAYOUT.dock.x, LAYOUT.dock.z, LAYOUT.parking.length]);
+  return JSON.stringify([G.barns.map((b) => [b.id, b.cx, b.front, b.capacity]), G.vehicles.map((v) => `${v.type}/${v.grade}/${v.skin}`), LAYOUT.station.x, LAYOUT.station.z, LAYOUT.dock.x, LAYOUT.dock.z, LAYOUT.parking.length]);
 }
 
 function playerList() {

@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { G, LAYOUT, BALE_FEED, MAX_BALES, BUCKET_CAP, TRUCK_BULK_CAP, COMPOST, INGREDIENTS, RECIPES, MIX_TIME, MIXER_CAP, MIX_UNIT_FEED } from './state.js';
 import { stock, loadIngredient, recipeOf, planRecipe, mixTotal, freeStationSlot, setOnStation, inStation } from './feed.js';
 import { shedAt, allSheds } from './compost.js';
-import { makeTractor, makeBaler, makeForklift, makeSkidLoader, makeTruck1, makeTruck5, makeMixer, makeBaleWagon, makeCar, makeHelicopter, makePlane, glassMat, makeFarmer, seatFigure, pilotFigure, PLAYER_LOOK, NPC_LOOKS, LAMP } from './models.js';
+import { makeTractor, makeBaler, makeForklift, makeSkidLoader, makeTruck1, makeTruck5, makeMixer, makeBaleWagon, makeCar, makeHelicopter, makePlane, makeLiner, makeJet, glassMat, makeFarmer, seatFigure, pilotFigure, PLAYER_LOOK, NPC_LOOKS, LAMP } from './models.js';
 import { mat } from './materials.js';
 import { clamp, wrapAngle, approach, damp, dampAngle, rand, lerp, group, part, sphere, torus } from './util.js';
 import { collideCircle, blockedAt } from './physics.js';
@@ -12,6 +12,7 @@ import { spawn, burst } from './particles.js';
 import { toast, floatText } from './ui.js';
 import { sfx } from './audio.js';
 import { mergeStatic } from './merge.js';
+import { collectPaint, animateFlag } from './garage.js';
 import {
   spawnBale, baleCount, pickupItem, releaseCarried, supportUnder, itemInFront, freeYardSlot, inYard,
   freeDockSlot, dockItems, setOnTruck, truckCargo, freeTruckSlot, sellItems, nearMarket,
@@ -63,9 +64,23 @@ export const VEH_DEFS = {
   },
   plane: {
     name: '경비행기', icon: '✈️', maxSpeed: 28, accel: 5, turn: 1.4, radius: 1.3, work: 2.4, build: makePlane, carries: [], color: '#ff9eb5',
-    circles: [[0.7, 1.1], [-1.6, 0.7]], air: 'plane', seats: 2,
+    circles: [[0.7, 1.1], [-1.6, 0.7]], air: 'plane', seats: 2, tier: 'common',
+  },
+  // 🛫 미니 여객기: 무겁고 묵직하게 — 이륙 거리가 길고 천천히 기울지만 순항 속도가 빠르다
+  liner: {
+    name: '미니 여객기', icon: '🛫', maxSpeed: 34, accel: 4, turn: 1.0, radius: 1.3, work: 2.6, build: makeLiner, carries: [], color: '#6fb8f0',
+    circles: [[2.4, 1.1], [0, 1.2], [-2.6, 1.0]], air: 'plane', park: 'liner', seats: 2, tier: 'epic',
+    fly: { thrust: 4.6, vmax: 64, cd0: 0.036, roll: 0.7, boost: 1.2 },
+  },
+  // 🛩️ 미니 제트 전투기: 추력이 아주 커서 금방 빨라지고, 빠르게 기울며 선회 · 부스트는 애프터버너
+  jet: {
+    name: '미니 제트 전투기', icon: '🛩️', maxSpeed: 45, accel: 8, turn: 1.8, radius: 1.2, work: 2.4, build: makeJet, carries: [], color: '#5f8fd8',
+    circles: [[1.4, 1.0], [-1.4, 1.0]], air: 'plane', park: 'jet', seats: 2, tier: 'legend',
+    fly: { thrust: 10.5, vmax: 80, cd0: 0.026, roll: 1.7, boost: 1.55 },
   },
 };
+/** 경비행기 기본 비행 성능 (차종마다 fly로 바꿀 수 있음) */
+const FLY = { thrust: 3.4, vmax: 50, cd0: 0.032, roll: 1, boost: 1.25 };
 
 const _w = new THREE.Vector3();
 const _c = new THREE.Vector3();
@@ -85,13 +100,18 @@ export class Vehicle {
     this.id = nextId++;
     this.type = type;
     this.index = index;
-    this.def = VEH_DEFS[type];
-    this.def.circles ||= [[0, this.def.radius]];
+    // 차종 정의(baseDef)를 물려받은 차량 전용 정의: 등급(터보·컴팩트·프로)·스킨은 이 차에만 적용된다
+    this.baseDef = VEH_DEFS[type];
+    this.baseDef.circles ||= [[0, this.baseDef.radius]];
+    this.def = Object.create(this.baseDef);
+    this.grade = 'std';
+    this.skin = 'base';
     this.m = this.def.build();
     mergeStatic(this.m.group, this.m);   // 최적화: 차체의 정적 부품 합치기
     this.group = this.m.group;
+    collectPaint(this);                  // 스킨으로 칠할 차체 메시 (사람·짐이 붙기 전에)
     G.scene.add(this.group);
-    this.park = this.def.air ? LAYOUT.airfield[this.def.air] : LAYOUT.parking[index % LAYOUT.parking.length];
+    this.park = this.def.air ? LAYOUT.airfield[this.def.park || this.def.air] : LAYOUT.parking[index % LAYOUT.parking.length];
     this.pos = new THREE.Vector3(this.park.x, 0, this.park.z);
     this.heading = this.park.h ?? Math.PI;
     this.rpm = 0; this.vs = 0; this.pitch = 0; this.roll = 0;
@@ -1055,6 +1075,7 @@ export class Vehicle {
   }
 
   animate(dt, st) {
+    if (this.gradeFlag) animateFlag(this, G.now || 0);
     if (this.def.air) { this.animateAir(dt, st); return; }
     const m = this.m;
     const driven = !!this.driver;
@@ -2319,14 +2340,15 @@ export class Vehicle {
     alpha = this.theta - this.gam;
     this.stalled = !ground && alpha > AS;
     const CL = this.stalled ? (CL0 + 5 * AS) * Math.max(0.5, 1 - (alpha - AS) * 4) : Math.max(-0.6, CL0 + 5 * alpha);
-    const CD = 0.032 + 0.05 * fl + 0.055 * CL * CL + (this.stalled ? 0.12 : 0);
+    const F = this.def.fly || FLY;   // 기종별 추력 · 최고 속도 · 항력 · 롤 빠르기
+    const CD = F.cd0 + 0.05 * fl + 0.055 * CL * CL + (this.stalled ? 0.12 : 0);
     const qd = KL * V * V;
     const L = qd * CL, D = qd * CD;
-    const T = this.thrL * this.rpm * (this.boosting ? 1.25 : 1) * 3.4 * Math.max(0, 1 - V / 50);
+    const T = this.thrL * this.rpm * (this.boosting ? F.boost : 1) * F.thrust * Math.max(0, 1 - V / F.vmax);
     // 롤: 보조익(시뮬) 또는 목표 기울기(간편/자동)
     if (ground) this.roll = damp(this.roll, 0, 8, dt);
     else {
-      const ra = clamp(V / 12, 0.25, 1);
+      const ra = clamp(V / 12, 0.25, 1) * F.roll;
       if (c.bankT != null) this.roll += clamp((c.bankT - this.roll) * 2, -0.9, 0.9) * ra * dt;
       else this.roll += (c.ail * 0.9 - this.roll * 0.08) * ra * dt;
       if (this.stalled) this.roll += Math.sin(G.now * 3.1) * 0.3 * dt;
@@ -2386,6 +2408,12 @@ export class Vehicle {
     m.body.rotation.z = this.roll;
     if (m.rotor) { m.rotor.rotation.y += this.rpm * dt * 22; m.trotor.rotation.x += this.rpm * dt * 45; }
     if (m.prop) m.prop.rotation.z += (this.rpm * (0.35 + this.thrL * 0.65) + this.speed / 40) * dt * 45;
+    if (m.fans) for (const f of m.fans) f.rotation.z += (this.rpm * (0.3 + this.thrL * 0.7)) * dt * 30;   // 여객기 엔진 팬
+    if (m.burner) {   // 전투기 애프터버너: 부스트(또는 최대 추력)일 때 불꽃
+      const on = this.rpm > 0.5 && (this.boosting || this.thrL > 0.92);
+      const k = on ? (this.boosting ? 1.25 : 0.7) * (0.9 + Math.sin(G.now * 40) * 0.1) : 0;
+      for (const b of m.burner) { b.visible = k > 0; b.scale.set(1, 1, k || 1); }
+    }
     if (m.flaps) {
       for (const f of m.flaps) f.rotation.x = damp(f.rotation.x, -this.tilt * 0.55, 3, dt);
       for (const a of m.ailerons) a.rotation.x = damp(a.rotation.x, -(this.ail || 0) * 0.35 * a.userData.side, 10, dt);
@@ -2543,16 +2571,31 @@ export class Vehicle {
     const alt = (a, m = 0.12) => clamp((a - this.pos.y) * 0.03, -m, m);
     const law = (bankT, gamT, steer = 0, brake = false) => this.planeLaw({ bankT, gamT, steer, brake });
     switch (this.flyState) {
-      case 'idle':
+      case 'idle': {
         this.status = this.passenger ? '손님을 태우고 곧 출발해요!' : '주기장에서 출발 준비 중';
         this.thrL = 0;
+        // 견인차(푸시백): 세워 둔 비행기를 다시 활주로 쪽으로 돌려 놓는다
+        const dh = P.h != null && this.V < 0.3 ? wrapAngle(P.h - this.heading) : 0;
+        if (Math.abs(dh) > 0.03) {
+          this.heading += clamp(dh, -0.5 * dt, 0.5 * dt);
+          this.status = '🚜 견인차가 방향을 돌려 놓는 중';
+          this.flyWait = Math.max(this.flyWait, 1);
+        }
         if (this.passenger) this.flyWait = Math.min(this.flyWait, 2.5);
         this.flyWait -= dt;
         if (this.flyWait <= 0) st('line');
         return law(0, 0, 0, true);
+      }
       case 'line': {
-        this.status = '활주로에 줄 맞추는 중';
         this.tilt = 0.5;
+        // 주기장에서는 먼저 내 칸 앞으로 곧게 나와 활주로까지 (다른 비행기 칸을 가로지르지 않게)
+        if (this.pos.z > R.z + R.w / 2 - 1.5) {
+          this.status = '주기장에서 활주로로 나가는 중';
+          const e = err(P.x + 3, R.z);
+          this.thrL = this.V < 3 ? 0.3 : 0;
+          return law(0, 0, clamp(e * 2, -1, 1), this.V > 4);
+        }
+        this.status = '활주로에 줄 맞추는 중';
         const e = lineErr();
         this.thrL = this.V < 3 ? 0.3 : 0;
         if (Math.abs(e) < 0.12 && this.rpm > 0.95) st('roll');
@@ -2620,9 +2663,13 @@ export class Vehicle {
         return law(0, 0, clamp(lineErr() * 2, -1, 1), true);
       case 'taxi': {
         this.status = '주기장으로 이동 중';
-        const e = err(P.x, P.z), d = Math.hypot(P.x - this.pos.x, P.z - this.pos.z);
+        // 활주로를 따라 내 칸 바로 앞까지 → 거기서 곧게 칸으로 (다른 비행기 사이를 가로지르지 않게)
+        const entry = { x: P.x, z: R.z + 2 };
+        if (!this.taxiIn && Math.hypot(entry.x - this.pos.x, entry.z - this.pos.z) < 4) this.taxiIn = true;
+        const T = this.taxiIn ? P : entry;
+        const e = err(T.x, T.z), d = Math.hypot(P.x - this.pos.x, P.z - this.pos.z);
         this.thrL = this.V < 3.5 && d > 3 ? 0.35 : 0;
-        if (d < 3) { st('idle', 45); this.V = 0; }
+        if (d < 3) { st('idle', 45); this.V = 0; this.taxiIn = false; }
         return law(0, 0, clamp(e * 2, -1, 1), this.V > 5 || d < 3);
       }
     }
@@ -2631,7 +2678,7 @@ export class Vehicle {
   }
 
   serialize() {
-    return { x: this.pos.x, z: this.pos.z, y: this.pos.y, h: this.heading, auto: this.auto, bulk: this.bulk, bulkKind: this.bulkKind, load: this.load, loadKind: this.loadKind, mix: this.mix, mixT: this.mixT, disp: this.dispensed };
+    return { grade: this.grade, skin: this.skin, x: this.pos.x, z: this.pos.z, y: this.pos.y, h: this.heading, auto: this.auto, bulk: this.bulk, bulkKind: this.bulkKind, load: this.load, loadKind: this.loadKind, mix: this.mix, mixT: this.mixT, disp: this.dispensed };
   }
 }
 

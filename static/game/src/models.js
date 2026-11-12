@@ -674,6 +674,159 @@ export function makeHelicopter() {
 }
 
 /** ✈️ 초소형 2인승 경비행기: 통통한 작은 저익기 · 물방울 캐노피 · 앞뒤(탠덤) 좌석 · 세발바퀴 */
+/** 공통: 뒷전에 붙는 조종면(플랩·보조익·승강타 등) — 앞쪽 경첩을 축으로 접힌다 */
+function surface(parent, x, y, z, w, d, m, ry = 0) {
+  const gr = group(parent, x, y, z);
+  gr.rotation.y = ry;
+  const inner = group(gr);
+  part(inner, rbox(w, 0.06, d, 0.02), m, 0, 0, -d / 2);
+  return { gr, inner };
+}
+
+/** 🛫 미니 여객기: 쌍발 제트 · 후퇴익 · 긴 동체와 창문 줄 (작게 줄인 귀여운 여객기) */
+export function makeLiner() {
+  const g = new THREE.Group(), body = group(g);
+  const W = mat(0xfffaf0), P = mat(0x6fb8f0), P2 = mat(0x4f9be0), D = mat(COL.dark), M = mat(COL.metal), Win = mat(0x3b3f4a);   // 창문은 칠해지지 않는 짙은 회색
+  const fus = group(body, 0, 1.25, 0);
+  part(fus, capsule(0.62, 6.6, 8, 18), W, 0, 0, 0.2, Math.PI / 2, 0, 0);
+  part(fus, cyl(0.6, 0.18, 2.2, 18), W, 0, 0.22, -4.1, Math.PI / 2 + 0.16, 0, 0);   // 위로 들린 꼬리
+  // 배 쪽 회색 · 옆구리 줄무늬(도색)
+  part(fus, capsule(0.5, 6.0, 6, 16), mat(0xe3e7ee), 0, -0.2, 0.2, Math.PI / 2, 0, 0, 1, 1, 0.9);
+  for (const sx of [-1, 1]) {
+    part(fus, box(0.04, 0.1, 7.0), P, sx * 0.61, -0.08, 0.1);
+    part(fus, box(0.04, 0.05, 6.6), P2, sx * 0.6, -0.2, 0.05);
+    // 창문 줄
+    for (let z = -2.7; z <= 2.7; z += 0.45) part(fus, rbox(0.04, 0.16, 0.18, 0.03), Win, sx * 0.6, 0.2, z);
+    part(fus, rbox(0.04, 0.42, 0.3, 0.04), mat(0xc9ced8), sx * 0.6, 0.02, 2.95);   // 문
+  }
+  // 조종석 창 (앞이마)
+  part(fus, rbox(0.62, 0.16, 0.25, 0.05), Win, 0, 0.32, 3.72, -0.55, 0, 0);
+  for (const sx of [-1, 1]) part(fus, rbox(0.2, 0.15, 0.22, 0.04), Win, sx * 0.36, 0.28, 3.62, -0.4, sx * 0.6, 0);
+  part(fus, sphere(0.08, 8, 6), mat(COL.blush), 0.45, -0.05, 3.8);
+  part(fus, sphere(0.08, 8, 6), mat(COL.blush), -0.45, -0.05, 3.8);
+  // 후퇴익 (낮은 날개) + 날개 끝 윙렛
+  const flaps = [], ailerons = [];
+  for (const sx of [-1, 1]) {
+    part(body, rbox(4.0, 0.14, 1.25, 0.05), W, sx * 2.25, 0.88, 0.0, 0, sx * 0.32, 0);
+    part(body, rbox(0.1, 0.6, 0.55, 0.03), P, sx * 4.12, 1.15, -0.72, 0, 0, sx * -0.25);
+    part(body, sphere(0.08, 8, 6), glow(sx > 0 ? 0x8fff8a : 0xff6b6b, 0.6), sx * 4.15, 0.95, -0.55);
+    const f = surface(body, sx * 1.5, 0.86, -0.6, 1.5, 0.35, W, sx * 0.32);
+    flaps.push(f.inner);
+    const a = surface(body, sx * 3.3, 0.86, -1.2, 1.1, 0.3, P, sx * 0.32);
+    a.inner.userData.side = sx;
+    ailerons.push(a.inner);
+  }
+  // 날개 밑 쌍발 엔진 (돌아가는 팬)
+  const fans = [];
+  for (const sx of [-1, 1]) {
+    const e = group(body, sx * 1.95, 0.6, 0.45);
+    part(e, cyl(0.34, 0.3, 1.25, 18), P, 0, 0, 0, Math.PI / 2, 0, 0);
+    part(e, cyl(0.3, 0.3, 0.05, 18), D, 0, 0, 0.62, Math.PI / 2, 0, 0);
+    part(e, cyl(0.2, 0.12, 0.3, 12), M, 0, 0, -0.72, Math.PI / 2, 0, 0);
+    part(body, rbox(0.12, 0.3, 0.7, 0.03), W, sx * 1.95, 0.82, 0.35);   // 엔진 기둥
+    const fan = group(e, 0, 0, 0.6);
+    part(fan, cone(0.1, 0.18, 10), mat(0xfffaf0), 0, 0, 0.06, Math.PI / 2, 0, 0);
+    for (let k = 0; k < 6; k++) part(fan, box(0.05, 0.5, 0.02), mat(COL.metal), 0, 0, 0, 0, 0, (k * Math.PI) / 6);
+    fans.push(fan);
+  }
+  // 꼬리: 수직날개(도색) + 방향타, 수평날개 + 승강타
+  part(body, rbox(0.12, 1.45, 1.05, 0.06), P, 0, 2.2, -4.3, -0.5, 0, 0);
+  const rp = group(body, 0, 2.15, -4.72);
+  rp.rotation.x = -0.5;
+  const rudder = group(rp);
+  part(rudder, rbox(0.1, 1.25, 0.32, 0.02), P2, 0, 0, -0.16);
+  for (const sx of [-1, 1]) part(body, rbox(1.5, 0.08, 0.6, 0.03), W, sx * 0.85, 1.5, -4.55, 0, sx * 0.3, 0);
+  const elevator = group(body, 0, 1.5, -4.95);
+  for (const sx of [-1, 1]) part(elevator, rbox(1.4, 0.06, 0.26, 0.02), P, sx * 0.85, 0, -0.1, 0, sx * 0.3, 0);
+  // 바퀴: 앞바퀴 + 주바퀴 두 쌍
+  const wheels = [], steer = [];
+  for (const sx of [-1, 1]) {
+    part(body, box(0.08, 0.5, 0.08), M, sx * 1.0, 0.5, -0.15);
+    wheels.push(wheel(body, sx * 1.0, 0.24, -0.15, 0.24, 0.16, 0xfffaf0));
+  }
+  part(body, cyl(0.04, 0.04, 0.6, 6), M, 0, 0.5, 3.2);
+  const nw = wheel(body, 0, 0.2, 3.2, 0.2, 0.12, 0xfffaf0);
+  wheels.push(nw); steer.push(nw.steer);
+  const beacon = part(body, sphere(0.08, 8, 6), mat(0xff6b6b), 0, 1.92, 0.4);
+  const seat = group(body, 0, 0.98, 3.25);
+  const seat2 = group(body, 0, 0.98, 2.5);
+  return { group: g, body, wheels, steer, prop: null, fans, beacon, seat, seat2, flaps, ailerons, elevator, rudder, exhaust: group(body, 1.95, 0.6, -0.4), plane: true };
+}
+
+/** 🛩️ 미니 제트 전투기: 뾰족한 코 · 물방울 캐노피 · 쌍둥이 꼬리날개 · 애프터버너 (작고 귀엽게) */
+export function makeJet() {
+  const g = new THREE.Group(), body = group(g);
+  const P = mat(0x5f8fd8), P2 = mat(0x4a74b8), W = mat(0xfffaf0), D = mat(COL.dark), M = mat(COL.metal);
+  const fus = group(body, 0, 1.05, 0);
+  part(fus, capsule(0.46, 3.6, 8, 16), P, 0, 0, -0.2, Math.PI / 2, 0, 0, 1.15, 1, 0.85);
+  part(fus, cone(0.4, 1.7, 16), P, 0, -0.04, 2.95, Math.PI / 2, 0, 0, 1, 1, 0.8);
+  part(fus, cone(0.12, 0.35, 10), D, 0, -0.04, 3.85, Math.PI / 2, 0, 0);   // 코끝
+  part(fus, rbox(1.1, 0.22, 3.4, 0.1), P2, 0, -0.2, -0.6);                 // 납작한 배
+  // 공기흡입구
+  for (const sx of [-1, 1]) {
+    part(fus, rbox(0.34, 0.42, 1.2, 0.08), P2, sx * 0.62, -0.12, 0.6);
+    part(fus, rbox(0.26, 0.32, 0.05, 0.04), D, sx * 0.62, -0.12, 1.21);
+    part(fus, sphere(0.09, 8, 6), mat(COL.blush), sx * 0.35, 0.05, 2.35, 0, 0, 0, 1, 0.6, 1);
+  }
+  // 물방울 캐노피 (앞뒤 두 자리)
+  part(fus, sphere(0.42, 18, 12), glassMat(), 0, 0.38, 1.2, 0, 0, 0, 0.8, 0.7, 1.9);
+  part(fus, torus(0.33, 0.03, 6, 14, Math.PI), W, 0, 0.38, 0.6, 0, Math.PI / 2, 0, 1, 0.9, 1);
+  // 삼각(후퇴) 날개
+  const flaps = [], ailerons = [];
+  for (const sx of [-1, 1]) {
+    part(body, rbox(2.3, 0.1, 1.9, 0.04), P, sx * 1.45, 0.98, -0.55, 0, sx * 0.42, 0);
+    part(body, rbox(1.0, 0.09, 1.0, 0.04), P, sx * 0.85, 0.98, 0.7, 0, sx * 0.75, 0);   // 날개 앞 연장
+    part(body, rbox(0.5, 0.11, 0.6, 0.04), W, sx * 2.45, 0.98, -1.35, 0, sx * 0.42, 0);
+    part(body, sphere(0.07, 8, 6), glow(sx > 0 ? 0x8fff8a : 0xff6b6b, 0.6), sx * 2.68, 1.0, -1.5);
+    const f = surface(body, sx * 1.0, 0.96, -1.45, 0.9, 0.3, P2);
+    flaps.push(f.inner);
+    const a = surface(body, sx * 1.95, 0.96, -1.75, 0.8, 0.28, W);
+    a.inner.userData.side = sx;
+    ailerons.push(a.inner);
+  }
+  // 쌍둥이 꼬리날개 (밖으로 살짝 기울어짐) — 왼쪽 날개에 방향타
+  let rudder = null;
+  for (const sx of [-1, 1]) {
+    const fin = group(body, sx * 0.5, 1.35, -2.35);
+    fin.rotation.z = sx * -0.38;
+    part(fin, rbox(0.08, 1.1, 0.95, 0.03), P2, 0, 0.5, 0, -0.45, 0, 0);
+    part(fin, rbox(0.09, 0.25, 0.5, 0.03), W, 0, 0.95, -0.25, -0.45, 0, 0);
+    if (sx < 0) {
+      const rp = group(fin, 0, 0.45, -0.5);
+      rp.rotation.x = -0.45;
+      rudder = group(rp);
+      part(rudder, rbox(0.07, 0.75, 0.26, 0.02), P, 0, 0, -0.13);
+    }
+  }
+  // 수평 꼬리날개 (통째로 움직이는 승강타)
+  const elevator = group(body, 0, 0.98, -2.75);
+  for (const sx of [-1, 1]) part(elevator, rbox(1.1, 0.07, 0.75, 0.03), P, sx * 1.0, 0, -0.1, 0, sx * 0.35, 0);
+  // 쌍발 노즐 + 애프터버너 불꽃
+  const burner = [];
+  for (const sx of [-1, 1]) {
+    part(body, cyl(0.24, 0.27, 0.6, 14), M, sx * 0.3, 1.0, -3.05, Math.PI / 2, 0, 0);
+    part(body, cyl(0.2, 0.2, 0.05, 14), D, sx * 0.3, 1.0, -3.36, Math.PI / 2, 0, 0);
+    const fl = group(body, sx * 0.3, 1.0, -3.4);
+    part(fl, cone(0.18, 1.0, 12), glow(0xffa94d, 1.4), 0, 0, -0.5, -Math.PI / 2, 0, 0);
+    part(fl, cone(0.1, 0.6, 10), glow(0xfff3b0, 1.8), 0, 0, -0.3, -Math.PI / 2, 0, 0);
+    fl.visible = false;
+    burner.push(fl);
+  }
+  // 세발 바퀴
+  const wheels = [], steer = [];
+  for (const sx of [-1, 1]) {
+    part(body, box(0.07, 0.45, 0.07), M, sx * 0.85, 0.45, -0.7, 0, 0, sx * 0.25);
+    wheels.push(wheel(body, sx * 0.95, 0.22, -0.7, 0.22, 0.14, 0xfffaf0));
+  }
+  part(body, cyl(0.035, 0.035, 0.55, 6), M, 0, 0.46, 2.1);
+  const nw = wheel(body, 0, 0.18, 2.1, 0.18, 0.1, 0xfffaf0);
+  wheels.push(nw); steer.push(nw.steer);
+  const beacon = part(body, sphere(0.07, 8, 6), mat(0xff6b6b), 0, 1.62, -0.9);
+  const seat = group(body, 0, 0.92, 1.45);
+  const seat2 = group(body, 0, 0.92, 0.85);
+  return { group: g, body, wheels, steer, prop: null, burner, beacon, seat, seat2, flaps, ailerons, elevator, rudder, exhaust: group(body, 0, 1.0, -3.4), plane: true };
+}
+
 export function makePlane() {
   const g = new THREE.Group(), body = group(g);
   const W = mat(0xfffaf0), P = mat(0xff9eb5), B = mat(0x7cb7f0), D = mat(COL.dark), M = mat(COL.metal);

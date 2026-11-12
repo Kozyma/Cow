@@ -7,6 +7,7 @@ export const G = {
   input: null,
   now: 0,                 // 실제 경과 시간(초)
   coins: 1000,
+  skinsOwned: ["base"],   // 🎨 차고: 사 둔 페인트
   day: 1,
   time: 6.5 * 60,         // 하루 중 분 (0~1440)
   timeScale: 4,           // 실제 1초 = 게임 4분 → 하루 6분
@@ -36,14 +37,17 @@ export const G = {
 
 // 장비 상점 (추가 구매 가능)
 export const VEHICLE_SHOP = {
-  tractor: 2600, baler: 3200, forklift: 2200, skid: 2400, truck1: 2000, truck5: 3800, mixer: 3400, balewagon: 3000, heli: 5200, plane: 7800,
+  tractor: 2600, baler: 3200, forklift: 2200, skid: 2400, truck1: 2000, truck5: 3800, mixer: 3400, balewagon: 3000, heli: 5200, plane: 7800, liner: 16000, jet: 22000,
 };
 export const MAX_VEHICLES = 16;
 
 export const LAYOUT = {
   bound: 230,
   // ✈️ 남쪽 비행장: 활주로(동서 방향) · 비행기 주기장 · 헬기장
-  airfield: { runway: { x: 0, z: 104, len: 220, w: 14 }, plane: { x: -98, z: 104, h: Math.PI / 2 }, heli: { x: -40, z: 84, h: Math.PI }, hangar: { x: -70, z: 121 } },
+  // 비행기 세 대는 활주로 옆 주기장에 활주로를 바라보고 선다 (활주로는 늘 비워 둔다)
+  airfield: { runway: { x: 0, z: 104, len: 220, w: 14 }, heli: { x: -40, z: 84, h: Math.PI }, hangar: { x: -70, z: 121 },
+    apron: { x: -96, z: 121, w: 32, d: 18 },
+    plane: { x: -106, z: 120, h: Math.PI }, liner: { x: -95, z: 121, h: Math.PI }, jet: { x: -85, z: 120, h: Math.PI } },
   roadZ: -6,
   dock: { x: 6, z: 3.5, w: 10, d: 6, bay: { x: 6, z: 12 } },      // 출하장 (팔레트 보관)
   market: { x: 54, z: 5, r: 5 },                                    // 판매소
