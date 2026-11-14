@@ -101,7 +101,7 @@ export function inStation(x, z, m = 0) {
   return Math.abs(x - S.x) < S.w / 2 + m && Math.abs(z - S.z) < S.d / 2 + m;
 }
 export function stationItems(product = null) {
-  return G.items.filter((it) => it.support.kind === 'station' && !it.carriedBy && !it.fly && (!product || (product === 'hay' ? it.kind === 'bale' : it.product === product)));
+  return G.items.filter((it) => it.support.kind === 'station' && !it.carriedBy && !it.fly && (!product || (product === 'hay' ? isHayBale(it) : it.product === product)));
 }
 export function freeStationSlot(self = null, nearX = null, nearZ = null) {
   let best = null, bd = Infinity;
@@ -118,13 +118,20 @@ export function setOnStation(it, slot) {
   it.support = { kind: 'station', slot: slot.i };
 }
 
-/** 배합기에 넣을 수 있는 원료 재고 */
-function hayCandidates() {
+/** 목초·라이그라스 베일은 건초, 옥수수 사일리지 베일은 옥수수 원료로 쓴다 */
+export const isHayBale = (it) => it.kind === 'bale' && it.product !== 'corn';
+/** 배합기에 넣을 수 있는 원료 재고 (배합장 칸 + 배합장 근처 바닥에 둔 베일) */
+function candidates(kind) {
   const b = LAYOUT.station.bay;
-  return G.items.filter((it) => it.kind === 'bale' && !it.carriedBy && !it.fly && !it.reservedBy && (it.support.kind === 'station' || (it.support.kind === 'ground' && Math.hypot(it.pos.x - b.x, it.pos.z - b.z) < 26)));
+  return G.items.filter((it) => {
+    if (it.carriedBy || it.fly || it.reservedBy) return false;
+    if (kind === 'hay' ? !isHayBale(it) : it.product !== kind) return false;
+    if (it.support.kind === 'station') return true;
+    return it.kind === 'bale' && it.support.kind === 'ground' && Math.hypot(it.pos.x - b.x, it.pos.z - b.z) < 26;
+  });
 }
 export function stock() {
-  return { hay: hayCandidates().length, corn: stationItems('corn').length, soy: stationItems('soy').length };
+  return { hay: candidates('hay').length, corn: candidates('corn').length, soy: candidates('soy').length };
 }
 
 /** 원료 하나를 꺼내 배합기에 넣는다 */
@@ -132,12 +139,10 @@ export function loadIngredient(mixer, kind) {
   const total = mixTotal(mixer);
   if (total >= MIXER_CAP) return 'full';
   let it = null;
-  if (kind === 'hay') {
-    const list = hayCandidates();
+  {
+    const list = candidates(kind);
     let bd = Infinity;
     for (const c of list) { const d = Math.hypot(c.pos.x - mixer.pos.x, c.pos.z - mixer.pos.z); if (d < bd) { bd = d; it = c; } }
-  } else {
-    it = stationItems(kind)[0];
   }
   if (!it) return 'none';
   const from = it.pos.clone();

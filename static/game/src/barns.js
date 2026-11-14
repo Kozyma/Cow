@@ -1,6 +1,6 @@
 // 실제 크기 축사(통로·우리·바닥 분뇨)와 동물 행동
 import * as THREE from 'three';
-import { G, BARN_DEFS, ANIMAL_DEFS, PRODUCTS } from './state.js';
+import { G, BARN_DEFS, ANIMAL_DEFS, PRODUCTS, MANURE_RATE } from './state.js';
 import { makeCow, makePig, makeChicken } from './models.js';
 import { mat } from './materials.js';
 import { rand, clamp, damp, dampAngle, wrapAngle, sphere } from './util.js';
@@ -215,7 +215,7 @@ export class Barn {
     let fed = n > 0;
     if (this.feed >= need) this.feed -= need;
     else { this.feed = 0; fed = false; }
-    this.addManure(ad.manure * n * h * k);
+    this.addManure(ad.manure * n * h * k * MANURE_RATE);
     const manure = this.manure;
     this.petBonus = Math.max(0, this.petBonus - 0.08 * h);
     this.boostT = Math.max(0, this.boostT - dt);
@@ -302,6 +302,13 @@ export class Barn {
 
 // ---------------- 동물 ----------------
 const SOUND = { cow: 'moo', hanwoo: 'moo', pig: 'oink', chicken: 'cluck' };
+/** 이름 정리: 화면(HTML)에 그대로 들어가므로 꺾쇠 등 특수문자는 빼고 12자까지 */
+export function cleanName(s) { return String(s ?? '').replace(/[<>&"'`]/g, '').trim().slice(0, 12); }
+export const ANIMAL_ICON = { cow: '🐮', hanwoo: '🐂', pig: '🐷', chicken: '🐔' };
+/** 이름표 글자: 지어 준 이름, 없으면 '젖소 3' 처럼 */
+export function animalName(a) {
+  return a.name || `${ANIMAL_DEFS[a.type].name} ${a.barn.animals.indexOf(a) + 1}`;
+}
 
 export class Animal {
   constructor(barn, pen) {
@@ -328,6 +335,7 @@ export class Animal {
     this.emoteT = rand(6, 25);
     this.headTilt = 0;
     this.top = this.type === 'chicken' ? 1.4 : this.type === 'pig' ? 1.7 : 2.4;
+    this.name = '';   // 플레이어가 지어 준 이름
     if (this.type === 'hanwoo') this.group.scale.multiplyScalar(1.08);
   }
 
@@ -459,6 +467,7 @@ export class Animal {
     this.state = 'idle';
     this.timer = 2;
     emote('heart', this.pos.x, this.top, this.pos.z);
+    if (this.name) floatText(this.pos.x, this.top + 0.6, this.pos.z, `${ANIMAL_ICON[this.type]} ${this.name}`, 'good');
     this.barn.petBonus = Math.min(0.2, this.barn.petBonus + 0.04);
     sfx(SOUND[this.type]);
     return true;

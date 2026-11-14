@@ -30,6 +30,7 @@ export const FURNITURE = {
   lamp: { name: '스탠드 조명', icon: '💡', price: 160, w: 1, d: 1 },
   rug: { name: '동그란 러그', icon: '🟠', price: 220, w: 3, d: 2, flat: true },
   catbed: { name: '고양이 방석', icon: '🐱', price: 150, w: 1, d: 1 },
+  dogbed: { name: '강아지 방석', icon: '🐶', price: 150, w: 1, d: 1 },
   fireplace: { name: '벽난로', icon: '🔥', price: 900, w: 2, d: 1 },
   vase: { name: '꽃병 탁자', icon: '💐', price: 140, w: 1, d: 1 },
   board: { name: '방명록 칠판', icon: '🪧', price: 300, w: 2, d: 1, act: 'board', actName: '칠판 보기' },   // 집 앞 알림판과 같은 내용
@@ -54,18 +55,20 @@ export function defaultHouse() {
       { id: 'chair', c: 6, r: 3, rot: 1 },   // 식탁 오른쪽, 식탁을 바라봄
       { id: 'tv', c: 0, r: 7, rot: 2 },
       { id: 'catbed', c: 2, r: 7, rot: 0 },
+      { id: 'dogbed', c: 3, r: 7, rot: 0 },
       { id: 'plant', c: 11, r: 0, rot: 0 },
       { id: 'board', c: 2, r: 0, rot: 0 },   // 침대와 주방 사이 벽: 공지·방명록 칠판
     ],
     inventory: {},
     plants: {},
-    v: 3,
+    pets: { cat: '', dog: '' },   // 반려동물 이름
+    v: 4,
   };
 }
 
 /** 예전 기본 배치(의자가 식탁 반대쪽을 보고 엇갈려 있던 것)를 저장본에서 한 번만 바로잡기 */
 function migrateHouse(h) {
-  if (!h || h.v >= 3) return;
+  if (!h || h.v >= 4) return;
   const at = (id, c, r) => h.placed.find((p) => p.id === id && p.c === c && p.r === r);
   // 칸(c, r)부터 w×d 영역이 다른 가구(러그 제외)와 겹치는지
   const busy = (c, r, w, d, skip = null) => h.placed.some((p) => {
@@ -82,7 +85,7 @@ function migrateHouse(h) {
     }
   }
   // v3: 집 안 방명록 칠판 — 빈 벽 쪽에 놓고, 자리가 없으면 보관함에
-  if (!h.placed.some((p) => p.id === 'board') && !(h.inventory?.board > 0)) {
+  if (!(h.v >= 3) && !h.placed.some((p) => p.id === 'board') && !(h.inventory?.board > 0)) {
     // 벽에 붙는 자리만 (가구 앞을 막지 않게): 뒷벽(침대 옆) → 왼쪽 벽 → 오른쪽 벽 → 앞벽, 칠판 앞면은 방 안쪽으로
     const spot = [[2, 0, 0], [0, 3, 3], [11, 2, 1], [11, 4, 1], [4, 8, 2], [6, 8, 2]].map(([c, r, rot]) => ({ id: 'board', c, r, rot })).find((p) => {
       const { w, d } = dims(p);
@@ -91,7 +94,15 @@ function migrateHouse(h) {
     if (spot) h.placed.push(spot);
     else { h.inventory ||= {}; h.inventory.board = (h.inventory.board || 0) + 1; }
   }
-  h.v = 3;
+  // v4: 강아지 + 강아지 방석 (고양이 방석 옆 빈칸, 없으면 보관함)
+  h.pets ||= { cat: '', dog: '' };
+  if (!h.placed.some((p) => p.id === 'dogbed') && !(h.inventory?.dogbed > 0)) {
+    const spot = [[3, 7], [1, 6], [3, 6], [8, 7], [9, 7], [11, 6], [6, 6], [0, 5]].map(([c, r]) => ({ id: 'dogbed', c, r, rot: 0 }))
+      .find((p) => !(p.r + 1 > DOOR.r && p.c + 1 > DOOR.c && p.c < DOOR.c + 2) && !busy(p.c, p.r, 1, 1));
+    if (spot) h.placed.push(spot);
+    else { h.inventory ||= {}; h.inventory.dogbed = (h.inventory.dogbed || 0) + 1; }
+  }
+  h.v = 4;
 }
 
 // ---------------- 가구 모델 ----------------
@@ -203,6 +214,14 @@ function buildFurniture(id) {
       part(g, cyl(0.42, 0.38, 0.18, 18), mat(0xff9eb5), 0, 0.09, 0);
       part(g, cyl(0.32, 0.32, 0.05, 16), white, 0, 0.17, 0);
       break;
+    case 'dogbed':
+      part(g, cyl(0.46, 0.42, 0.2, 18), mat(0x7cb7f0), 0, 0.1, 0);
+      part(g, cyl(0.35, 0.35, 0.05, 16), mat(0xfff3dc), 0, 0.19, 0);
+      part(g, torus(0.4, 0.07, 6, 18), mat(0x5a95d0), 0, 0.2, 0, Math.PI / 2, 0, 0);
+      // 뼈다귀 장난감
+      part(g, cyl(0.025, 0.025, 0.2, 6), white, 0.15, 0.24, 0.12, 0, 0, Math.PI / 2);
+      for (const s of [-1, 1]) part(g, sphere(0.04, 6, 5), white, 0.15 + s * 0.1, 0.24, 0.12);
+      break;
     case 'fireplace': {
       part(g, rbox(1.8, 1.4, 0.7, 0.08), mat(0xd98c74), 0, 0.7, -0.05);
       part(g, rbox(2.0, 0.12, 0.8, 0.04), woodL, 0, 1.45, -0.05);
@@ -256,9 +275,51 @@ function makeCat() {
   return { group: g, body, head, tail, legs };
 }
 
+/** 갈색 강아지: 크림색 주둥이·배 + 축 처진 귀 + 빨간 목줄, 꼬리를 흔든다 */
+function makeDog() {
+  const g = new THREE.Group(), body = group(g);
+  const B = mat(0xc98a4b), C = mat(0xfff1d6), Dk = mat(0x5a3a22), Red = mat(0xff6b6b), Pink = mat(0xffa3b8);
+  part(body, sphere(0.27, 12, 10), B, 0, 0.32, 0, 0, 0, 0, 0.95, 0.85, 1.35);
+  part(body, sphere(0.18, 10, 8), C, 0, 0.26, 0.12, 0, 0, 0, 1, 0.8, 1.2);   // 크림색 배
+  const head = group(body, 0, 0.58, 0.3);
+  part(head, sphere(0.22, 12, 10), B);
+  part(head, sphere(0.12, 10, 8), C, 0, -0.06, 0.16, 0, 0, 0, 1.1, 0.85, 1.1);   // 주둥이
+  part(head, sphere(0.045, 8, 6), Dk, 0, -0.01, 0.28);                           // 코
+  part(head, sphere(0.035, 6, 4), Pink, 0, -0.12, 0.22, 0, 0, 0, 1, 0.5, 1);       // 혀
+  for (const sx of [-1, 1]) {
+    part(head, sphere(0.03, 8, 6), Dk, sx * 0.08, 0.06, 0.18);                      // 눈
+    part(head, sphere(0.012, 6, 4), mat(0xffffff), sx * 0.075, 0.07, 0.205);
+    part(head, sphere(0.1, 8, 6), Dk, sx * 0.18, 0.02, -0.02, 0, 0, sx * 0.35, 0.45, 1.2, 0.8);   // 처진 귀
+  }
+  part(body, torus(0.15, 0.03, 6, 14), Red, 0, 0.5, 0.24, Math.PI / 2 - 0.4, 0, 0);   // 목줄
+  part(body, sphere(0.035, 6, 5), mat(0xffd84d), 0, 0.42, 0.33);                        // 방울
+  const tail = group(body, 0, 0.42, -0.34);
+  part(tail, capsule(0.04, 0.22, 3, 6), B, 0, 0.12, -0.04, -0.6, 0, 0);
+  const legs = [];
+  for (const [x, z] of [[-0.12, 0.17], [0.12, 0.17], [-0.12, -0.17], [0.12, -0.17]]) {
+    const l = group(body, x, 0.16, z);
+    part(l, cyl(0.05, 0.05, 0.18, 6), B, 0, -0.07, 0);
+    part(l, sphere(0.055, 8, 6), C, 0, -0.15, 0.01, 0, 0, 0, 1, 0.7, 1.2);
+    legs.push(l);
+  }
+  return { group: g, body, head, tail, legs };
+}
+
+const PET_INFO = {
+  cat: { label: '고양이', icon: '🐱', bed: 'catbed', speed: 1.1, sound: 'meow' },
+  dog: { label: '강아지', icon: '🐶', bed: 'dogbed', speed: 1.6, sound: 'woof' },
+};
+/** 반려동물 이름 (이름이 없으면 '고양이' · '강아지') */
+export function petName(kind) { return G.house?.pets?.[kind] || PET_INFO[kind].label; }
+export function setPetName(kind, name) {
+  if (!PET_INFO[kind]) return;
+  G.house.pets ||= { cat: '', dog: '' };
+  G.house.pets[kind] = String(name ?? '').replace(/[<>&"'`]/g, '').trim().slice(0, 12);
+}
+
 // ---------------- 방 만들기 ----------------
 const H = {
-  root: null, wallMat: null, floorMat: null, items: [], cat: null, light: null,
+  root: null, wallMat: null, floorMat: null, items: [], cat: null, dog: null, pets: [], light: null,
   decor: false, holding: null, hover: { c: 0, r: 0 }, colliders: [],
 };
 export const houseState = H;
@@ -304,11 +365,17 @@ export function buildHouse(scene) {
   root.add(H.light);
   // 가구
   rebuildFurniture();
-  // 고양이
+  // 고양이 · 강아지
   H.cat = makeCat();
   H.cat.group.position.set(ROOM.x - 3, 0, ROOM.z + 2.5);
-  root.add(H.cat.group);
-  H.cat.target = null; H.cat.t = 0; H.cat.heading = 0; H.cat.petT = 0;
+  H.dog = makeDog();
+  H.dog.group.position.set(ROOM.x + 1, 0, ROOM.z + 2.5);
+  H.pets = [];
+  for (const [kind, p] of [['cat', H.cat], ['dog', H.dog]]) {
+    root.add(p.group);
+    Object.assign(p, { kind, target: null, t: 0, heading: 0, petT: 0, wag: 0 });
+    H.pets.push(p);
+  }
   applyExterior();
 }
 
@@ -410,30 +477,30 @@ export function nearHouseDoor(p) {
   return d && Math.hypot(p.x - d.x, p.z - d.z) < 2.4;
 }
 
+/** 집 화면 켜기/끄기 (위치는 그대로). 온라인 친구는 방장이 옮겨 준 위치를 받아서 이것만 한다 */
+export function showHouse(on) {
+  if (!on) { H.decor = false; if (H.holding) cancelHold(); }
+  G.mode = on ? 'house' : 'farm';
+  H.root.visible = on;
+  if (on) { if (G.cam.fp) G.cam.fp = false; document.exitPointerLock?.(); G.viewTarget = null; }
+  setHouseHud(on);
+  sfx(on ? 'board' : 'unboard');
+}
+
 export function enterHouse() {
-  G.mode = 'house';
-  H.root.visible = true;
-  if (G.cam.fp) G.cam.fp = false;
-  document.exitPointerLock?.();
   G.player.pos.set(H.doorPos.x, 0, H.doorPos.z - 0.6);
   G.player.heading = Math.PI;
-  G.viewTarget = null;
-  setHouseHud(true);
-  sfx('board');
+  showHouse(true);
   toast('우리 집에 왔어요! 가구 앞에서 E를 눌러 활동하고, [꾸미기]로 집을 꾸며요', '🏠', 3600);
 }
 
 export function exitHouse() {
-  H.decor = false;
-  if (H.holding) cancelHold();
-  G.mode = 'farm';
-  H.root.visible = false;
+  showHouse(false);
   const d = G.farmhouse.door;
   G.player.pos.set(d.x, 0, d.z + 1.2);
   G.player.heading = 0;
-  setHouseHud(false);
-  sfx('unboard');
 }
+
 
 // ---------------- 실내 충돌 ----------------
 export function collideHouse(pos, r) {
@@ -462,8 +529,12 @@ export function nearestActivity() {
     const d = Math.hypot(p.x - clamp(p.x, b.minX, b.maxX), p.z - clamp(p.z, b.minZ, b.maxZ));
     if (d < bd) { bd = d; best = it; }
   }
-  const cat = H.cat.group.position;
-  if (Math.hypot(p.x - cat.x, p.z - cat.z) < 1.3 && (!best || bd > 0.4)) return { cat: true, name: '고양이 쓰다듬기' };
+  // 문 매트 위에 서 있으면 나가기가 먼저 (졸졸 따라온 강아지 때문에 못 나가는 일이 없게)
+  if (Math.abs(p.x - H.doorPos.x) < 0.95 && Math.abs(p.z - H.doorPos.z) < 0.5) return { door: true, name: '밖으로 나가기' };
+  for (const pet of H.pets) {
+    const q = pet.group.position;
+    if (Math.hypot(p.x - q.x, p.z - q.z) < 1.3 && (!best || bd > 0.4)) return { pet, cat: pet.kind === 'cat', name: `${PET_INFO[pet.kind].icon} ${petName(pet.kind)} 쓰다듬기` };
+  }
   if (Math.hypot(p.x - H.doorPos.x, p.z - H.doorPos.z) < 1.3) return { door: true, name: '밖으로 나가기' };
   return best ? { it: best, name: FURNITURE[best.p.id].actName } : null;
 }
@@ -471,12 +542,7 @@ export function nearestActivity() {
 export function doActivity(a) {
   if (!a) return;
   if (a.door) { exitHouse(); return; }
-  if (a.cat) {
-    H.cat.petT = 0.6;
-    emote('heart', H.cat.group.position.x, 0.9, H.cat.group.position.z);
-    sfx('meow');
-    return;
-  }
+  if (a.pet) { petPet(a.pet); return; }
   const it = a.it;
   switch (FURNITURE[it.p.id].act) {
     case 'sleep': sleep(); break;
@@ -487,6 +553,16 @@ export function doActivity(a) {
     case 'water': water(it); break;
     case 'board': openBoard(); break;
   }
+}
+
+/** 반려동물 쓰다듬기 (온라인 친구도 각자 화면에서) */
+export function petPet(pet) {
+  pet.petT = 0.6;
+  pet.wag = 2;
+  const q = pet.group.position;
+  emote('heart', q.x, 0.9, q.z);
+  floatText(q.x, 1.3, q.z, `${PET_INFO[pet.kind].icon} ${petName(pet.kind)}`, 'good');
+  sfx(PET_INFO[pet.kind].sound);
 }
 
 // ---------------- 활동 ----------------
@@ -683,35 +759,8 @@ export function updateHouse(dt) {
   for (const it of H.items) {
     if (it.mesh.userData.fire) it.mesh.userData.fire.scale.set(1 + Math.sin(G.now * 12) * 0.1, 1 + Math.sin(G.now * 9) * 0.15, 1);
   }
-  // 고양이
-  const cat = H.cat;
-  cat.t -= dt;
-  if (cat.petT > 0) { cat.petT -= dt; cat.body.position.y = Math.sin((1 - cat.petT / 0.6) * Math.PI) * 0.2; }
-  else cat.body.position.y = 0;
-  if (!cat.target || cat.t <= 0) {
-    if (Math.random() < 0.4) {
-      const bed = H.items.find((it) => it.p.id === 'catbed');
-      cat.target = bed ? { x: (bed.rect.minX + bed.rect.maxX) / 2, z: (bed.rect.minZ + bed.rect.maxZ) / 2 } : null;
-    } else cat.target = { x: X0 + rand(0.8, ROOM.cols - 0.8), z: Z0 + rand(0.8, ROOM.rows - 1) };
-    cat.t = rand(4, 9);
-  }
-  const g = cat.group.position;
-  let moving = false;
-  if (cat.target) {
-    const dx = cat.target.x - g.x, dz = cat.target.z - g.z, d = Math.hypot(dx, dz);
-    if (d > 0.2) {
-      cat.heading = dampAngle(cat.heading, Math.atan2(dx, dz), 6, dt);
-      g.x += Math.sin(cat.heading) * 1.1 * dt; g.z += Math.cos(cat.heading) * 1.1 * dt;
-      moving = true;
-    }
-  }
-  const tmp = { x: g.x, z: g.z };
-  g.x = clamp(tmp.x, X0 + 0.3, X0 + ROOM.cols - 0.3);
-  g.z = clamp(tmp.z, Z0 + 0.3, Z0 + ROOM.rows - 0.3);
-  cat.group.rotation.y = cat.heading;
-  const ph = G.now * 12;
-  cat.legs.forEach((l, i) => { l.rotation.x = moving ? Math.sin(ph + i * Math.PI) * 0.5 : 0; });
-  cat.tail.rotation.z = Math.sin(G.now * 3) * 0.4;
+  // 고양이 · 강아지
+  for (const pet of H.pets) updatePet(pet, dt);
   // 꾸미기
   if (H.decor) {
     const k = G.input;
@@ -735,6 +784,59 @@ export function updateHouse(dt) {
       hoverBox.material.color.setHex(0xffffff);
     }
   }
+}
+
+/** 반려동물 돌아다니기: 고양이는 제멋대로, 강아지는 사람을 졸졸 따라다니길 좋아한다 */
+function updatePet(pet, dt) {
+  const info = PET_INFO[pet.kind];
+  pet.t -= dt;
+  if (pet.petT > 0) { pet.petT -= dt; pet.body.position.y = Math.sin((1 - pet.petT / 0.6) * Math.PI) * (pet.kind === 'dog' ? 0.3 : 0.2); }
+  else pet.body.position.y = 0;
+  const g = pet.group.position;
+  const near = pet.kind === 'dog' ? nearestPersonIndoor(g) : null;
+  if (!pet.target || pet.t <= 0) {
+    const r = Math.random();
+    if (near && r < 0.55) {
+      pet.target = { follow: near };
+    } else if (r < (pet.kind === 'dog' ? 0.7 : 0.4)) {
+      const bed = H.items.find((it) => it.p.id === info.bed);
+      pet.target = bed ? { x: (bed.rect.minX + bed.rect.maxX) / 2, z: (bed.rect.minZ + bed.rect.maxZ) / 2 } : null;
+    } else pet.target = { x: X0 + rand(0.8, ROOM.cols - 0.8), z: Z0 + rand(0.8, ROOM.rows - 1) };
+    pet.t = rand(4, 9);
+  }
+  let moving = false;
+  if (pet.target) {
+    const f = pet.target.follow;
+    const tx = f ? f.x : pet.target.x, tz = f ? f.z : pet.target.z;
+    const dx = tx - g.x, dz = tz - g.z, d = Math.hypot(dx, dz);
+    if (d > (f ? 1.1 : 0.2)) {
+      pet.heading = dampAngle(pet.heading, Math.atan2(dx, dz), 6, dt);
+      const sp = info.speed * (f && d > 3 ? 1.6 : 1);
+      g.x += Math.sin(pet.heading) * sp * dt; g.z += Math.cos(pet.heading) * sp * dt;
+      moving = true;
+    } else if (f) { pet.heading = dampAngle(pet.heading, Math.atan2(dx, dz), 6, dt); pet.wag = Math.max(pet.wag, 0.5); }
+  }
+  g.x = clamp(g.x, X0 + 0.3, X0 + ROOM.cols - 0.3);
+  g.z = clamp(g.z, Z0 + 0.3, Z0 + ROOM.rows - 0.3);
+  pet.group.rotation.y = pet.heading;
+  const ph = G.now * (pet.kind === 'dog' ? 14 : 12);
+  pet.legs.forEach((l, i) => { l.rotation.x = moving ? Math.sin(ph + i * Math.PI) * 0.5 : 0; });
+  pet.wag = Math.max(0, pet.wag - dt);
+  if (pet.kind === 'dog') pet.tail.rotation.z = Math.sin(G.now * (moving || pet.wag > 0 ? 18 : 4)) * (moving || pet.wag > 0 ? 0.7 : 0.25);
+  else pet.tail.rotation.z = Math.sin(G.now * 3) * 0.4;
+}
+
+/** 집 안에 있는 사람 중 가장 가까운 사람 위치 (나 + 집에 놀러 온 친구) */
+function nearestPersonIndoor(from) {
+  let best = null, bd = 7;
+  for (const p of G.players || [G.player]) {
+    if (!p) continue;
+    const inside = p.pos.x > X0 - 1 && p.pos.x < X0 + ROOM.cols + 1 && p.pos.z > Z0 - 1 && p.pos.z < Z0 + ROOM.rows + 1;
+    if (!inside) continue;
+    const d = Math.hypot(p.pos.x - from.x, p.pos.z - from.z);
+    if (d < bd) { bd = d; best = p.pos; }
+  }
+  return best;
 }
 
 export const roomCenter = () => ({ x: ROOM.x, z: ROOM.z });

@@ -6,6 +6,8 @@ import { collideHouse, houseState } from './house.js';
 import { damp, dampAngle } from './util.js';
 import { spawn } from './particles.js';
 import { sfx } from './audio.js';
+import { initTools, TOOLS } from './handwork.js';
+import { makeShovel, makeSickle, makeArmful } from './models.js';
 
 /** 원격 플레이어의 키 입력 (네트워크로 받은 값) */
 export class NetInput {
@@ -33,6 +35,8 @@ export class Player {
     this.stepT = 0;
     this.radius = 0.45;
     this.remote = remote;
+    this.isPlayer = true;
+    initTools(this);
     this.input = remote ? new NetInput() : G.input;
     this.cam = { fp: false, yaw: 0, fpYaw: 0 };   // 원격 플레이어의 카메라 방향 (이동 기준)
     this.driving = null;                           // 원격 플레이어가 탄 차량
@@ -53,7 +57,7 @@ export class Player {
     if (ride) { this.group.visible = false; this.pos.set(ride.pos.x, 0, ride.pos.z); this.heading = ride.heading; return; }
     const remote = this.remote;
     const cam = remote ? this.cam : G.cam;
-    const mode = remote ? 'farm' : G.mode;
+    const mode = remote ? (this.inHouse ? 'house' : 'farm') : G.mode;   // 집에 놀러 온 친구는 집 안 규칙대로
     if (this.restT > 0) this.restT -= dt;
     if (!remote && G.mode === 'house' && houseState.piano) { this.speed = 0; return; }
     // 다른 사람은 항상 보이고, 나는 1인칭이면 숨김
@@ -116,6 +120,7 @@ export class Player {
     m.root.position.y = y;
     m.head.rotation.z = Math.sin(this.phase * 0.5) * 0.05 * amt;
     m.root.rotation.x = amt * 0.08;
+    this.toolVisual(dt);
     this.group.position.set(this.pos.x, 0, this.pos.z);
     this.group.rotation.y = this.heading;
     // 발자국 먼지
@@ -124,6 +129,33 @@ export class Player {
       const fx = Math.sin(this.heading), fz = Math.cos(this.heading);
       if (this.stepT <= 0) { this.stepT = 0.18; spawn('dust', this.pos.x - fx * 0.3, 0.1, this.pos.z - fz * 0.3, { vy: 0.5, life: 0.5, size: 0.45 }); }
     }
+  }
+
+  /** 손에 든 농기구 · 품에 안은 풀 · 들고 있는 짐 자세 (게스트 화면도 같은 값으로 그린다) */
+  toolVisual(dt) {
+    const m = this.m, arm = m.arms[0];
+    if (!this.tv) {
+      this.tv = { shovel: makeShovel(), sickle: makeSickle(), armful: makeArmful(), lastN: this.swingN || 0, swingT: 0 };
+      for (const k of ['shovel', 'sickle']) { arm.add(this.tv[k]); this.tv[k].position.set(0, -0.38, 0.02); this.tv[k].rotation.x = -0.5; }
+      m.root.add(this.tv.armful); this.tv.armful.position.set(0, 0.95, 0.42);
+    }
+    const tv = this.tv;
+    tv.shovel.visible = this.tool === 'shovel';
+    tv.sickle.visible = this.tool === 'sickle';
+    tv.shovel.userData.lump.visible = (this.scoop || 0) > 0.05;
+    const arm2 = (this.armful || 0) > 0.05 && this.tool === 'hand';
+    tv.armful.visible = arm2;
+    if (arm2) tv.armful.scale.setScalar(0.6 + Math.min(1, this.armful / 4) * 0.6);
+    if ((this.swingN || 0) !== tv.lastN) { tv.lastN = this.swingN || 0; tv.swingT = 0.32; }
+    const holding = !!this.held || this.heldKind || arm2;
+    if (holding) { m.arms[0].rotation.x = m.arms[1].rotation.x = -1.25; }
+    if (tv.swingT > 0) {
+      tv.swingT -= dt;
+      const k = Math.sin((1 - Math.max(0, tv.swingT) / 0.32) * Math.PI);
+      arm.rotation.x = -0.4 - k * 1.3;
+      if (this.tool === 'shovel') m.arms[1].rotation.x = -0.4 - k * 1.0;
+      m.root.rotation.x = 0.08 + k * 0.25;
+    } else if (this.tool !== 'hand' && !holding) arm.rotation.x = Math.min(arm.rotation.x, -0.35);
   }
 
   hop() {

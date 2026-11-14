@@ -1,7 +1,9 @@
 // HUD, 운전 패널, 월드 라벨, 토스트, 상점, 설정, 미니맵
 import * as THREE from 'three';
 import { G, LAYOUT, PRODUCTS, ANIMAL_DEFS, BARN_DEFS, BUCKET_CAP, TRUCK_BULK_CAP, COMPOST, INGREDIENTS, RECIPES, MIX_TIME, MIXER_CAP, VEHICLE_SHOP, MAX_ANIMALS, BARN_EXPAND_STEPS } from './state.js';
-import { PARKING, parkRows, maxVehicles, parkingBlocker, addParkingRow } from './layout.js';
+import { PARKING, parkRows, maxVehicles, parkingBlocker, addParkingRow, plotBlocker } from './layout.js';
+import { CROPS } from './field.js';
+import { ASSIGN_KINDS } from './vehicles.js';
 import { stock, recipeOf, mixTotal, stationItems } from './feed.js';
 import { bendY } from './materials.js';
 import { sfx } from './audio.js';
@@ -11,6 +13,9 @@ import { saveSettings } from './settings.js';
 import { GRADES, SKINS, SLOTS, TIERS, gradeCost, applyGrade, applySkin, gradeLabel, skinBonus, setPart, partPrice } from './garage.js';
 
 const $ = (s) => document.querySelector(s);
+// ⚡ 같은 값이면 DOM을 건드리지 않는다 (HUD는 1초에 8번씩 갱신되므로)
+const txt = (e, s) => { if (e && e._t !== s) { e._t = s; e.textContent = s; } };
+const htm = (e, s) => { if (e && e._h !== s) { e._h = s; e.innerHTML = s; } };
 const el = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; };
 
 const labels = [];
@@ -166,14 +171,36 @@ export function addVehicleUI(v) {
   const c = el('div', 'vcard', `
     <div class="v-top"><span class="v-num">${i + 1}</span><span class="v-ico">${v.def.icon}</span><b>${gradeLabel(v)}${v.def.name}</b></div>
     <div class="v-status"></div>
+    ${ASSIGN_KINDS[v.type] ? '<select class="v-assign" title="담당 지정: 이 차가 맡을 축사·밭"></select>' : ''}
     <div class="v-actions">
-      <label class="switch" title="자동 운전"><input type="checkbox" ${v.auto ? 'checked' : ''}><span></span></label><span class="sw-lbl">자동</span>
+      ${v.def.push ? '<span class="sw-lbl push-lbl">🧑‍🌾 직접 밀기</span><input type="checkbox" hidden>' : `<label class="switch" title="자동 운전"><input type="checkbox" ${v.auto ? 'checked' : ''}><span></span></label><span class="sw-lbl">자동</span>`}
       <button class="eye" title="이 차량 보기">👁</button>
     </div>`);
   c.style.setProperty('--vc', v.def.color);
   const cb = c.querySelector('input');
   cb.addEventListener('change', () => { API.setAuto(v, cb.checked); sfx('click'); toast(`${v.def.name} 자동 운전 ${cb.checked ? '켜짐' : '꺼짐'}`, v.def.icon, 1800, { quiet: true }); });
   c.querySelector('.eye').addEventListener('click', (e) => { e.stopPropagation(); API.view(v); });
+  // 📍 담당 지정: 스키드로더 1번은 한우 축사, 2번은 돼지 축사 … 처럼 맡길 곳을 고른다
+  const sel = c.querySelector('.v-assign');
+  const syncAssign = () => {
+    if (!sel || !API) return;   // (친구로 접속할 때는 UI 준비 전에 카드가 먼저 만들어진다)
+    const opts = API.assignOptions(v), code = API.assignCode(v);
+    const sig = opts.map((o) => o.code + o.label).join('|');
+    if (sel.dataset.sig !== sig) { sel.dataset.sig = sig; sel.innerHTML = opts.map((o) => `<option value="${o.code}">${o.label}</option>`).join(''); }
+    sel.value = code;
+    sel.classList.toggle('on', !!code);
+  };
+  if (sel) {
+    for (const ev of ['pointerdown', 'focus']) sel.addEventListener(ev, (e) => { e.stopPropagation(); syncAssign(); });
+    sel.addEventListener('dblclick', (e) => e.stopPropagation());
+    sel.addEventListener('change', () => {
+      API.setAssign(v, sel.value);
+      sfx('click');
+      const o = API.assignOptions(v).find((x) => x.code === sel.value);
+      toast(sel.value ? `${v.def.name} ${G.vehicles.indexOf(v) + 1}번 → ${o?.label} 담당` : `${v.def.name} ${G.vehicles.indexOf(v) + 1}번 → 모든 곳 담당`, '📍', 2000, { quiet: true });
+      syncAssign();
+    });
+  }
   // 카드 더블클릭(모바일 더블탭) → 바로 탑승. 자동 스위치·보기 버튼은 제외
   c.title = '더블클릭하면 바로 타요';
   let lastTap = 0, lastBoard = 0;
@@ -184,7 +211,7 @@ export function addVehicleUI(v) {
     API.board(v);
   };
   c.addEventListener('pointerup', (e) => {
-    if (e.target.closest('.switch, .eye')) { lastTap = 0; return; }
+    if (e.target.closest('.switch, .eye, .v-assign')) { lastTap = 0; return; }
     const now = performance.now();
     if (now - lastTap < 400) { lastTap = 0; board(); }
     else lastTap = now;
@@ -192,10 +219,11 @@ export function addVehicleUI(v) {
   // 컴퓨터가 버벅여 손가락 탭 간격 계산이 늦어져도 브라우저의 더블클릭은 잡힌다
   c.addEventListener('dblclick', (e) => {
     e.preventDefault();
-    if (!e.target.closest('.switch, .eye')) board();
+    if (!e.target.closest('.switch, .eye, .v-assign')) board();
   });
   $('#vehicle-dock').appendChild(c);
-  v.ui = { card: c, status: c.querySelector('.v-status'), cb };
+  v.ui = { card: c, status: c.querySelector('.v-status'), cb, syncAssign };
+  syncAssign();
   addLabel(() => ({ x: v.pos.x, y: (v.isTruck ? 4.2 : v.def.air ? 4.4 : 3.6) + v.pos.y, z: v.pos.z }), 'veh-label', () => {
     if (G.driving === v || G.riding === v || G.mode !== 'farm') return '';
     return `${v.def.icon} <span>${v.auto ? shortStatus(v) : '수동'}</span>`;
@@ -212,13 +240,14 @@ export function initUI(api) {
   API = api;
   for (const b of G.barns) addBarnUI(b);
   addLabel(() => ({ x: LAYOUT.dock.x, y: 4.6, z: LAYOUT.dock.z }), 'zone-label', () => `📦 출하장 ${dockItems().length}/6`);
+  document.querySelectorAll('#toolbar [data-tool]').forEach((b) => b.addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); api.setTool(b.dataset.tool); }));
   addLabel(() => ({ x: LAYOUT.dock.bay.x, y: 0.6, z: LAYOUT.dock.bay.z }), 'zone-label small', () => '🚚 트럭 상차 위치');
   addLabel(() => ({ x: LAYOUT.market.x + 8, y: 6.5, z: LAYOUT.market.z }), 'zone-label', () => '🏪 판매소');
   addLabel(() => ({ x: LAYOUT.yard.x, y: 0.6, z: LAYOUT.yard.z + 3.8 }), 'zone-label', () => '🌾 건초 보관소');
   addLabel(() => ({ x: LAYOUT.station.x, y: 4.8, z: LAYOUT.station.z }), 'zone-label', () => { const st = stock(); return `🥣 배합장 · 🌾${st.hay} 🌽${st.corn} 🫘${st.soy}`; });
   addLabel(() => ({ x: LAYOUT.station.bay.x, y: 0.6, z: LAYOUT.station.bay.z }), 'zone-label small', () => '🚚 원료 하차 · 🥣 배합기 투입');
   addLabel(() => ({ x: LAYOUT.store.x - 7, y: 6, z: LAYOUT.store.z }), 'zone-label', () => '🌽 사료 가게');
-  addLabel(() => ({ x: G.field.x0 + G.field.w / 2, y: 0.8, z: G.field.z0 - 1.2 }), 'zone-label', () => `🌱 목초지 · 다 자란 풀 ${G.field.counts.tall}`);
+  for (const f of G.fields) addLabel(() => ({ x: f.x0 + f.w / 2, y: f.owned ? 0.8 : 2.9, z: f.z0 - 1.2 }), 'zone-label', () => (f.owned ? `${CROPS[f.crop].icon} ${f.name} · ${CROPS[f.crop].name} 다 자람 ${f.counts.tall}` : `🪧 ${f.name} 부지 · 🪙${f.def.price.toLocaleString('ko-KR')} (상점 🌱 밭)`));
   addLabel(() => ({ x: G.farmhouse.door.x, y: 4.2, z: G.farmhouse.door.z - 1 }), 'zone-label', () => '🏠 우리 집');
   for (const v of G.vehicles) addVehicleUI(v);
 
@@ -281,7 +310,7 @@ export function initTouch() {
   bindHold('#btn-space', 'Space', true);
   bindHold('#btn-v', 'KeyV', true);
   // 말풍선 안내(예: 🏠 집에 들어가기)를 눌러도 행동 버튼과 같은 동작
-  $('#prompt').addEventListener('pointerdown', (e) => { e.preventDefault(); G.input.tap('KeyE'); });
+  $('#prompt').addEventListener('pointerdown', (e) => { e.preventDefault(); G.input.tap(e.target.closest('.pr-name') ? 'KeyN' : 'KeyE'); });
   for (const [sel, code] of [['#btn-r', 'KeyR'], ['#btn-f', 'KeyF'], ['#btn-t', 'KeyT'], ['#btn-g', 'KeyG'], ['#btn-boost', 'ShiftLeft']]) bindHold(sel, code, false);
 }
 
@@ -301,6 +330,23 @@ export function openModalHtml(title, html) {
   API.toggleModal('info');
 }
 
+/** ✏️ 이름 짓기 창: 입력하고 [저장] 또는 Enter */
+export function askName(title, current, onSave, hint = '') {
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+  openModalHtml(title, `
+    <div class="name-form">
+      <input id="name-input" type="text" maxlength="12" placeholder="이름 (최대 12자)" value="${esc(current || '')}" autocomplete="off">
+      <div class="name-btns"><button id="name-save" class="buy">💾 저장</button><button id="name-clear">지우기</button></div>
+      ${hint ? `<p class="set-note">${hint}</p>` : ''}
+    </div>`);
+  const inp = $('#name-input');
+  const done = (v) => { onSave(String(v).trim().slice(0, 12)); API.closeModals(); sfx('ding'); };
+  $('#name-save').onclick = () => done(inp.value);
+  $('#name-clear').onclick = () => done('');
+  inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); done(inp.value); } e.stopPropagation(); });
+  setTimeout(() => { inp.focus(); inp.select(); }, 50);
+}
+
 export function setHouseHud(show) {
   document.body.classList.toggle('mode-house', show);
   const hud = $('#house-hud');
@@ -310,9 +356,10 @@ export function setHouseHud(show) {
   const decor = H.decor;
   const inv = Object.entries(G.house.inventory).filter(([, n]) => n > 0);
   const FUR = API.furniture();
+  const guest = G.net?.role === 'guest';
   hud.innerHTML = `
-    <div class="hh-top"><b>🏠 우리 집</b>
-      <button class="hh-btn ${decor ? 'on' : ''}" data-act="decor">${decor ? '✅ 꾸미기 끝' : '🎨 꾸미기'}</button>
+    <div class="hh-top"><b>${guest ? '🏠 친구네 집' : '🏠 우리 집'}</b>
+      ${guest ? '' : `<button class="hh-btn ${decor ? 'on' : ''}" data-act="decor">${decor ? '✅ 꾸미기 끝' : '🎨 꾸미기'}</button>`}
       <button class="hh-btn" data-act="exit">🚪 나가기</button></div>
     ${decor ? `
     <div class="hh-decor">
@@ -323,7 +370,7 @@ export function setHouseHud(show) {
         <span>🪵 바닥</span>${API.floors().map((c, i) => `<button class="sw ${G.house.floor === i ? 'on' : ''}" style="--c:#${c.toString(16).padStart(6, '0')}" data-floor="${i}"></button>`).join('')}</div>
       <div class="hh-row"><span>🏡 외벽</span>${API.extWalls().map((c, i) => `<button class="sw ${G.house.ext.wall === i ? 'on' : ''}" style="--c:#${c.toString(16).padStart(6, '0')}" data-ewall="${i}"></button>`).join('')}
         <span>🔺 지붕</span>${API.extRoofs().map((c, i) => `<button class="sw ${G.house.ext.roof === i ? 'on' : ''}" style="--c:#${c.toString(16).padStart(6, '0')}" data-eroof="${i}"></button>`).join('')}</div>
-    </div>` : '<div class="hh-tip">가구 앞에서 <kbd>E</kbd> — 🛏️ 잠자기 · 🍳 새참 · 💻 장부 · 📺 시세 · 🎹 피아노 · 🪴 물 주기 · 🪧 방명록 · 🐱 쓰다듬기</div>'}`;
+    </div>` : '<div class="hh-tip">가구 앞에서 <kbd>E</kbd> — 🛏️ 잠자기 · 🍳 새참 · 💻 장부 · 📺 시세 · 🎹 피아노 · 🪴 물 주기 · 🪧 방명록 · 🐱🐶 쓰다듬기 · <kbd>N</kbd> 이름 짓기</div>'}`;
   hud.onclick = (e) => {
     const t = e.target.closest('button');
     if (!t) return;
@@ -373,7 +420,7 @@ export function setMode(mode) {
   G.settings.mode = mode;
   saveSettings();
   sfx('click');
-  toast(mode === 'sim' ? '시뮬레이션 모드: R/F/T/G로 유압을 직접 조작해요' : '간편 모드: Space 한 번으로 작업을 자동으로 해요', mode === 'sim' ? '🎛️' : '🎮', 2600);
+  toast(mode === 'sim' ? '시뮬레이션 모드: R/F/T/G로 유압을 직접 조작해요' : '간편 모드: 작업 버튼 없이 운전만 하면 알아서 작업해요', mode === 'sim' ? '🎛️' : '🎮', 2600);
   syncSettingsUI();
 }
 
@@ -385,9 +432,13 @@ export function updateLabels(dt) {
   const maxD = G.cam.fp ? 60 : 55;
   for (const l of labels) {
     const p = l.getPos();
-    const far = Math.hypot(p.x - ref.x, p.z - ref.z) > maxD;
+    // ⚡ 멀리 있는 이름표는 화면 계산·글자 만들기를 건너뛴다
+    if (Math.hypot(p.x - ref.x, p.z - ref.z) > maxD) {
+      if (l.shown !== false) { l.e.style.display = 'none'; l.shown = false; }
+      continue;
+    }
     _v.set(p.x, bendY(p.x, p.y, p.z), p.z).project(cam);
-    const html = far ? '' : l.getHtml();
+    const html = l.getHtml();
     if (!html || _v.z > 1 || _v.x < -1.1 || _v.x > 1.1 || _v.y < -1.1 || _v.y > 1.1) {
       if (l.shown !== false) { l.e.style.display = 'none'; l.shown = false; }
       continue;
@@ -421,40 +472,60 @@ function fmtTime() {
 export function updateUI(dt) {
   shownCoins += (G.coins - shownCoins) * Math.min(1, dt * 8);
   if (Math.abs(G.coins - shownCoins) < 1) shownCoins = G.coins;
-  $('#coins').textContent = Math.round(shownCoins).toLocaleString('ko-KR');
+  txt($('#coins'), Math.round(shownCoins).toLocaleString('ko-KR'));
   const hh = G.time / 60;
-  $('#clock-ico').textContent = hh >= 5 && hh < 7 ? '🌅' : hh >= 7 && hh < 17.5 ? '☀️' : hh >= 17.5 && hh < 19.5 ? '🌇' : '🌙';
-  $('#clock').textContent = `${G.day}일째 · ${fmtTime()}`;
+  txt($('#clock-ico'), hh >= 5 && hh < 7 ? '🌅' : hh >= 7 && hh < 17.5 ? '☀️' : hh >= 17.5 && hh < 19.5 ? '🌇' : '🌙');
+  txt($('#clock'), `${G.day}일째 · ${fmtTime()}`);
   const fert = $('#fert');
-  if (G.fertileTimer > 0) { fert.classList.remove('hidden'); fert.textContent = `🌱 성장촉진 ${Math.ceil(G.fertileTimer)}s`; }
+  if (G.fertileTimer > 0) { fert.classList.remove('hidden'); txt(fert, `🌱 성장촉진 ${Math.ceil(G.fertileTimer)}s`); }
   else fert.classList.add('hidden');
-  $('#mode-pill').innerHTML = G.settings.mode === 'sim' ? '🎛️<span class="lbl"> 시뮬레이션</span>' : '🎮<span class="lbl"> 간편</span>';
-  $('#btn-cam .i').textContent = G.cam.fp ? '👀' : '🎥';
+  htm($('#mode-pill'), G.settings.mode === 'sim' ? '🎛️<span class="lbl"> 시뮬레이션</span>' : '🎮<span class="lbl"> 간편</span>');
+  txt($('#btn-cam .i'), G.cam.fp ? '👀' : '🎥');
 
   for (const b of G.barns) {
     const u = b.ui;
-    u.count.textContent = `${b.animals.length}/${b.capacity}`;
     setBar(u.feed, b.feed / 100);
     setBar(u.clean, 1 - b.manure / 100);
     setBar(u.happy, b.happiness);
     const p = b.pdef;
-    u.prod.innerHTML = `${p.icon} ${p.name} ${Math.floor(b.buffer)}/${p.pallet} <span class="pal">📦 ${b.pallets.length}/3</span>`;
-    u.shed.innerHTML = `♻️ 퇴비사 💩 ${Math.round(b.shed.raw)} → 🟫 ${Math.round(b.shed.compost)}${b.shed.fermenting ? ' ♨️' : ''}`;
+    htm(u.prod, `${p.icon} ${p.name} ${Math.floor(b.buffer)}/${p.pallet} <span class="pal">📦 ${b.pallets.length}/3</span>`);
+    htm(u.shed, `♻️ 퇴비사 💩 ${Math.round(b.shed.raw)} → 🟫 ${Math.round(b.shed.compost)}${b.shed.fermenting ? ' ♨️' : ''}`);
     u.card.classList.toggle('warn', b.feed < 15 || b.manure > 75 || b.pallets.length >= 3);
     u.card.classList.toggle('boost', b.boostT > 0);
-    u.count.innerHTML = `${b.boostT > 0 ? '<span class="boost-tag">✨</span>' : ''}${b.animals.length}/${b.capacity}`;
+    htm(u.count, `${b.boostT > 0 ? '<span class="boost-tag">✨</span>' : ''}${b.animals.length}/${b.capacity}`);
   }
+  updateToolbar();
+  assignTick++;
   for (const v of G.vehicles) {
     const u = v.ui;
-    u.status.textContent = G.driving === v ? '🎮 직접 운전 중' : v.auto ? v.status : '⏸ 수동 모드';
+    txt(u.status, G.driving === v ? '🎮 직접 운전 중' : v.auto ? v.status : '⏸ 수동 모드');
+    if (u.syncAssign && (assignTick & 7) === 0) u.syncAssign();   // 담당 목록(축사·밭이 늘었을 때)은 가끔만 맞춘다
     u.card.classList.toggle('viewing', G.viewTarget === v);
     if (u.cb.checked !== v.auto) u.cb.checked = v.auto;
   }
   updateDrivePanel();
 }
 
+let assignTick = 0;
+/** 🧑‍🌾 손 도구 바: 걸어 다닐 때만 · 지금 도구 · 삽에 뜬 양 / 품의 풀 / 들고 있는 짐 */
+function updateToolbar() {
+  const tb = $('#toolbar');
+  const show = G.started && G.mode === 'farm' && !G.driving && !G.riding;
+  tb.classList.toggle('hidden', !show);
+  if (!show) return;
+  const p = G.player;
+  for (const b of tb.querySelectorAll('[data-tool]')) b.classList.toggle('on', b.dataset.tool === p.tool);
+  const held = p.held?.kind || p.heldKind;
+  let info = '';
+  if (held) info = `🖐️ ${held === 'bale' ? '🌾 건초' : held === 'sack' ? '🌽 포대' : '📦 팔레트'} 들고 있음`;
+  else if (p.tool === 'shovel' && p.scoop > 0.05) info = `🪏 ${p.scoopKind === 'compost' ? '퇴비' : '분뇨'} ${p.scoop.toFixed(1)}/3`;
+  else if (p.armful > 0.5) info = `🖐️ 풀 ${Math.floor(p.armful)}/4`;
+  txt(tb.querySelector('.tb-info'), info);
+}
 function setBar(e, v) {
-  const p = Math.max(0, Math.min(1, v));
+  const p = Math.round(Math.max(0, Math.min(1, v)) * 200) / 200;
+  if (e._p === p) return;
+  e._p = p;
   e.style.width = `${p * 100}%`;
   e.classList.toggle('low', p < 0.25);
 }
@@ -470,7 +541,8 @@ function updateDrivePanel() {
   $('#vehicle-dock').classList.toggle('hidden', !!v);
   if (!v) {
     panel.classList.add('hidden');
-    $('#btn-space').textContent = '점프';
+    txt($('#btn-space'), G.toolHintCache?.label || '점프');   // 🧑‍🌾 도구가 할 일이 있으면 그 이름
+    $('#btn-space').classList.remove('hidden');
     $('#touch-hyd').classList.add('hidden');
     return;
   }
@@ -483,6 +555,10 @@ function updateDrivePanel() {
   $('#btn-t').textContent = v.def.air === 'heli' ? '줄↑' : 'T';
   $('#btn-g').textContent = v.def.air === 'heli' ? '줄↓' : 'G';
   const d = v.def, easy = G.settings.mode === 'easy';
+  // 간편 모드: 작업 버튼 없이 자동 작업 (항공기·자가용은 Space가 따로 있어서 그대로)
+  const autoWork = easy && !d.air && !d.personal && !d.push;
+  $('#btn-space').classList.toggle('hidden', autoWork);
+  if (autoWork) $('#touch-hyd').classList.add('hidden');
   const kmh = Math.round(Math.abs(v.speed) * 3.6);
   const g = [];
   g.push(gauge('부스트', 1, v.boosting ? '🔥 ∞' : '∞', v.boosting ? 'boost on' : 'boost'));
@@ -522,6 +598,8 @@ function updateDrivePanel() {
     g.push(gauge('배합', total ? v.mixT / MIX_TIME : 0, total ? (v.isMixed() ? '완료' : `${Math.round((v.mixT / MIX_TIME) * 100)}%`) : '-', 'mix'));
     if (total) g.push(gauge('남은 사료', v.feedLeft() / (MIXER_CAP * 22), `${Math.round(v.feedLeft())}`, 'feedleft'));
   }
+  if (d.cart) chips.push(`<span class="chip ${truckCargo(v).length >= v.m.slots.length ? 'warn' : ''}">🛒 짐칸 ${truckCargo(v).length}/${v.m.slots.length}</span>`);
+  if (d.barrow) chips.push(`<span class="chip ${v.bulk >= TRUCK_BULK_CAP.wheelbarrow - 0.5 ? 'warn' : v.bulk > 0.3 ? 'on' : ''}">${v.bulkKind === 'compost' ? '🟫 퇴비' : '💩 분뇨'} ${Math.round(v.bulk)}/${TRUCK_BULK_CAP.wheelbarrow}</span>`);
   if (v.type === 'balewagon') chips.push(`<span class="chip ${truckCargo(v).length >= v.m.slots.length ? 'warn' : ''}">🌾 데크 ${truckCargo(v).length}/${v.m.slots.length}</span>`);
   if (v.isTruck && v.bulk > 0.3) chips.push(`<span class="chip on">${v.bulkKind === 'compost' ? '🟫 퇴비' : '💩 분뇨'} ${Math.round(v.bulk)}/${TRUCK_BULK_CAP[v.type]}</span>`);
 
@@ -532,6 +610,8 @@ function updateDrivePanel() {
   else if (v.type === 'balewagon') space = easy ? '건초 집기·싣기 / 데크 하차 자동' : '';
   else if (v.type === 'mixer') space = easy ? '배합장: 레시피 자동 투입 · 통로: 배출 · 그 외: 오거' : '오거 켜기/끄기 (배합·배출)';
   else if (d.personal) space = '경적 울리기';
+  else if (d.barrow) space = v.bulk > 0.3 ? '쏟기 (퇴비사 분뇨칸 · 밭에 퇴비 · 트럭 적재함)' : '퇴비칸에서 퇴비 담기 · 분뇨는 내려서 🪏 삽으로 퍼 담아요';
+  else if (d.cart) space = '가까운 짐 싣기 · 축사 통로(사료)·출하장·배합장·보관소·판매소에서 내리기';
   else space = easy ? (v.type === 'skid' ? (v.carrying ? '내려놓기' : v.skidMode === 'dump' ? '버킷 수평으로 (→ 앞으로 가면 퍼담기)' : '버킷 쏟기') : '들기·내리기 자동') : '';
   if (d.lift) {
     const nm = { tractor: '예초기', baler: '픽업', forklift: '포크', skid: '암', truck5: '적재함', balewagon: '집게' }[v.type];
@@ -540,6 +620,11 @@ function updateDrivePanel() {
   if (d.tilt) {
     const nm = { baler: '뒷문 열기·닫기', forklift: '마스트 젖히기·숙이기', skid: '버킷 젖히기·쏟기', mixer: '배출구 열기·닫기', balewagon: '데크 들기·내리기' }[v.type];
     keys.push(`${kb('T')}${kb('G')} ${nm}`);
+  }
+  if (autoWork) {
+    space = '';
+    chips.unshift('<span class="chip on">🤖 자동 작업</span>');
+    keys.push('🤖 작업 버튼 없이 운전만 하면 자동으로 해요');
   }
   if (space) keys.push(`${kb('Space')} ${space}`);
   if (v.type === 'mixer') keys.push(`${kb('1')}${kb('2')}${kb('3')} 건초·옥수수·대두박 넣기 (배합장)`);
@@ -562,6 +647,7 @@ function updateDrivePanel() {
     else tip = '기울여야 돌아요(A/D) · 착륙: 출력을 줄이고 플랩 30°, 활주로 앞에서 천천히 내려와요';
   }
   if (easy && v.type === 'mixer') tip = mixerTip(v);
+  if (autoWork && !tip) tip = AUTO_TIPS[v.isTruck ? 'truck' : v.type] || '';
   if (v.isTruck && v.nearStore()) tip = 'Space를 눌러 사료 가게에서 옥수수·대두박을 사요';
   else if (v.isTruck && v.atStation() && truckCargo(v).some((it) => it.kind === 'sack')) tip = 'Space를 눌러 원료를 배합장에 내려요';
   if (!easy && !tip && !d.air) {
@@ -569,7 +655,7 @@ function updateDrivePanel() {
     else if (v.type === 'skid') tip = v.load > 0 ? (v.loadKind === 'compost' ? '트럭 적재함 위로 암을 올리고(R) G로 쏟아 퇴비를 실어요' : '축사 뒤 퇴비사 분뇨칸(왼쪽)에서 G로 버킷을 쏟아요') : '암을 바닥까지 내리고(F) 앞으로 밀면 분뇨(우리 바닥)나 퇴비(퇴비사 오른쪽)가 담겨요';
     else if (v.type === 'tractor') tip = 'F로 예초기를 내리고 Space로 칼날을 돌려요';
     else if (v.type === 'baler') tip = v.collected >= 4 ? 'T로 뒷문을 열어 건초를 내보내세요!' : 'F로 픽업을 내리고 Space로 릴을 돌려 벤 풀 위를 지나가요';
-    else if (v.type === 'truck5') tip = v.bulk > 0 ? (v.bulkKind === 'compost' ? '판매소에서 Space로 팔거나, 목초지에서 R로 적재함을 들어 거름으로 뿌려요' : '퇴비사 앞에서 R로 적재함을 들어 분뇨를 내려요') : '퇴비사 앞 상차 위치에서 Space로 퇴비를 실어요';
+    else if (v.type === 'truck5') tip = v.bulk > 0 ? (v.bulkKind === 'compost' ? '판매소에서 Space로 팔거나, 밭에서 R로 적재함을 들어 거름으로 뿌려요' : '퇴비사 앞에서 R로 적재함을 들어 분뇨를 내려요') : '퇴비사 앞 상차 위치에서 Space로 퇴비를 실어요';
     else if (v.type === 'truck1') tip = v.bulk > 0 ? '판매소에서 Space로 퇴비를 팔아요' : '';
     else if (v.type === 'mixer') tip = mixerTip(v);
     else if (v.type === 'balewagon') tip = v.carrying ? 'R로 집게를 끝까지 올리면 건초가 데크로 넘어가요' : truckCargo(v).length ? '축사 통로·건초 보관소·배합장에서 T로 데크를 들면 건초를 내려요 (더 실으려면 F로 집게를 내려 건초 앞으로)' : 'F로 집게를 바닥까지 내리고 건초를 집게 사이에 넣은 뒤 R로 들어올려요';
@@ -582,10 +668,20 @@ function updateDrivePanel() {
     ${v.type === 'mixer' ? mixerButtons(v) : ''}
     <div class="dp-keys">${keys.map((k) => `<span>${k}</span>`).join('')}</div>`;
   if (panel.dataset.html !== html) { panel.innerHTML = html; panel.dataset.html = html; }
-  $('#btn-space').textContent = d.air === 'heli' ? (v.winch && v.winch.mode !== 'up' ? '멈추기' : v.carrying ? '내려놓기' : '후크') : d.air === 'plane' ? '플랩' : d.personal ? '경적' : space ? (v.isTruck ? '상차/판매' : '작업') : '작업';
+  if (d.push) { txt($('#btn-space'), d.cart ? '싣기/내리기' : '쏟기'); }
+  else $('#btn-space').textContent = d.air === 'heli' ? (v.winch && v.winch.mode !== 'up' ? '멈추기' : v.carrying ? '내려놓기' : '후크') : d.air === 'plane' ? '플랩' : d.personal ? '경적' : space ? (v.isTruck ? '상차/판매' : '작업') : '작업';
   $('#btn-e').textContent = '🚪 내리기';
   $('#btn-e').classList.remove('idle');
 }
+
+const AUTO_TIPS = {
+  tractor: '밭에 들어가면 예초기가 자동으로 내려가 목초·라이그라스·옥수수를 베요',
+  baler: '벤 풀 위를 지나가면 자동으로 모으고, 4개가 차면 건초를 내보내요',
+  forklift: '짐 쪽으로 다가가면 자동으로 들고, 놓을 곳(축사 통로·출하장·트럭·판매소)에서 멈추면 내려놓아요',
+  skid: '우리 바닥을 지나가면 분뇨를 퍼담고, 퇴비사 분뇨칸(왼쪽)이나 트럭 적재함 앞에서 멈추면 쏟아요',
+  truck: '출하장 · 판매소 · 배합장 · 퇴비사 앞에서 멈추면 상차/판매/하차를 자동으로 해요',
+  balewagon: '건초 쪽으로 다가가면 집어 싣고, 축사 통로·건초 보관소·배합장에서 멈추면 내려요',
+};
 
 function mixerTip(v) {
   const total = mixTotal(v);
@@ -652,8 +748,10 @@ function drawMinimapBg() {
   g.strokeStyle = 'rgba(107,79,58,0.35)'; g.lineWidth = 1; g.strokeRect(-LAYOUT.bound, -LAYOUT.bound, LAYOUT.bound * 2, LAYOUT.bound * 2);
   g.fillRect(-4.8, -4, 3.6, 23);
   g.fillRect(-31, 19.5, 44, 18);
-  const f = LAYOUT.field;
-  g.fillStyle = '#7fc464'; g.fillRect(f.x0, f.z0, f.cols * f.tile, f.rows * f.tile);
+  for (const f of G.fields) {
+    if (f.owned) { g.fillStyle = f.crop === 'corn' ? '#e3c25a' : f.crop === 'rye' ? '#5fae52' : '#7fc464'; g.fillRect(f.x0, f.z0, f.w, f.d); }
+    else { g.strokeStyle = 'rgba(150,110,70,0.55)'; g.lineWidth = 1.2; g.setLineDash([3, 3]); g.strokeRect(f.x0, f.z0, f.w, f.d); g.setLineDash([]); }
+  }
   const p = LAYOUT.pond;
   g.fillStyle = '#7fd0ea'; g.beginPath(); g.arc(p.x, p.z, p.r, 0, Math.PI * 2); g.fill();
   for (const b of G.barns) {
@@ -676,8 +774,13 @@ function drawMinimapBg() {
 }
 
 let mmBound = false;
+let mmAcc = 0;
 export function drawMinimap(dt = 0.016) {
   if (G.mode === 'house') return;
+  // ⚡ 미니맵은 1초에 24번만 다시 그린다 (매 프레임 캔버스를 새로 그리지 않게)
+  mmAcc += dt;
+  if (mmAcc < 1 / 24) return;
+  dt = Math.min(0.1, mmAcc); mmAcc = 0;
   const cv = $('#minimap');
   if (!mmBound) {
     mmBound = true;
@@ -851,7 +954,7 @@ const ETC_ITEMS = () => [
     icon: '⚙️', name: '자동 운전 업그레이드', desc: `일꾼들의 운전 속도 +12% (${G.upgrades.autoSpeed}/3단계)`,
     price: 800 * (1 + G.upgrades.autoSpeed), can: G.upgrades.autoSpeed < 3, why: '최대 단계', buy: () => { G.upgrades.autoSpeed++; },
   },
-  { icon: '🧪', name: '목초 비료', desc: '2분 동안 목초지가 2.5배 빨리 자라요', price: 150, can: true, buy: () => { G.fertileTimer = Math.min(300, G.fertileTimer + 120); } },
+  { icon: '🧪', name: '목초 비료', desc: '2분 동안 모든 밭이 2.5배 빨리 자라요', price: 150, can: true, buy: () => { G.fertileTimer = Math.min(300, G.fertileTimer + 120); } },
   {
     icon: '🌾', name: '건초 한 더미 주문', desc: '출하장 빈 칸에 건초 1개가 배달돼요', price: 60, can: !!freeDockSlot(), why: '출하장이 가득',
     buy: () => { const sl = freeDockSlot(); const it = new Item('bale'); setOnDock(it, sl); it.pop = 0.001; burst('star', sl.x, 1, sl.z, 8); },
@@ -863,6 +966,7 @@ export function renderShop() {
   list.innerHTML = '';
   document.querySelectorAll('#shop-tabs button').forEach((b) => b.classList.toggle('on', b.dataset.tab === shopTab));
   if (shopTab === 'garage') { renderGarage(list); $('#shop-coins').textContent = G.coins.toLocaleString('ko-KR'); return; }
+  if (shopTab === 'field') { renderFields(list); $('#shop-coins').textContent = G.coins.toLocaleString('ko-KR'); return; }
   const items = shopTab === 'animal' ? FARM_ITEMS() : shopTab === 'equip' ? EQUIP_ITEMS() : shopTab === 'furn' ? FURN_ITEMS() : ETC_ITEMS();
   for (const it of items) {
     const afford = G.coins >= it.price;
@@ -882,6 +986,45 @@ export function renderShop() {
     list.appendChild(row);
   }
   $('#shop-coins').textContent = G.coins.toLocaleString('ko-KR');
+}
+
+// ---------------- 🌱 밭: 밭 부지 사기 · 작물 고르기 ----------------
+export const REPLANT_PRICE = 300;
+const CROP_DESC = {
+  grass: '기본 건초 (사료 25)',
+  rye: '빨리 자라고 영양 많은 건초 (사료 34 · 판매 40)',
+  corn: '늦게 자라지만 배합사료 🌽 옥수수 원료가 돼요 (판매 48)',
+};
+function renderFields(list) {
+  list.appendChild(el('div', 'g-title', '🌱 밭마다 작물을 골라 심어요 <small>트랙터로 베고 → 베일러로 베일 → 베일 운반차가 날라요 · 옥수수 사일리지는 배합장에 두면 🌽 원료가 돼요</small>'));
+  for (const f of G.fields) {
+    const c = CROPS[f.crop];
+    const size = `${f.w}×${f.d}m`;
+    const block = f.owned ? '' : plotBlocker(f.area(1));
+    const desc = f.owned
+      ? `${size} · ${c.icon} ${c.name} 재배 중 · 다 자람 ${f.counts.tall} · 벤 것 ${f.counts.cut} · 자라는 중 ${f.counts.grow}`
+      : `${size} · 아직 안 산 밭 부지 · 🪙 ${f.def.price.toLocaleString('ko-KR')}${block ? ` · ⚠️ 땅에 ${block}이(가) 있어요 (배치 변경으로 옮겨 주세요)` : ''}`;
+    const row = el('div', `shop-item field-row ${!f.owned && block ? 'maxed' : ''}`, `<div class="s-ico">${f.owned ? c.icon : '🪧'}</div><div class="s-txt"><b>${f.name}</b><small>${desc}</small><div class="crop-btns"></div></div>`);
+    const btns = row.querySelector('.crop-btns');
+    for (const [id, cr] of Object.entries(CROPS)) {
+      const cur = f.owned && f.crop === id;
+      const price = f.owned ? REPLANT_PRICE : f.def.price;
+      const b = el('button', `crop-btn ${cur ? 'on' : ''}`, `<b>${cr.icon} ${cr.name}</b><small>${cur ? '재배 중' : f.owned ? `다시 심기 🪙 ${price}` : `심고 사기 🪙 ${price.toLocaleString('ko-KR')}`}</small>`);
+      b.title = CROP_DESC[id];
+      b.disabled = cur || G.coins < price || (!f.owned && !!block);
+      b.addEventListener('click', () => {
+        if (b.disabled) { sfx('error'); return; }
+        G.coins -= price;
+        if (f.owned) { f.plant(id); toast(`${f.name}에 ${cr.name}을(를) 새로 심었어요 ${cr.icon}`, cr.icon, 2600); }
+        else { f.buy(id); toast(`${f.name}을(를) 샀어요! ${cr.name}이(가) 다 자라 있어요 — 트랙터로 베어 보세요`, cr.icon, 3200); burst('star', f.x0 + f.w / 2, 1.5, f.z0 + f.d / 2, 24); }
+        sfx('buy');
+        mmBg = null;   // 미니맵 다시 그리기
+        renderShop();
+      });
+      btns.appendChild(b);
+    }
+    list.appendChild(row);
+  }
 }
 
 // ---------------- 🎨 차고: 모델(등급) · 페인트 ----------------
@@ -909,10 +1052,11 @@ function renderGarage(list) {
   const b = v.baseDef;
   const busy = v.driver && v.driver !== G.player;
   wrap.appendChild(el('div', 'g-head', `<span class="g-ico">${v.def.icon}</span><div><b>${gradeLabel(v)}${v.def.name}</b><small>${v.def.air ? '' : `${GRADES[v.grade].name} · `}${SKINS[v.skin].name}${busy ? ' · 다른 사람이 운전 중' : ''}</small></div>`));
-  if (!v.def.air) wrap.appendChild(el('div', 'g-stats', statBar('최고 속도', v.def.maxSpeed, b.maxSpeed) + statBar('가속', v.def.accel, b.accel) + statBar('회전', v.def.turn, b.turn)));
+  const paintOnly = v.def.air || v.def.push;
+  if (!paintOnly) wrap.appendChild(el('div', 'g-stats', statBar('최고 속도', v.def.maxSpeed, b.maxSpeed) + statBar('가속', v.def.accel, b.accel) + statBar('회전', v.def.turn, b.turn)));
   // 모델(등급)
-  wrap.appendChild(el('div', 'g-title', v.def.air ? '✈️ 항공기는 페인트만 바꿀 수 있어요' : '🏭 브랜드(모델) <small>회사마다 차체 모양·투톤·엠블럼·성능이 달라요 · 사면 그 브랜드 기본 파츠도 함께</small>'));
-  if (!v.def.air) {
+  wrap.appendChild(el('div', 'g-title', paintOnly ? (v.def.push ? '🛞 손수레·리어카는 페인트만 바꿀 수 있어요' : '✈️ 항공기는 페인트만 바꿀 수 있어요') : '🏭 브랜드(모델) <small>회사마다 차체 모양·투톤·엠블럼·성능이 달라요 · 사면 그 브랜드 기본 파츠도 함께</small>'));
+  if (!paintOnly) {
     const grid = el('div', 'g-grades');
     for (const [id, g] of Object.entries(GRADES)) {
       const cost = gradeCost(v.type, id, VEHICLE_SHOP);
@@ -1031,7 +1175,7 @@ function buildSettings() {
         </button>
         <button class="mode-card" data-mode="easy">
           <div class="mc-ico">🎮</div><b>간편</b>
-          <small>${kb('Space')} 한 번이면 끝!<br>들기·내리기·퍼담기·쏟기·건초 배출을 자동으로 해줘요<br>(R/F/T/G 직접 조작도 가능)</small>
+          <small>작업 버튼이 없어요!<br>운전만 하면 들기·내리기·퍼담기·쏟기·상차·판매·배합을 알아서 해요<br>(R/F/T/G 직접 조작도 가능)</small>
         </button>
       </div>
     </section>
@@ -1061,6 +1205,11 @@ function buildSettings() {
       <h3>⏰ 게임</h3>
       <div class="row"><span>하루 길이</span>${seg('dayLength', [[4, '4분'], [6, '6분'], [10, '10분'], [16, '16분']])}</div>
       <div class="row"><span>저장 데이터</span><button class="danger" id="btn-reset">처음부터 다시하기</button></div>
+    </section>
+    <section>
+      <h3>🛠️ 테스트</h3>
+      <div class="row"><span>디버그 모드 (돈 무한 🪙∞)</span>${toggle('debug')}</div>
+      <p class="set-note">켜 두면 코인이 줄지 않아요. 끄면 켜기 전 코인으로 돌아가요. (주소 끝에 <b>?debug</b>를 붙여 열어도 켜져요)</p>
     </section>`;
   box.querySelectorAll('.mode-card').forEach((b) => b.addEventListener('click', () => setMode(b.dataset.mode)));
   box.querySelectorAll('.seg').forEach((s) => s.querySelectorAll('button').forEach((b) => b.addEventListener('click', () => {
@@ -1070,6 +1219,7 @@ function buildSettings() {
   })));
   box.querySelectorAll('input[type=checkbox][data-key]').forEach((c) => c.addEventListener('change', () => {
     G.settings[c.dataset.key] = c.checked;
+    if (c.dataset.key === 'debug') API.setDebug?.(c.checked);
     if (c.dataset.key === 'lockScreen') {
       if (c.checked) API.lockScreen();
       else { try { screen.orientation?.unlock?.(); } catch { /* 미지원 */ } if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {}); }
@@ -1097,6 +1247,6 @@ export function syncSettingsUI() {
   if (!box) return;
   box.querySelectorAll('.mode-card').forEach((b) => b.classList.toggle('on', b.dataset.mode === G.settings.mode));
   box.querySelectorAll('.seg').forEach((s) => s.querySelectorAll('button').forEach((b) => b.classList.toggle('on', String(G.settings[s.dataset.key]) === b.dataset.v)));
-  box.querySelectorAll('input[type=checkbox][data-key]').forEach((c) => { c.checked = !!G.settings[c.dataset.key]; });
+  box.querySelectorAll('input[type=checkbox][data-key]').forEach((c) => { c.checked = !!G.settings[c.dataset.key] || (c.dataset.key === 'debug' && !!G.urlDebug); });
   box.querySelectorAll('input[type=range]').forEach((r) => { r.value = G.settings[r.dataset.key]; });
 }

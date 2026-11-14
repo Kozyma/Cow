@@ -83,6 +83,12 @@
     <button class="pill notice" id="notice" title="알림 기록 보기"><span class="n-bell">🔔</span><span id="notice-count" class="n-count"></span><span id="notice-text" class="n-text"></span></button>
     <div id="notice-log" class="hidden"></div>
     <div id="prompt" class="hidden"></div>
+    <div id="toolbar" class="hidden" title="🧑‍🌾 도구 바꾸기 (Q)">
+      <button data-tool="hand">🖐️<small>손</small></button>
+      <button data-tool="shovel">🪏<small>삽</small></button>
+      <button data-tool="sickle">🌾<small>낫</small></button>
+      <div class="tb-info"></div>
+    </div>
     <div id="drive-panel" class="hidden"></div>
     <div id="vehicle-dock"></div>
     <div id="build-hud" class="hidden">
@@ -119,6 +125,7 @@
         <button data-tab="animal">🐮 동물·축사</button>
         <button data-tab="equip">🚜 장비</button>
         <button data-tab="garage">🎨 차고</button>
+        <button data-tab="field">🌱 밭</button>
         <button data-tab="furn">🛋️ 가구</button>
         <button data-tab="etc">✨ 기타</button>
       </div>
@@ -218,21 +225,25 @@
             <li><kbd>R</kbd>/<kbd>F</kbd> — 올리기/내리기: 트랙터 예초기 · 베일러 픽업 · 지게차 포크 · 스키드 암 · 5톤 적재함</li>
             <li><kbd>T</kbd>/<kbd>G</kbd> — 기울이기: 지게차 마스트 · 스키드 버킷(G=쏟기) · 베일러 뒷문 · 배합기 배출구(T=열기) · 베일 운반차 데크(T=들기)</li>
             <li><kbd>1</kbd>/<kbd>2</kbd>/<kbd>3</kbd> — 배합기: 배합장에서 건초 · 옥수수 · 대두박 넣기</li>
-            <li><kbd>Space</kbd> — 트랙터/베일러 작업기 켜기 · 트럭 상차/판매 · (간편 모드) 자동 작업</li>
+            <li><kbd>Space</kbd> — (시뮬레이션) 트랙터/베일러 작업기 켜기 · 트럭 상차/판매 · <b>간편 모드는 작업 버튼 없이 자동</b></li>
+            <li><kbd>N</kbd> — 동물 · 고양이 · 강아지 이름 짓기 (옆에서)</li>
           </ul>
-          <p><b>시뮬레이션 모드</b>에서는 포크를 바닥까지 내려 짐 아래로 밀어 넣고 들어올려야 하고, 버킷을 바닥에 붙여 밀어야 분뇨가 담겨요. <b>간편 모드</b>에서는 Space 한 번으로 자동 처리돼요. 스키드로더는 Space로 <b>버킷 쏟기 ↔ 수평</b>을 바꾸고, 수평일 때 앞으로 가면 분뇨가 계속 담겨요. 설정에서 언제든 바꿀 수 있어요.</p>
+          <p><b>시뮬레이션 모드</b>에서는 포크를 바닥까지 내려 짐 아래로 밀어 넣고 들어올려야 하고, 버킷을 바닥에 붙여 밀어야 분뇨가 담겨요. <b>간편 모드</b>에서는 작업 버튼이 없어요. 운전만 하면 들기·내리기·퍼담기·쏟기·상차·판매·배합을 알아서 해요. 짐을 들고 가다 <b>멈추면 내려놓고</b>, 스키드로더는 우리 바닥을 지나가면 분뇨가 담기고 퇴비사 분뇨칸 앞에서 멈추면 쏟아요. 설정에서 언제든 바꿀 수 있어요.</p>
         </section>
         <section>
           <h3>🔁 목장이 돌아가는 방법</h3>
           <ol class="flow">
-            <li><b>🚜 트랙터</b> — 예초기를 내리고 목초지의 풀을 베요</li>
+            <li><b>🧑‍🌾 손일 (처음 시작)</b> — 처음엔 기계 없이 시작해요. <kbd>Q</kbd>(모바일: 도구 버튼)로 🖐️ 손 · 🪏 삽 · 🌾 낫을 바꾸고 <kbd>Space</kbd>로 써요. 🪏 삽으로 우리 바닥 분뇨를 퍼서 옆에 둔 🛞 손수레에 담고(가득 차면 퇴비사 분뇨칸에서 Space로 쏟기), 🌾 낫으로 다 자란 풀을 베고 🖐️ 손으로 벤 풀을 4칸 모으면 건초 한 단! 손으로 건초·팔레트를 들고 🛒 리어카에 실어 축사 통로(사료)·출하장·판매소로 날라요. 돈을 모아 상점 🚜 장비에서 기계를 사요</li>
+            <li><b>🚜 트랙터</b> — 예초기를 내리고 밭의 목초·라이그라스·옥수수를 베요</li>
+            <li><b>🌱 밭 늘리기</b> — 상점 <em>🌱 밭</em> 탭에서 밭 부지를 사고 작물(🌱 목초 · 🌿 라이그라스 · 🌽 옥수수)을 골라 심어요. 라이그라스는 영양 많은 건초, 옥수수는 사일리지 베일이 되어 배합장의 🌽 옥수수 원료로 쓰여요</li>
+            <li><b>📍 담당 지정</b> — 아래 차량 카드의 목록에서 차마다 맡을 축사·밭을 골라요 (예: 스키드로더 1번은 한우 축사, 2번은 돼지 축사)</li>
             <li><b>🌀 베일러</b> — 벤 풀을 모아 챔버가 차면 뒷문을 열어 건초 더미를 내보내요</li>
             <li><b>🏗️ 지게차</b> — 건초를 축사 <em>가운데 통로</em>에 내려 사료를 채우고, 축사 옆 팔레트를 <em>출하장</em>으로 옮겨요</li>
             <li><b>🚧 스키드로더</b> — 우리 안으로 들어가 바닥 분뇨를 밀어 담고, 축사 뒤 <em>퇴비사</em> 분뇨칸(왼쪽)에 쏟아요</li>
             <li><b>♨️ 퇴비사</b> — 쌓인 분뇨가 시간이 지나면 발효되어 퇴비칸(오른쪽)으로 옮겨져요</li>
             <li><b>🚛 베일 운반차</b> — 앞 집게를 바닥까지 내려(F) 건초를 물고 끝까지 들면(R) 데크로 넘어가요(최대 6개). 축사 통로·건초 보관소·배합장에서 데크를 들면(T) 한 번에 내려요</li>
             <li><b>🥣 사료 배합기</b> — 트럭으로 <em>사료 가게</em>(서쪽 끝)에서 옥수수·대두박을 사서 <em>배합장</em>에 내리고, 배합기에 건초·옥수수·대두박을 레시피대로 넣어(1·2·3) 오거로 섞은 뒤(Space) 축사 통로를 지나가며 배출(T)해요. 맞춤 사료는 생산량 +40%!</li>
-            <li><b>🛻 1톤 · 🚚 5톤 트럭</b> — 출하장에서 팔레트를, 퇴비사 앞 <em>퇴비 상차</em> 위치에서 퇴비를 싣고(Space, 또는 스키드로더로 퍼서 적재함에 쏟기) 동쪽 <em>판매소</em>에서 팔아요. 5톤 덤프로 목초지에 퇴비를 뿌리면(R) 풀이 빨리 자라요</li>
+            <li><b>🛻 1톤 · 🚚 5톤 트럭</b> — 출하장에서 팔레트를, 퇴비사 앞 <em>퇴비 상차</em> 위치에서 퇴비를 싣고(Space, 또는 스키드로더로 퍼서 적재함에 쏟기) 동쪽 <em>판매소</em>에서 팔아요. 5톤 덤프로 밭에 퇴비를 뿌리면(R) 작물이 빨리 자라요</li>
           </ol>
         </section>
         <section>
@@ -263,7 +274,7 @@
       <p class="sub">소 · 돼지 · 닭을 키우는 포근한 축사 운영 게임</p>
       <div class="mode-pick">
         <button data-mode="sim"><span>🎛️</span><b>시뮬레이션</b><small>유압 레버 직접 조작</small></button>
-        <button data-mode="easy"><span>🎮</span><b>간편</b><small>Space 한 번으로 작업</small></button>
+        <button data-mode="easy"><span>🎮</span><b>간편</b><small>작업 버튼 없이 자동</small></button>
       </div>
       <div class="title-btns">
         <button id="btn-start" class="big">시작하기</button>

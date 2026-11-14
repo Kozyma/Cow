@@ -125,6 +125,10 @@ function setupReserved() {
   reserve(-6, 0, -9, 21);
   const f = LAYOUT.field;
   reserve(f.x0 - 3, f.x0 + f.cols * f.tile + 3, f.z0 - 3, f.z0 + f.rows * f.tile + 3);
+  // 상점에서 파는 밭 부지와 그리로 가는 길에는 나무를 심지 않는다
+  for (const p of LAYOUT.plots) reserve(p.x0 - 4, p.x0 + p.cols * p.tile + 4, p.z0 - 4, p.z0 + p.rows * p.tile + 4);
+  reserve(60, 68, 14, 90);
+  reserve(14, 104, 58, 65);
   reserve(-1, 13, -2, 15);
   reserve(45, 66, -3, 13);
   reserve(-21, -11, 2, 10);

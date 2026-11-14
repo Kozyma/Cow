@@ -1,6 +1,7 @@
 // 건초/팔레트 아이템, 출하장 · 트럭 적재 · 판매, 바닥 분뇨 더미
 import * as THREE from 'three';
-import { G, LAYOUT, PRODUCTS, BALE_FEED, BALE_PRICE, COMPOST, TRUCK_BULK_CAP, INGREDIENTS } from './state.js';
+import { G, LAYOUT, PRODUCTS, BALE_FEED, COMPOST, TRUCK_BULK_CAP, INGREDIENTS, baleKind } from './state.js';
+import { fieldAt } from './field.js';
 import { inStation, freeStationSlot, setOnStation } from './feed.js';
 import { shedAt } from './compost.js';
 import { makeBale, makePallet } from './models.js';
@@ -20,7 +21,7 @@ export class Item {
     this.id = nextId++;
     this.kind = kind;
     this.product = product;
-    this.mesh = kind === 'bale' ? makeBale() : makePallet(product);
+    this.mesh = kind === 'bale' ? makeBale(product) : makePallet(product);
     this.pos = new THREE.Vector3();
     this.heading = 0;
     this.carriedBy = null;
@@ -53,7 +54,7 @@ export class Item {
   }
 }
 
-function detachFromBarn(it) {
+export function detachFromBarn(it) {
   if (it.barn) {
     const j = it.barn.pallets.indexOf(it);
     if (j >= 0) it.barn.pallets.splice(j, 1);
@@ -61,8 +62,8 @@ function detachFromBarn(it) {
   }
 }
 
-export function spawnBale(x, z, heading) {
-  const it = new Item('bale');
+export function spawnBale(x, z, heading, product = null) {
+  const it = new Item('bale', product);
   it.placeAt(x, z, heading);
   it.pop = 0.001;
   G.stats.bales++;
@@ -164,7 +165,7 @@ export function barnAlleyAt(x, z) {
 // ---------------- 판매 ----------------
 export function itemPrice(it) {
   if (it.kind === 'sack') return Math.round(INGREDIENTS[it.product].price * 0.6);
-  return it.kind === 'bale' ? BALE_PRICE : Math.round(PRODUCTS[it.product].price * (G.prices[it.product] ?? 1) * (it.dmg ? 0.6 : 1));
+  return it.kind === 'bale' ? baleKind(it).price : Math.round(PRODUCTS[it.product].price * (G.prices[it.product] ?? 1) * (it.dmg ? 0.6 : 1));
 }
 export function sellItems(list, at) {
   let total = 0, pallets = 0;
@@ -278,9 +279,10 @@ export function releaseCarried(v, sp = null) {
         if (manual) toast(`${barn.name} 사료가 이미 넉넉해요!`, '🌾');
         return false;
       }
-      barn.addFeed(BALE_FEED, null);
+      const bk = baleKind(it);
+      barn.addFeed(bk.feed, null);
       burst('hay', x, 0.8, z, 18, { vy: 3.5 });
-      floatText(x, 2.2, z, '+사료 🌾', 'good');
+      floatText(x, 2.2, z, `+사료 ${bk.icon}`, 'good');
       sfx('pop');
       v.carrying = null;
       v.ai.forBarn = null;
@@ -444,13 +446,13 @@ export function depositBulk(kind, amount, x, z, opts = {}) {
     if (add < amount) addMuck(x, z, amount - add);
     return amount;
   }
-  if (kind === 'compost' && G.field.inside(x, z, 1)) {
+  if (kind === 'compost' && fieldAt(x, z, 1)) {
     spreadCompost(amount, x, z);
     return amount;
   }
   addMuck(x, z, amount);
   sfx('dump');
-  if (manual) toast(kind === 'compost' ? '퇴비를 바닥에 쏟았어요 (목초지에 뿌리면 거름이 돼요)' : '분뇨는 축사 뒤 퇴비사에 쏟아주세요', '💩');
+  if (manual) toast(kind === 'compost' ? '퇴비를 바닥에 쏟았어요 (밭에 뿌리면 거름이 돼요)' : '분뇨는 축사 뒤 퇴비사에 쏟아주세요', '💩');
   return amount;
 }
 

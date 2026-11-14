@@ -6,7 +6,7 @@ export const G = {
   renderer: null,
   input: null,
   now: 0,                 // 실제 경과 시간(초)
-  coins: 1000,
+  coins: 1500,
   skinsOwned: ["base"],   // 🎨 차고: 사 둔 페인트
   partsOwned: [],         // 🎨 차고: 사 둔 커스텀 파츠
   day: 1,
@@ -38,7 +38,7 @@ export const G = {
 
 // 장비 상점 (추가 구매 가능)
 export const VEHICLE_SHOP = {
-  tractor: 2600, baler: 3200, forklift: 2200, skid: 2400, truck1: 2000, truck5: 3800, mixer: 3400, balewagon: 3000, heli: 5200, plane: 7800, liner: 16000, jet: 22000,
+  wheelbarrow: 300, handcart: 600, tractor: 2600, baler: 3200, forklift: 2200, skid: 2400, truck1: 2000, truck5: 3800, mixer: 3400, balewagon: 3000, heli: 5200, plane: 7800, liner: 16000, jet: 22000,
 };
 export const MAX_VEHICLES = 16;
 
@@ -54,6 +54,12 @@ export const LAYOUT = {
   market: { x: 54, z: 5, r: 5 },                                    // 판매소
   yard: { x: -16, z: 6, cols: 4, rows: 3, gap: 1.9 },
   field: { x0: 16, z0: 18, cols: 22, rows: 20, tile: 2 },          // x 16..60, z 18..58
+  // 상점에서 살 수 있는 밭 부지 (사면서 작물을 고른다)
+  plots: [
+    { id: 'east', name: '동쪽 밭', x0: 68, z0: 18, cols: 18, rows: 20, tile: 2, price: 4500 },
+    { id: 'south', name: '남쪽 밭', x0: 16, z0: 63, cols: 22, rows: 11, tile: 2, price: 3500 },
+    { id: 'southeast', name: '남동쪽 밭', x0: 68, z0: 63, cols: 18, rows: 11, tile: 2, price: 3500 },
+  ],
   parking: Array.from({ length: 16 }, (_, i) => ({ x: -28 + (i % 8) * 5.5, z: 24 + Math.floor(i / 8) * 9 })),
   station: { x: -32, z: 5, w: 11, d: 6, bay: { x: -32, z: 12.5 } },  // 배합장 (원료 보관)
   store: { x: -54, z: 5, r: 4.5 },                                   // 사료 가게
@@ -90,11 +96,19 @@ export const PRODUCTS = {
 
 export const BALE_FEED = 25;     // 건초 1개 = 사료 25
 export const BALE_PRICE = 25;    // 건초 판매가
-export const BUCKET_CAP = 25;    // 스키드로더 버킷 용량
-export const TRUCK_BULK_CAP = { truck1: 30, truck5: 75 };
+// 작물별 베일: 사료량 · 판매가 (product: null=목초 건초, rye=라이그라스, corn=옥수수 사일리지)
+export const BALE_KINDS = {
+  grass: { feed: 25, price: 25, name: '건초', icon: '🌾' },
+  rye: { feed: 34, price: 40, name: '라이그라스 건초', icon: '🌿' },
+  corn: { feed: 30, price: 48, name: '옥수수 사일리지', icon: '🌽' },
+};
+export const baleKind = (it) => BALE_KINDS[it?.product === 'rye' ? 'rye' : it?.product === 'corn' ? 'corn' : 'grass'];
+export const BUCKET_CAP = 30;    // 스키드로더 버킷 용량
+export const MANURE_RATE = 0.6;  // 분뇨 쌓이는 속도 배수 (예전 1.0 → 똥 치우기만 하는 게임이 되지 않게)
+export const TRUCK_BULK_CAP = { truck1: 30, truck5: 75, wheelbarrow: 15 };
 export const COMPOST = { cap: 150, rate: 9, price: 7 };   // 퇴비사 용량, 시간당 발효량, 퇴비 단가
 export const GROW_TIME = 110;    // 목초 재성장 시간(초)
-export const MAX_BALES = 48;
+export const MAX_BALES = 72;     // 농장 전체 베일 수 한도 (밭이 늘어나 넉넉하게)
 
 // ---------------- 사료 배합 ----------------
 export const INGREDIENTS = {

@@ -3,13 +3,14 @@ import { G, LAYOUT, BARN_DEFS } from './state.js';
 import { Item, setOnDock, setOnTruck, dockSlots, addMuck } from './items.js';
 import { stationSlots, setOnStation, relocateStation, stationFootprint } from './feed.js';
 import { addBarn, Barn } from './barns.js';
-import { createVehicles, addVehicle } from './vehicles.js';
+import { createVehicles, addVehicle, setAssignCode } from './vehicles.js';
 import { relocateDock, dockFootprint } from './world.js';
 import { clearSite, parkRows, setParkingRows } from './layout.js';
 import { buildGrid } from './pathfinding.js';
 import { reloadHouse } from './house.js';
 import { setBoardData } from './board.js';
 import { applyLook } from './garage.js';
+import { fieldsState, applyFieldsState } from './field.js';
 
 const KEY = 'monggle-farm-save-v4';
 
@@ -34,7 +35,7 @@ function itemData(it) {
 export function buildSaveData() {
   return {
     v: 4,
-    coins: G.coins, day: G.day, time: G.time, prices: G.prices,
+    coins: G.debugCoins ?? G.coins, day: G.day, time: G.time, prices: G.prices,   // 🛠️ 디버그 중이면 켜기 전 코인을 저장
     skins: G.skinsOwned,   // 🎨 차고에서 사 둔 페인트
     parts: G.partsOwned,   // 🎨 차고에서 사 둔 커스텀 파츠
     upgrades: G.upgrades, fertileTimer: G.fertileTimer, stats: G.stats,
@@ -42,15 +43,19 @@ export function buildSaveData() {
       id: b.id, cx: b.cx, front: b.front, n: b.animals.length, cap: b.capacity, exp: b.expansions,
       feed: b.feed, happy: b.happiness, buf: b.buffer, pallets: b.pallets.length, boost: Math.round(b.boostT),
       cells: b.cells.map((c) => +c.amt.toFixed(2)), raw: +b.shed.raw.toFixed(2), compost: +b.shed.compost.toFixed(2),
+      names: b.animals.map((a) => a.name || ''),   // 동물 이름
     })),
     station: { x: LAYOUT.station.x, z: LAYOUT.station.z },
     dock: { x: LAYOUT.dock.x, z: LAYOUT.dock.z },
     parkRows: parkRows(),
     field: G.field.serialize(),
-    items: G.items.filter((i) => !i.barn && !i.carriedBy && !i.removed && !i.fly).map(itemData),
+    fields: fieldsState(),   // 밭 여러 개: 산 밭 · 작물 · 자란 정도
+    // 손에 들고 있던 짐은 그 자리 바닥에 둔 것으로 저장
+    items: G.items.filter((i) => !i.barn && (!i.carriedBy || i.carriedBy.isPlayer) && !i.removed && !i.fly).map(itemData),
     muck: G.muck.map((m) => [+m.x.toFixed(2), +m.z.toFixed(2), +m.amount.toFixed(2)]),
     vehicles: G.vehicles.map((v) => ({ type: v.type, ...v.serialize() })),
     autoV: 2,   // 자동 운전 기본 꺼짐 이후 저장본
+    fleetV: 3,  // 손일로 시작하는 농장 이후 저장본 (헬기·비행기를 억지로 넣지 않는다)
     house: G.house,
     board: G.board,   // 집 앞 알림판: 공지 · 방명록
   };
@@ -70,6 +75,7 @@ export function loadGame() {
 export function applySaveData(d) {
   if (!d || d.v !== 4) return false;
   G.coins = d.coins; G.day = d.day; G.time = d.time;
+  G.debugCoins = null;
   G.skinsOwned = Array.isArray(d.skins) ? d.skins.filter((x) => typeof x === 'string').slice(0, 40) : ['base'];
   G.partsOwned = Array.isArray(d.parts) ? d.parts.filter((x) => typeof x === 'string').slice(0, 60) : [];
   Object.assign(G.prices, d.prices || {});
@@ -100,6 +106,7 @@ export function applySaveData(d) {
     const b = addBarn(bd.id, bd.cx, bd.front, { animals: 0, manure: false });
     b.capacity = bd.cap; b.expansions = bd.exp;
     for (let i = 0; i < bd.n; i++) b.addAnimal(false);
+    if (Array.isArray(bd.names)) b.animals.forEach((a, i) => { a.name = String(bd.names[i] || '').slice(0, 12); });
     b.feed = bd.feed; b.happiness = bd.happy; b.buffer = bd.buf; b.boostT = bd.boost || 0;
     if (bd.cells?.length === b.cells.length) bd.cells.forEach((a, i) => { b.cells[i].amt = a; });
     b.dirtyManure = true;
@@ -107,7 +114,9 @@ export function applySaveData(d) {
     for (let i = 0; i < Math.min(3, bd.pallets); i++) b.spawnPallet(true);
     b.updateVisuals();
   }
-  G.field.deserialize(d.field);
+  for (const f of G.fields) if (f.id !== 'main') { f.owned = false; f.applyOwned(); }
+  if (Array.isArray(d.fields)) applyFieldsState(d.fields);
+  else G.field.deserialize(d.field);
   // 주차장 넓힌 만큼 다시 깔기 (차량 자리보다 먼저)
   setParkingRows(d.parkRows || 2);
   // 차량
@@ -125,12 +134,13 @@ export function applySaveData(d) {
     if (v.def.air === 'plane') { v.pos.set(v.park.x, 0, v.park.z); v.heading = v.park.h ?? v.heading; }
     v.bulk = s.bulk || 0; v.bulkKind = s.bulkKind || null; v.load = s.load || 0; v.loadKind = s.loadKind || null;
     if (s.mix) { v.mix = s.mix; v.mixT = s.mixT || 0; v.dispensed = s.disp || 0; }
+    setAssignCode(v, s.as || '');   // 담당 축사·밭
     v.syncVisual();
   });
   // 예전 세이브에는 자가용이 없으니 한 대 넣어준다
   if (!G.vehicles.some((v) => v.def.personal)) addVehicle('car');
   // 헬기 · 비행기가 생기기 전 저장본에도 한 대씩
-  for (const t of ['heli', 'plane']) if (!G.vehicles.some((v) => v.type === t)) addVehicle(t);
+  if (!(d.fleetV >= 3)) for (const t of ['heli', 'plane']) if (!G.vehicles.some((v) => v.type === t)) addVehicle(t);
   const dslots = dockSlots(), sslots = stationSlots();
   for (const o of d.items || []) {
     const it = new Item(o.k, o.p);

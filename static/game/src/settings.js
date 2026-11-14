@@ -15,6 +15,7 @@ export const DEFAULT_SETTINGS = {
   dayLength: 6,         // 하루 길이 (분)
   notify: 'line',       // 알림: 'line' 한 줄로 잠깐 보여 주기 | 'bell' 🔔에만 쌓기 (화면에 안 띄움)
   lockScreen: true,     // 모바일: 전체화면 + 화면 회전(가로/세로) 고정
+  debug: false,         // 🛠️ 디버그(테스트) 모드: 돈 무한
 };
 
 export function loadSettings() {

@@ -3,26 +3,27 @@ import { G, LAYOUT, PRODUCTS } from './state.js';
 import { curveUniforms } from './materials.js';
 import { Input } from './input.js';
 import { buildWorld, updateWorld, updateSky } from './world.js';
-import { Field } from './field.js';
-import { createBarns } from './barns.js';
+import { initFields, updateFields } from './field.js';
+import { createBarns, animalName, ANIMAL_ICON, cleanName } from './barns.js';
 import { buildStation, buildStore, stationSlots, setOnStation } from './feed.js';
-import { createVehicles, addVehicle, VEH_DEFS } from './vehicles.js';
+import { createVehicles, addVehicle, VEH_DEFS, setAssignCode, assignOptions, assignCode } from './vehicles.js';
 import { Player } from './player.js';
 import { buildGrid } from './pathfinding.js';
 import { INST } from './instancer.js';
 import { updateParticles, burst } from './particles.js';
 import { updateItems, spawnBale, setOnDock, dockSlots, Item } from './items.js';
-import { initUI, updateUI, drawMinimap, updateLabels, setPrompt, setActionLabel, toast, renderShop, syncSettingsUI, renderStore, addVehicleUI } from './ui.js';
+import { initUI, updateUI, drawMinimap, updateLabels, setPrompt, setActionLabel, toast, renderShop, syncSettingsUI, renderStore, addVehicleUI, askName, addLabel } from './ui.js';
 import { enterBuild, exitBuild, updateBuild, buildPointer, buildClick, buildCancel, buildState } from './layout.js';
 import * as HOUSE from './house.js';
 import { initAudio, updateEngine, sfx, setVolumes } from './audio.js';
 import { saveGame, loadGame, hasSave, clearSave } from './save.js';
 import { buildBoard, nearBoard, openBoard, initBoardUI, bindBoardNet, setBoardData } from './board.js';
-import { loadSettings } from './settings.js';
+import { loadSettings, saveSettings } from './settings.js';
 import { damp, dampAngle, clamp, wrapAngle } from './util.js';
 import { blockedAt } from './physics.js';
-import { net, connect, hostStep, hostEndFrame, guestStep, guestCmd, updatePeersUI, setPublic, hostBoard } from './net.js';
+import { net, connect, hostStep, hostEndFrame, guestStep, guestCmd, updatePeersUI, setPublic, hostBoard, hostHouse } from './net.js';
 import { plaza, enterPlaza, updatePlaza } from './plaza.js';
+import { useTool, cycleTool, setTool, dropHeld, updateHeld, toolHint, TOOL_ORDER } from './handwork.js';
 const isGuest = () => net.role === 'guest';
 const guestOnly = (what) => { toast(`${what}은(는) 방장만 할 수 있어요`, '👑', 1800); };
 
@@ -48,7 +49,7 @@ G.input = new Input(renderer.domElement);
 G.camTarget = new THREE.Vector3(0, 0, 0);
 
 buildWorld(scene);
-G.field = new Field(scene);
+initFields(scene);
 createBarns(scene);
 buildStation(scene);
 buildStore(scene);
@@ -118,12 +119,13 @@ const api = {
   /** 🏠 버튼: 어디서든 집으로 들어가기 / 집 안이면 나가기 */
   toggleHouse() {
     if (!G.started || G.paused) return;
-    if (isGuest()) { guestOnly('집 들어가기'); return; }
+    if (isGuest()) { guestCmd.house(G.mode !== 'house'); return; }   // 친구: 방장이 집 안/밖으로 옮겨 준다
     if (G.mode === 'house') { HOUSE.exitHouse(); return; }
     if (G.mode !== 'farm') { toast('배치 변경을 마친 뒤에 들어갈 수 있어요', '🏠', 1600); return; }
     if (G.driving) exitVehicle();
     if (G.cam.fp) toggleFP();
     lookPoint = null;
+    dropHeld(G.player);
     HOUSE.enterHouse();
   },
   openStore(truck) {
@@ -156,8 +158,8 @@ const api = {
   floors: () => HOUSE.FLOORS,
   extWalls: () => HOUSE.EXT_WALLS,
   extRoofs: () => HOUSE.EXT_ROOFS,
-  setDecor: (on) => HOUSE.setDecor(on),
-  exitHouse: () => HOUSE.exitHouse(),
+  setDecor: (on) => { if (isGuest()) { guestOnly('집 꾸미기'); return; } HOUSE.setDecor(on); },
+  exitHouse: () => { if (isGuest()) guestCmd.house(false); else HOUSE.exitHouse(); },
   decorRotate: () => HOUSE.decorRotate(),
   decorStore: () => HOUSE.decorStore(),
   holdFromInventory: (id) => HOUSE.holdFromInventory(id),
@@ -171,6 +173,28 @@ const api = {
   },
 };
 G.openStore = (t) => api.openStore(t);
+/** 🛠️ 디버그(테스트) 모드: 돈 무한. 끄면 켜기 전 코인으로 되돌린다 */
+//  켜기 전 코인은 G.debugCoins에 두고, 저장 파일에는 그 원래 코인이 저장된다 (테스트로 쓴 돈이 저장본을 망치지 않게)
+const DEBUG_COINS = 99999999;
+G.urlDebug = /[?&]debug/.test(location.search);   // 주소의 ?debug 는 이번 접속에서만
+const debugOn = () => !!(G.settings.debug || G.urlDebug);
+api.setDebug = (on) => {
+  if (on) { if (G.debugCoins == null) G.debugCoins = G.coins; G.coins = DEBUG_COINS; toast('🛠️ 디버그 모드: 코인 무한!', '🪙', 2200); }
+  else { if (G.debugCoins != null) G.coins = G.debugCoins; G.debugCoins = null; G.urlDebug = false; toast('디버그 모드를 껐어요', '🛠️', 1800); }
+  G.settings.debug = on;
+  saveSettings();
+};
+api.assignOptions = (v) => assignOptions(v);
+api.assignCode = (v) => assignCode(v);
+api.setTool = (t) => {
+  if (isGuest()) guestCmd.tool(t);
+  setTool(G.player, t);
+};
+api.cycleTool = () => api.setTool(TOOL_ORDER[(TOOL_ORDER.indexOf(G.player.tool) + 1) % TOOL_ORDER.length]);
+api.setAssign = (v, code) => {
+  if (isGuest()) { guestCmd.assign(v, code); setAssignCode(v, code); return; }
+  setAssignCode(v, code);
+};
 api.setAuto = (v, on) => {
   if (isGuest()) { guestCmd.auto(v, on); return; }
   v.setAuto(on);
@@ -290,6 +314,7 @@ function exitRide(p) {
 
 function enterVehicle(v, p = G.player) {
   if (ridingOf(p)) return false;
+  dropHeld(p);   // 들고 있던 짐은 내려놓고 탄다 (옆자리 동승도)
   // 일꾼이 자동 비행 중인 비행기·헬기는 옆자리에 탄다
   if (v.def.air && v.auto && !v.driver && seatFree(v)) return boardPassenger(v, p);
   if (v.driver && v.driver !== p) {
@@ -343,23 +368,94 @@ function exitVehicle(p = G.player) {
   }
 }
 
+/** 호스트: 원격 플레이어(친구)를 집 안으로 / 밖으로 옮기기 */
+function remoteHouse(p, inside) {
+  if (inside) dropHeld(p);
+  if (inside) {
+    if (p.driving || p.riding) exitVehicle(p);
+    const d = HOUSE.houseState.doorPos;
+    p.inHouse = true;
+    p.pos.set(d.x + (p.netId % 3 - 1) * 0.5, 0, d.z - 0.6);
+    p.heading = Math.PI;
+    toast(`${p.name} 님이 우리 집에 들어왔어요`, '🏠', 2200, { quiet: true });
+  } else {
+    const d = G.farmhouse.door;
+    p.inHouse = false;
+    p.pos.set(d.x + (p.netId % 3 - 1) * 0.6, 0, d.z + 1.2);
+    p.heading = 0;
+  }
+  p.speed = 0;
+  p.houseCD = G.now + 1.2;   // 나가자마자 같은 E 입력(따로 도착)으로 다시 들어가지 않게
+}
+
 /** 호스트: 원격 플레이어가 누른 E / Space 처리 */
 function remoteActions(p) {
   const k = p.input;
   if (k.pressed('KeyE')) {
     if (p.driving || p.riding) exitVehicle(p);
+    else if (p.inHouse) { /* 집 안: 나가기는 친구 화면에서 문을 골랐을 때 'house' 명령으로만 (강아지·가구 앞 E와 헷갈리지 않게) */ }
     else {
       const v = nearestVehicle(2.2, p);
       if (v) enterVehicle(v, p);
+      else if (HOUSE.nearHouseDoor(p.pos)) { if (!(p.houseCD > G.now)) remoteHouse(p, true); }
       else { const a = nearestAnimal(2.4, p); if (a) a.pet(); }
     }
   }
   if (k.pressed('Space')) {
     if (p.driving) p.driving.action();
-    else p.hop();
+    else if (p.riding) { /* 옆자리 동승 중: 아무것도 안 함 */ }
+    else if (p.inHouse || !useTool(p)) p.hop();   // 🧑‍🌾 손·삽·낫 쓰기 (할 게 없으면 점프)
+  }
+  updateHeld(p);
+}
+G.hooks = { enterVehicle, exitVehicle, remoteActions, nearestVehicle, nearestAnimal, remoteHouse };
+
+/** ✏️ 동물 이름 짓기 (온라인 친구가 지으면 방장에게 보내서 모두에게) */
+function renameAnimal(a) {
+  askName(`✏️ ${ANIMAL_ICON[a.type]} 이름 짓기`, a.name, (nm) => {
+    a.name = cleanName(nm);
+    if (isGuest()) { a.nameHoldT = G.now + 4; guestCmd.name(G.barns.indexOf(a.barn), a.barn.animals.indexOf(a), a.name); }
+    toast(a.name ? `${ANIMAL_ICON[a.type]} 이제 이름은 '${a.name}'이에요!` : '이름을 지웠어요', '✏️', 2200);
+  }, '이름을 지어 주면 머리 위에 이름표가 떠요');
+}
+function renamePet(kind) {
+  const label = kind === 'dog' ? '🐶 강아지' : '🐱 고양이';
+  const cur = G.house?.pets?.[kind] || '';
+  askName(`✏️ ${label} 이름 짓기`, cur, (nm) => {
+    HOUSE.setPetName(kind, nm);
+    if (isGuest()) guestCmd.pname(kind, G.house.pets[kind]);
+    else hostHouse();
+    toast(G.house.pets[kind] ? `${label} 이름은 이제 '${G.house.pets[kind]}'!` : '이름을 지웠어요', '✏️', 2200);
+  });
+}
+
+// 이름표: 이름 지어 준 동물 중 가까운 몇 마리 머리 위에 (집 안에서는 고양이·강아지)
+const nameTags = [];
+function initNameTags() {
+  if (nameTags.length) return;
+  for (let i = 0; i < 8; i++) {
+    const t = { a: null };
+    t.l = addLabel(() => (t.a ? { x: t.a.pos.x, y: t.a.top + 0.35, z: t.a.pos.z } : { x: 0, y: -999, z: 0 }), 'pet-name', () => (t.a ? `${ANIMAL_ICON[t.a.type]} ${t.a.name}` : ''));
+    nameTags.push(t);
+  }
+  for (const kind of ['cat', 'dog']) {
+    addLabel(() => { const p = HOUSE.houseState[kind]?.group.position; return p ? { x: p.x, y: 1.25, z: p.z } : { x: 0, y: -999, z: 0 }; }, 'pet-name',
+      () => (G.mode === 'house' && G.house?.pets?.[kind] ? `${kind === 'dog' ? '🐶' : '🐱'} ${G.house.pets[kind]}` : ''));
   }
 }
-G.hooks = { enterVehicle, exitVehicle, remoteActions, nearestVehicle, nearestAnimal };
+function updateNameTags() {
+  const list = [];
+  if (G.mode === 'farm') {
+    const c = G.camTarget;
+    for (const b of G.barns) for (const a of b.animals) {
+      if (!a.name) continue;
+      const d = Math.hypot(a.pos.x - c.x, a.pos.z - c.z);
+      if (d < 30) list.push([d, a]);
+    }
+    list.sort((x, y) => x[0] - y[0]);
+  }
+  nameTags.forEach((t, i) => { t.a = list[i]?.[1] || null; });
+}
 
 function handleInput() {
   const k = G.input;
@@ -384,7 +480,7 @@ function handleInput() {
     else {
       const v = nearestVehicle(2.2);
       if (v) enterVehicle(v);
-      else if (HOUSE.nearHouseDoor(G.player.pos)) HOUSE.enterHouse();
+      else if (HOUSE.nearHouseDoor(G.player.pos)) { if (G.cam.fp) toggleFP(); dropHeld(G.player); HOUSE.enterHouse(); }
       else if (nearBoard(G.player.pos)) openBoard();
       else {
         const a = nearestAnimal(2.4);
@@ -392,12 +488,16 @@ function handleInput() {
       }
     }
   }
-  // 친구(게스트)도 알림판은 내 화면에서 바로 연다
-  if (k.pressed('KeyE') && isGuest() && !G.driving && !G.riding && nearBoard(G.player.pos)) openBoard();
+  // 친구(게스트)도 알림판은 내 화면에서 바로 연다 (집 문 앞이면 방장이 집 안으로 옮겨 준다)
+  if (k.pressed('KeyE') && isGuest() && !G.driving && !G.riding && nearBoard(G.player.pos) && !HOUSE.nearHouseDoor(G.player.pos)) openBoard();
+  // ✏️ 동물 이름 짓기
+  if (k.pressed('KeyN') && !G.driving && !G.riding) { const a = nearestAnimal(2.4); if (a) renameAnimal(a); }
   if (k.pressed('Space') && !isGuest()) {
     if (G.driving) G.driving.action();
-    else G.player.hop();
+    else if (!G.riding && !useTool(G.player)) G.player.hop();   // 🧑‍🌾 손·삽·낫 쓰기 (할 게 없으면 점프)
   }
+  // 🧑‍🌾 도구 바꾸기 (Q)
+  if (k.pressed('KeyQ') && !G.driving && !G.riding) api.cycleTool();
   if (k.pressed('Tab')) {
     const list = [null, ...G.vehicles.filter((v) => v !== G.driving)];
     const i = list.indexOf(G.viewTarget);
@@ -416,15 +516,16 @@ function handleInput() {
   else if (G.viewTarget) { setPrompt(`👁 ${G.viewTarget.def.name} 관찰 중 · 움직이면 돌아와요`); setActionLabel(null); }
   else {
     const v = nearestVehicle(2.2);
-    const door = !v && !isGuest() && HOUSE.nearHouseDoor(G.player.pos);
+    const door = !v && HOUSE.nearHouseDoor(G.player.pos);   // 온라인 친구도 집에 들어갈 수 있다
     const bd = !v && !door && nearBoard(G.player.pos);
     const a = !v && !door && !bd && nearestAnimal(2.4);
-    const icon = a && ({ cow: '🐮', hanwoo: '🐂', pig: '🐷', chicken: '🐔' })[a.type];
-    if (v) setPrompt(`<kbd>E</kbd> ${v.def.icon} ${v.def.name} 타기`);
-    else if (door) setPrompt('<kbd>E</kbd> 🏠 집에 들어가기');
+    const icon = a && ANIMAL_ICON[a.type];
+    const th = G.toolHintCache = toolHint(G.player);
+    if (v) setPrompt(`<kbd>E</kbd> ${v.def.icon} ${v.def.name} ${v.def.push ? '밀기' : '타기'}${th ? ' · ' + th.prompt : ''}`);
+    else if (door) setPrompt(isGuest() ? '<kbd>E</kbd> 🏠 친구네 집에 들어가기' : '<kbd>E</kbd> 🏠 집에 들어가기');
     else if (bd) setPrompt(`<kbd>E</kbd> 🪧 알림판 · 방명록 보기${isGuest() ? '' : ' (공지 쓰기)'}`);
-    else if (a) setPrompt(`<kbd>E</kbd> ${icon} 쓰다듬기`);
-    else setPrompt(null);
+    else if (a) setPrompt(`<kbd>E</kbd> ${icon} ${animalName(a)} 쓰다듬기 <button class="pr-name">✏️ 이름 짓기 <kbd>N</kbd></button>${th ? ' · ' + th.prompt : ''}`);
+    else setPrompt(th ? th.prompt : null);
     // 모바일 행동 버튼 글자도 상황에 맞게
     setActionLabel(v ? `${v.def.icon} 타기` : door ? '🏠 들어가기' : bd ? '🪧 알림판' : a ? `${icon} 쓰다듬기` : null);
   }
@@ -437,9 +538,16 @@ function houseInput() {
   if (k.pressed('Escape') && H.decor) HOUSE.setDecor(false);
   if (k.pressed('KeyV')) toggleFP();
   const a = H.decor ? null : HOUSE.nearestActivity();
-  if (k.pressed('KeyE') && a) HOUSE.doActivity(a);
+  if (k.pressed('KeyE') && a) {
+    // 온라인 친구: 문은 방장이 밖으로 옮겨 주고(E가 방장에게도 전달됨), 잠·새참·물 주기는 방장 집 살림이라 방장만
+    const act = a.it && HOUSE.FURNITURE[a.it.p.id].act;
+    if (isGuest() && a.door) guestCmd.house(false);   // 방장이 밖으로 옮겨 준다
+    else if (isGuest() && ['sleep', 'cook', 'water'].includes(act)) guestOnly(HOUSE.FURNITURE[a.it.p.id].actName);
+    else HOUSE.doActivity(a);
+  }
+  if (k.pressed('KeyN') && a?.pet) renamePet(a.pet.kind);
   if (k.pressed('Space') && !H.decor) G.player.hop();
-  setPrompt(a ? `<kbd>E</kbd> ${a.name}` : null);
+  setPrompt(a ? `<kbd>E</kbd> ${a.name}${a.pet ? ' <button class="pr-name">✏️ 이름 짓기 <kbd>N</kbd></button>' : ''}` : null);
   setActionLabel(a ? (a.door ? '🚪 나가기' : '✋ ' + (a.name.length > 6 ? '하기' : a.name)) : null);
 }
 
@@ -582,6 +690,10 @@ function step(dt) {
   G.time += dt * G.timeScale;
   if (G.time >= 1440) { G.time -= 1440; G.day++; rollPrices(); }
   G.snackT = Math.max(0, G.snackT - dt);
+  if (debugOn() && G.coins < DEBUG_COINS) {   // 🛠️ 디버그: 돈 무한
+    if (G.debugCoins == null) G.debugCoins = G.coins;
+    G.coins = DEBUG_COINS;
+  }
   if (G.mode === 'house') HOUSE.updateHouse(dt);
   const h = G.time / 60;
   if (G.lastHour !== undefined && G.lastHour < 6 && h >= 6) {
@@ -593,15 +705,33 @@ function step(dt) {
   const gameHours = (dt * G.timeScale) / 60;
 
   G.player.update(dt);
+  updateHeld(G.player);
   hostStep(dt);
   for (const v of G.vehicles) v.update(dt);
   for (const b of G.barns) b.update(gameHours, dt);
-  G.field.update(dt);
+  updateFields(dt);
   updateItems(dt);
   updateWorld(dt);
   updateEngine();
   saveT += dt;
   if (saveT > 10) { saveT = 0; saveGame(); }
+}
+
+// ⚡ 자동 해상도: 2초 평균이 버벅이면(약 40fps 미만) 렌더 해상도를 한 단계 낮추고, 오래 여유로우면 다시 올린다
+const DPR_MAX = Math.min(window.devicePixelRatio || 1, IS_MOBILE ? 1.5 : 2), DPR_MIN = Math.min(DPR_MAX, IS_MOBILE ? 0.75 : 1);
+const AR = { t0: 0, n: 0, good: 0, dpr: DPR_MAX };
+function adaptResolution(now) {
+  if (!G.started || document.hidden) { AR.t0 = now; AR.n = 0; return; }
+  AR.n++;
+  const span = now - AR.t0;
+  if (span < 2) return;
+  const fps = AR.n / span;
+  AR.t0 = now; AR.n = 0;
+  let next = AR.dpr;
+  if (fps < 40 && AR.dpr > DPR_MIN) { next = Math.max(DPR_MIN, AR.dpr - 0.25); AR.good = 0; }
+  else if (fps > 57) { if (++AR.good >= 4 && AR.dpr < DPR_MAX) { next = Math.min(DPR_MAX, AR.dpr + 0.25); AR.good = 0; } }
+  else AR.good = 0;
+  if (next !== AR.dpr) { AR.dpr = next; renderer.setPixelRatio(next); }
 }
 
 function frame() {
@@ -617,7 +747,7 @@ function frame() {
   }
   if (G.started) handleInput();
   if (G.started && !G.paused && !isGuest()) step(dt);
-  if (G.started && isGuest()) { guestStep(dt); updateWorld(dt); updateEngine(); }
+  if (G.started && isGuest()) { guestStep(dt); if (G.mode === 'house') HOUSE.updateHouse(dt); updateWorld(dt); updateEngine(); }
   if (G.started) hostEndFrame(dt);
   if (G.mode === 'build') updateBuild(dt);
   updateParticles(dt);
@@ -625,6 +755,7 @@ function frame() {
   updateRoofs();
   updateSky(camera.position, G.camTarget);
   if (G.started) {
+    updateNameTags();
     updateLabels(dt);
     uiT -= dt;
     if (uiT <= 0) { uiT = 0.12; updateUI(0.12); }
@@ -633,6 +764,7 @@ function frame() {
   G.input.endFrame();
   // 그림자 "낮음": 그림자 지도는 2프레임에 한 번만 다시 그린다
   if (!renderer.shadowMap.autoUpdate) renderer.shadowMap.needsUpdate = (++frame.n & 1) === 0;
+  adaptResolution(clock.elapsedTime);
   renderer.render(scene, camera);
 }
 
@@ -681,6 +813,7 @@ function start(fresh) {
   if (fresh) clearSave();
   else if (hasSave()) loadGame();
   initUI(api);
+  initNameTags();
   initBoardOnce();
   title.classList.add('out');
   setTimeout(() => title.remove(), 700);
@@ -693,8 +826,14 @@ function start(fresh) {
   G.cam.yaw = 0;
   if (G.settings.fpDefault) toggleFP();
   sfx('day');
-  setTimeout(() => toast(IS_MOBILE ? '몽글몽글 목장에 오신 걸 환영해요! 차량 근처에서 오른쪽 아래 [타기] 버튼을 눌러 보세요' : '몽글몽글 목장에 오신 걸 환영해요! 차량 근처에서 E를 눌러 타보세요', '🌼', 5000), 600);
-  setTimeout(() => toast(G.settings.mode === 'sim' ? '시뮬레이션 모드: R/F/T/G로 유압을 직접 조작해요 · 설정(O)에서 바꿀 수 있어요' : '간편 모드: Space 한 번으로 작업해요 · 설정(O)에서 바꿀 수 있어요', '⚙️', 5000), 2500);
+  // 🧑‍🌾 기계가 하나도 없는 손일 단계면 손일 안내부터
+  const handStage = !G.vehicles.some((v) => !v.def.push && !v.def.personal && !v.def.air);
+  if (handStage) {
+    setTimeout(() => toast('🧑‍🌾 처음엔 기계가 없어요! 손으로 일해서 돈을 모으고, 상점에서 트랙터·스키드로더를 사요', '🌼', 6000), 600);
+    setTimeout(() => toast(`${IS_MOBILE ? '왼쪽 도구 버튼' : 'Q 또는 오른쪽 도구 버튼'}으로 🖐️ 손 · 🪏 삽 · 🌾 낫을 바꿔요. 🪏 삽으로 분뇨를 퍼서 옆에 둔 🛞 손수레에 담아요`, '🪏', 7000), 3200);
+    setTimeout(() => toast('🌾 낫으로 풀을 베고 🖐️ 손으로 모으면 건초 한 단! 🛒 리어카에 실어 축사 통로에 주고, 우유·달걀 팔레트는 판매소로', '🛒', 7000), 7000);
+  } else setTimeout(() => toast(IS_MOBILE ? '몽글몽글 목장에 오신 걸 환영해요! 차량 근처에서 오른쪽 아래 [타기] 버튼을 눌러 보세요' : '몽글몽글 목장에 오신 걸 환영해요! 차량 근처에서 E를 눌러 타보세요', '🌼', 5000), 600);
+  if (!handStage) setTimeout(() => toast(G.settings.mode === 'sim' ? '시뮬레이션 모드: R/F/T/G로 유압을 직접 조작해요 · 설정(O)에서 바꿀 수 있어요' : '간편 모드: Space 한 번으로 작업해요 · 설정(O)에서 바꿀 수 있어요', '⚙️', 5000), 2500);
 }
 btnStart.addEventListener('click', () => start(false));
 btnNew.addEventListener('click', () => start(true));
@@ -764,6 +903,7 @@ function startGuest() {
   initAudio();
   setVolumes(G.settings.music, G.settings.sfx);
   initUI(api);
+  initNameTags();
   initBoardOnce();
   title.classList.add('out');
   setTimeout(() => title.remove(), 700);
@@ -878,7 +1018,7 @@ G.skipMinutes = (min) => {
     if (G.time >= 1440) { G.time -= 1440; G.day++; rollPrices(); }
     const h = m / 60, sec = m / G.timeScale;
     for (const b of G.barns) b.update(h, 0);
-    G.field.update(sec);
+    for (const f of G.fields) { f.growAcc = 0; f.update(sec); }
     G.fertileTimer = Math.max(0, G.fertileTimer - sec);
   }
   G.lastHour = G.time / 60;

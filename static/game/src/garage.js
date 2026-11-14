@@ -78,11 +78,11 @@ export const gradeCost = (type, grade, shop) => Math.round(basePrice(type, shop)
 // ---------------- 등급 (성능) ----------------
 /** 차량 성능을 등급에 맞추기. v.def는 차종 정의(baseDef)를 물려받은 차량 전용 객체 */
 export function applyGrade(v, grade, withKit = false) {
-  if (!GRADES[grade] || (v.def.air && grade !== 'std')) grade = 'std';
+  if (!GRADES[grade] || ((v.def.air || v.def.push) && grade !== 'std')) grade = 'std';
   const g = GRADES[grade];
   v.grade = grade;
   recalc(v);
-  if (v.def.air) { applySkin(v, v.skin || 'base'); return; }
+  if ((v.def.air || v.def.push)) { applySkin(v, v.skin || 'base'); return; }
   morphBody(v, g.shape);                       // 브랜드별 차체 모양
   applySkin(v, v.skin || 'base');              // 투톤 도색 다시
   if (withKit) {                               // 브랜드를 새로 사면 그 브랜드 기본 파츠로
@@ -106,7 +106,7 @@ export const partPrice = (slot, id) => SLOTS[slot]?.parts[id]?.[1] || 0;
 
 /** 능력치 = 차종 기본값 × 모델 × 페인트 보너스 (항공기는 비행 역학이 따로라 페인트 보너스 없음) */
 function recalc(v) {
-  const g = GRADES[v.grade || 'std'], s = v.def.air ? {} : SKINS[v.skin || 'base'], b = v.baseDef;
+  const g = GRADES[v.grade || 'std'], s = (v.def.air || v.def.push) ? {} : SKINS[v.skin || 'base'], b = v.baseDef;
   v.def.maxSpeed = b.maxSpeed * g.speed * (s.speed || 1);
   v.def.accel = b.accel * g.accel * (s.accel || 1);
   v.def.turn = b.turn * g.turn * (s.turn || 1);
@@ -148,7 +148,7 @@ export function applySkin(v, skin) {
   const out = new THREE.Color();
   const rb = sk.rainbow ? rainbowRange(v) : null;
   // 브랜드 투톤: 차체 아래쪽 도색 부분을 브랜드 색으로 (높이는 원래 차체 크기 기준)
-  const two = !v.def.air && GRADES[v.grade || 'std'].two;
+  const two = !(v.def.air || v.def.push) && GRADES[v.grade || 'std'].two;
   const bx = v.bodyBox;
   const lowY = two && bx ? bx.min.y + (bx.max.y - bx.min.y) * two.below : -Infinity;
   const twoC = two ? new THREE.Color(two.color) : null;

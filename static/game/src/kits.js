@@ -415,7 +415,7 @@ export function clearKit(v) {
  */
 export function applyKit(v, custom = {}, badge = null) {
   clearKit(v);
-  if (v.def.air) return;
+  if ((v.def.air || v.def.push)) return;
   const a = analyze(v);
   const parts = [];
   const add = (k) => { parts.push(k); return k; };

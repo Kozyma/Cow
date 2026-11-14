@@ -33,6 +33,12 @@ function structures() {
   return list;
 }
 
+/** 밭 부지를 살 때: 그 땅에 옮겨 둔 건물이 있으면 이름 (예전 저장본) */
+export function plotBlocker(rect) {
+  for (const s of structures()) if (overlap(rect, s.rect)) return s.name;
+  return '';
+}
+
 // ---------------- 주차장 (줄 단위로 넓히기) ----------------
 // 한 줄 = 8칸, 깊이 9m. 처음 2줄(16칸)에서 최대 5줄(40칸)까지 남쪽으로 넓어진다.
 export const PARKING = { cols: 8, x0: -28, dx: 5.5, z0: 24, dz: 9, baseRows: 2, maxRows: 5, prices: [0, 0, 3000, 5000, 8000] };
@@ -74,6 +80,7 @@ function fixedRects() {
   const f = LAYOUT.field;
   return [
     { minX: f.x0 - 1, maxX: f.x0 + f.cols * f.tile + 1, minZ: f.z0 - 1, maxZ: f.z0 + f.rows * f.tile + 1, name: '목초지' },
+    ...LAYOUT.plots.map((p) => ({ minX: p.x0 - 1, maxX: p.x0 + p.cols * p.tile + 1, minZ: p.z0 - 1, maxZ: p.z0 + p.rows * p.tile + 1, name: p.name })),
     { ...parkingRect(), name: '주차장' },
     { minX: LAYOUT.airfield.runway.x - LAYOUT.airfield.runway.len / 2 - 12, maxX: LAYOUT.airfield.runway.x + LAYOUT.airfield.runway.len / 2 + 12, minZ: LAYOUT.airfield.runway.z - 12, maxZ: LAYOUT.airfield.runway.z + 24, name: '비행장' },
     { minX: LAYOUT.airfield.heli.x - 9, maxX: LAYOUT.airfield.heli.x + 9, minZ: LAYOUT.airfield.heli.z - 9, maxZ: LAYOUT.airfield.heli.z + 9, name: '헬기장' },

@@ -2,16 +2,20 @@
 //  호스트: 농장 전체를 계산하고, 상태를 게스트에게 보낸다 (차량·사람 15회/초, 아이템 5회/초, 농장 1회/초)
 //  게스트: 키 입력·카메라 방향을 호스트에 보내고, 받은 상태를 부드럽게 따라가며 그린다
 import * as THREE from 'three';
-import { G, LAYOUT } from './state.js';
+import { G, LAYOUT, BUCKET_CAP } from './state.js';
 import { Player } from './player.js';
 import { LOOKS } from './models.js';
 import { Item } from './items.js';
 import { addMuck } from './items.js';
 import { buildSaveData, applySaveData } from './save.js';
-import { addLabel, removeLabel, toast, addVehicleUI } from './ui.js';
+import { addLabel, removeLabel, toast, addVehicleUI, onLayoutChanged } from './ui.js';
 import { damp, dampAngle, clamp } from './util.js';
 import { sfx } from './audio.js';
 import { addEntry, applyBoardSync } from './board.js';
+import { reloadHouse, showHouse, setPetName } from './house.js';
+import { cleanName } from './barns.js';
+import { assignCode, setAssignCode } from './vehicles.js';
+import { setTool, TOOLS, dropHeld } from './handwork.js';
 
 const lookFor = (id) => LOOKS[id % LOOKS.length];
 
@@ -87,6 +91,7 @@ function onMessage(m) {
     else if (m.t === 'w') applyWorld(m);
     else if (m.t === 'toast') toast(m.msg, m.icon, m.ms);
     else if (m.t === 'bd') applyBoardSync(m.b);
+    else if (m.t === 'hs') { if (m.h) { G.house = m.h; reloadHouse(); } }
     else if (m.t === 'hostgone') { toast('호스트가 방을 닫았어요', '🚪', 4000); }
   }
 }
@@ -97,7 +102,8 @@ function addRemote(id, name) {
   p.netId = id;
   p.name = name;
   p.pos.set(LAYOUT.spawn.x + (id % 4) * 1.4 - 2, 0, LAYOUT.spawn.z + 1.5);
-  p.label = addLabel(() => ({ x: p.pos.x, y: 2.6, z: p.pos.z }), 'zone-label small', () => (p.driving ? '' : `🧑‍🌾 ${name}`));
+  // 집 안 / 밖이 나와 다르면 이름표를 숨긴다
+  p.label = addLabel(() => ({ x: p.pos.x, y: 2.6, z: p.pos.z }), 'zone-label small', () => (p.driving || !!p.inHouse !== (G.mode === 'house') ? '' : `🧑‍🌾 ${name}`));
   net.remotes.set(id, p);
   net.peers.set(id, name);
   syncPlayersList();
@@ -111,6 +117,7 @@ function removeRemote(id) {
   const p = net.remotes.get(id);
   if (!p) return;
   if (p.driving || p.riding) G.hooks.exitVehicle(p);
+  dropHeld(p);   // 들고 있던 짐은 그 자리에 내려놓고 나간다
   removeLabel(p.label);
   p.destroy();
   net.remotes.delete(id);
@@ -141,11 +148,27 @@ function onGuestMessage(id, m) {
   } else if (m.t === 'auto') {
     const v = G.vehicles[m.vi];
     if (v) { v.setAuto(!!m.on); if (v.ui) v.ui.cb.checked = v.auto; }
+  } else if (m.t === 'tool') {
+    if (TOOLS[m.tool]) setTool(p, m.tool);
+  } else if (m.t === 'assign') {
+    const v = G.vehicles[m.vi];
+    if (v) { setAssignCode(v, String(m.code || '').slice(0, 24)); v.ui?.syncAssign?.(); }
   } else if (m.t === 'ing') {
     if (p.driving?.type === 'mixer') p.driving.addIngredient(m.kind);
   } else if (m.t === 'gb') {
     // 친구가 알림판 방명록에 글을 남김 (방장이 받아서 저장하고 모두에게 다시 보냄)
     if (addEntry(p.name, m.msg, `g${id}`)) toast(`${p.name}님이 방명록을 남겼어요`, '✍️', 2200);
+  } else if (m.t === 'house') {
+    // 친구가 들어가기/나가기 (on: true=들어가기, false=나가기 · 예전 방식은 토글)
+    const on = typeof m.on === 'boolean' ? m.on : !p.inHouse;
+    if (on !== !!p.inHouse) G.hooks.remoteHouse?.(p, on);
+  } else if (m.t === 'name') {
+    // 친구가 동물 이름을 지음
+    const a = G.barns[m.b]?.animals[m.i];
+    if (a) { a.name = cleanName(m.name); if (a.name) toast(`${p.name}님이 ${a.name}(이)라고 이름을 지어 줬어요`, '✏️', 2400); }
+  } else if (m.t === 'pname') {
+    setPetName(m.kind, m.name);
+    hostHouse();
   } else if (m.t === 'chat') {
     const msg = String(m.msg || '').slice(0, 80);
     toast(`${p.name}: ${msg}`, '💬', 4000);
@@ -156,10 +179,23 @@ function onGuestMessage(id, m) {
 /** 호스트 게임 루프: 원격 플레이어 이동 · 행동 */
 export function hostStep(dt) {
   if (net.role !== 'host') return;
+  const meIn = G.mode === 'house';
   for (const p of net.remotes.values()) {
     p.update(dt);
     G.hooks.remoteActions(p);
+    // 집 안에 있는 친구는 집 안에 있을 때만 보인다 (집은 농장에서 멀리 떨어진 곳에 있음)
+    if (!p.driving && !p.riding) p.group.visible = !!p.inHouse === meIn;
   }
+}
+
+/** 방장: 집(가구·벽지·반려동물 이름)이 바뀌면 손님들에게 */
+let lastHouse = '';
+export function hostHouse() {
+  if (net.role !== 'host' || !net.remotes.size) return;
+  const s = JSON.stringify(G.house);
+  if (s === lastHouse) return;
+  lastHouse = s;
+  toGuests({ t: 'hs', h: G.house });
 }
 /** 호스트 프레임 끝: 원격 입력의 '눌림' 처리 끝 + 상태 보내기 */
 let fastT = 0, midT = 0, worldT = 0, lastSig = '';
@@ -175,6 +211,7 @@ export function hostEndFrame(dt) {
     const sig = structSig();
     if (sig !== lastSig) { lastSig = sig; for (const id of net.remotes.keys()) toGuests(initPacket(id), id); }
     else toGuests(worldPacket());
+    hostHouse();
   }
 }
 
@@ -186,14 +223,16 @@ function structSig() {
 function playerList() {
   const out = [];
   // 차량 번호: 운전 중이면 그대로, 옆자리 동승이면 +1000
-  const add = (id, name, p, drv, ride) => out.push([id, name, r2(p.pos.x), r2(p.pos.z), r2(p.heading), r2(p.speed), drv ? G.vehicles.indexOf(drv) : ride ? 1000 + G.vehicles.indexOf(ride) : -1, p.hopT > 0 ? 1 : 0, G.mode === 'house' && id === 0 ? 1 : 0]);
-  add(0, net.name, G.player, G.driving, G.riding);
-  for (const p of net.remotes.values()) add(p.netId, p.name, p, p.driving, p.riding);
+  // 마지막 값: 집 안에 있는지 (방장 = 지금 화면이 집, 친구 = 방장이 집 안으로 옮겨 준 상태)
+  const add = (id, name, p, drv, ride, inHouse) => out.push([id, name, r2(p.pos.x), r2(p.pos.z), r2(p.heading), r2(p.speed), drv ? G.vehicles.indexOf(drv) : ride ? 1000 + G.vehicles.indexOf(ride) : -1, p.hopT > 0 ? 1 : 0, inHouse ? 1 : 0, p.tool || 'hand', Math.round((p.scoop || 0) * 10) / 10, Math.floor(p.armful || 0), p.held?.kind || null, p.swingN || 0]);
+  add(0, net.name, G.player, G.driving, G.riding, G.mode === 'house');
+  for (const p of net.remotes.values()) add(p.netId, p.name, p, p.driving, p.riding, p.inHouse);
   return out;
 }
 
 function initPacket(id) {
   lastSig = structSig();
+  lastHouse = JSON.stringify(G.house);
   return { t: 'init', you: id, save: buildSaveData(), world: worldPacket(), fast: fastPacket(), mid: midPacket() };
 }
 
@@ -231,15 +270,15 @@ function midPacket() {
   }
   return {
     t: 'm', items,
-    vx: G.vehicles.map((v) => [r2(v.load), v.loadKind, r2(v.bulk), v.bulkKind, v.collected, v.mix, r2(v.mixT), r2(v.dispensed), v.skidMode, v.status, v.carrying?.kind || null, v.carrying?.product || null, v.pto ? 1 : 0, v.auto ? 1 : 0]),
+    vx: G.vehicles.map((v) => [r2(v.load), v.loadKind, r2(v.bulk), v.bulkKind, v.collected, v.mix, r2(v.mixT), r2(v.dispensed), v.skidMode, v.status, v.carrying?.kind || null, v.carrying?.product || null, v.pto ? 1 : 0, v.auto ? 1 : 0, assignCode(v)]),
   };
 }
 
 function worldPacket() {
   return {
     t: 'w', coins: G.coins, day: G.day, time: G.time, ts: G.timeScale, prices: G.prices, upgrades: G.upgrades, fertile: G.fertileTimer, snack: G.snackT,
-    barns: G.barns.map((b) => [r2(b.feed), r2(b.happiness), b.animals.length, b.capacity, b.cells.map((c) => r2(c.amt)), r2(b.shed.raw), r2(b.shed.compost), b.pallets.length, Math.round(b.boostT), b.expansions]),
-    field: G.field.serialize(),
+    barns: G.barns.map((b) => [r2(b.feed), r2(b.happiness), b.animals.length, b.capacity, b.cells.map((c) => r2(c.amt)), r2(b.shed.raw), r2(b.shed.compost), b.pallets.length, Math.round(b.boostT), b.expansions, b.animals.map((a) => a.name || '')]),
+    fields: G.fields.map((f) => (f.owned ? [f.id, f.crop, f.serialize()] : [f.id])),   // 산 밭만 칸 상태를 보낸다
     muck: G.muck.map((m) => [r2(m.x), r2(m.z), r2(m.amount)]),
     peers: [[0, net.name], ...[...net.remotes.values()].map((p) => [p.netId, p.name])],
   };
@@ -249,7 +288,8 @@ function worldPacket() {
 let ready = false;
 const tgt = { v: [], p: new Map() };
 const items = new Map();   // 호스트 아이템 id → 내 화면의 Item
-let fieldStr = '', muckStr = '';
+const fieldStr = new Map();
+let muckStr = '';
 
 function applyInit(m) {
   if (ready) {
@@ -269,7 +309,7 @@ function applyInit(m) {
   net.puppets.clear();
   G.players = [G.player];
   G.driving = null;
-  fieldStr = ''; muckStr = '';
+  fieldStr.clear(); muckStr = '';
   ready = true;
   applyWorld(m.world);
   applyFast(m.fast, true);
@@ -299,6 +339,14 @@ function applyFast(m, snap = false) {
     if (snap) { v.pos.set(s[0], s[9] || 0, s[1]); v.heading = s[2]; }
   });
   if (myRide !== G.riding) { G.riding = myRide; sfx(myRide ? 'board' : 'unboard'); }
+  // 방장이 나를 집 안/밖으로 옮겼으면 화면도 바꾼다
+  const meRow = m.p.find((r) => r[0] === net.id);
+  const myIn = !!meRow?.[8];
+  if (meRow && myIn !== (G.mode === 'house') && (G.mode === 'house' || G.mode === 'farm')) {
+    G.player.pos.set(meRow[2], 0, meRow[3]);
+    showHouse(myIn);
+    if (myIn) toast('친구네 집에 놀러 왔어요! 🐱🐶 쓰다듬고, 문 매트에서 E로 나가요', '🏠', 3200);
+  }
   if (mine !== G.driving) {
     const prev = G.driving;
     G.driving = mine;
@@ -306,7 +354,7 @@ function applyFast(m, snap = false) {
     else if (prev) { sfx('unboard'); G.cam.fpYaw = prev.heading; }
   }
   const seen = new Set();
-  for (const [id, name, x, z, h, spd, vi, hop, inHouse] of m.p) {
+  for (const [id, name, x, z, h, spd, vi, hop, inHouse, tool, scoop, armful, heldKind, swingN] of m.p) {
     seen.add(id);
     let p;
     if (id === net.id) p = G.player;
@@ -321,12 +369,15 @@ function applyFast(m, snap = false) {
         G.players = [G.player, ...net.puppets.values()];
       }
       p.netDriving = vi;
-      p.netHidden = !!inHouse;
-      p.group.visible = vi < 0 && !inHouse;
+      p.netHidden = !!inHouse !== myIn;   // 나와 다른 곳(집 안/밖)에 있는 사람은 숨김
+      p.group.visible = vi < 0 && !p.netHidden;
       if (vi >= 1000 && G.vehicles[vi - 1000]) G.vehicles[vi - 1000].passenger = p;
       else if (vi >= 0 && G.vehicles[vi]) G.vehicles[vi].driver = p;
     }
     p.netT = { x, z, h, spd };
+    // 🧑‍🌾 도구 · 삽에 뜬 양 · 품의 풀 · 들고 있는 짐 (방장이 계산)
+    if (TOOLS[tool] && !(id === net.id && G.now < (p.toolHoldT || 0))) p.tool = tool;
+    p.scoop = scoop || 0; p.armful = armful || 0; p.heldKind = heldKind || null; p.swingN = swingN || 0;
     if (hop && !(p.hopT > 0)) p.hopT = 0.45;
     if (snap || id === net.id && Math.hypot(p.pos.x - x, p.pos.z - z) > 6) p.pos.set(x, 0, z);
   }
@@ -361,6 +412,7 @@ function applyMid(m) {
     v.pto = !!s[12];
     const auto = !!s[13];
     if (v.auto !== auto) { v.auto = auto; if (v.ui) v.ui.cb.checked = auto; }
+    if ((s[14] || '') !== assignCode(v)) { setAssignCode(v, s[14] || ''); v.ui?.syncAssign?.(); }
     guestToolVisual(v);
   });
 }
@@ -373,10 +425,12 @@ function applyWorld(m) {
   m.barns.forEach((s, i) => {
     const b = G.barns[i];
     if (!b) return;
-    const [feed, happy, n, cap, cells, raw, compost, pallets, boost, exp] = s;
+    const [feed, happy, n, cap, cells, raw, compost, pallets, boost, exp, names] = s;
     b.feed = feed; b.happiness = happy; b.capacity = cap; b.boostT = boost; b.expansions = exp;
     while (b.animals.length < n && b.addAnimal(false));
     while (b.animals.length > n) b.removeAnimal();
+    // 방금 내가 지은 이름은 방장 확인이 올 때까지 잠깐 유지 (이름표 깜빡임 방지)
+    if (Array.isArray(names)) b.animals.forEach((a, j) => { if (!(a.nameHoldT > G.now)) a.name = cleanName(names[j]); });
     if (cells.length === b.cells.length) cells.forEach((a, j) => { b.cells[j].amt = a; });
     b.dirtyManure = true;
     b.shed.raw = raw; b.shed.compost = compost;
@@ -385,7 +439,16 @@ function applyWorld(m) {
     b.updateVisuals();
     b.shed.updateVisuals();
   });
-  if (m.field !== fieldStr) { fieldStr = m.field; G.field.deserialize(m.field); }
+  for (const [id, crop, s] of m.fields || []) {
+    const key = (crop || '-') + (s || '');
+    if (fieldStr.get(id) === key) continue;
+    fieldStr.set(id, key);
+    const f = G.fields.find((q) => q.id === id);
+    if (!f) continue;
+    const relook = f.owned !== !!crop || (crop && f.crop !== crop);
+    f.applyState({ id, crop, owned: !!crop, s });
+    if (relook) onLayoutChanged();   // 미니맵 다시 그리기
+  }
   const ms = JSON.stringify(m.muck);
   if (ms !== muckStr) {
     muckStr = ms;
@@ -403,7 +466,7 @@ function guestToolVisual(v) {
   const m = v.m;
   if (v.type === 'skid' && m.load) {
     m.load.visible = v.load > 0.3;
-    const s = Math.min(1, v.load / 25);
+    const s = Math.min(1, v.load / BUCKET_CAP);
     m.load.scale.set(0.6 + s * 0.4, 0.4 + s * 0.8, 0.6 + s * 0.4);
     v.tintLoad(m.load, v.loadKind);
   }
@@ -411,6 +474,12 @@ function guestToolVisual(v) {
     m.load.visible = v.bulk > 0.3;
     const k = Math.min(1, v.bulk / (v.type === 'truck5' ? 75 : 30));
     m.load.scale.set(0.5 + k * 0.5, 0.3 + k * 1.2, 0.5 + k * 0.5);
+    v.tintLoad(m.load, v.bulkKind);
+  }
+  if (v.def.barrow && m.load) {
+    m.load.visible = v.bulk > 0.2;
+    const k = Math.min(1, v.bulk / 15);
+    m.load.scale.set(0.6 + k * 0.4, 0.4 + k * 1.1, 0.6 + k * 0.4);
     v.tintLoad(m.load, v.bulkKind);
   }
   if (v.type === 'baler' && m.lamps) for (let i = 0; i < 4; i++) m.lamps[i].material = i < v.collected ? v.lampOn : v.lampOff;
@@ -478,9 +547,14 @@ export function guestStep(dt) {
 export const guestCmd = {
   board: (v) => sendRaw({ t: 'board', vi: G.vehicles.indexOf(v) }),
   auto: (v, on) => sendRaw({ t: 'auto', vi: G.vehicles.indexOf(v), on }),
+  assign: (v, code) => sendRaw({ t: 'assign', vi: G.vehicles.indexOf(v), code }),
+  tool: (tool) => { G.player.toolHoldT = G.now + 1.5; sendRaw({ t: 'tool', tool }); },
   ing: (kind) => sendRaw({ t: 'ing', kind }),
   chat: (msg) => sendRaw({ t: 'chat', msg }),
   gb: (msg) => sendRaw({ t: 'gb', msg: String(msg).slice(0, 80) }),
+  house: (on) => sendRaw({ t: 'house', on: !!on }),
+  name: (b, i, name) => sendRaw({ t: 'name', b, i, name }),
+  pname: (kind, name) => sendRaw({ t: 'pname', kind, name }),
 };
 
 /** 방장: 알림판(공지·방명록)이 바뀌면 모두에게 */

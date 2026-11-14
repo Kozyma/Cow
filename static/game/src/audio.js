@@ -80,6 +80,7 @@ export function sfx(name) {
     case 'oink': tone(330, 0.12, { type: 'square', vol: 0.06, slide: 260 }); tone(360, 0.14, { type: 'square', vol: 0.06, slide: 240, when: 0.15 }); break;
     case 'cluck': for (let i = 0; i < 3; i++) tone(900 - i * 60, 0.06, { type: 'square', vol: 0.05, slide: 600, when: i * 0.09 }); break;
     case 'meow': tone(700, 0.35, { type: 'triangle', vol: 0.12, slide: 520, attack: 0.04, vibrato: 10 }); break;
+    case 'woof': for (let i = 0; i < 2; i++) tone(420 - i * 30, 0.11, { type: 'square', vol: 0.07, slide: 260, attack: 0.01, when: i * 0.17 }); break;
     case 'sleep': [392, 330, 262].forEach((f, i) => tone(f, 0.5, { vol: 0.14, when: i * 0.25 })); break;
     case 'cook': noise(0.6, { vol: 0.12, freq: 2500, q: 0.5 }); tone(880, 0.2, { vol: 0.1, when: 0.5 }); tone(1175, 0.3, { vol: 0.1, when: 0.62 }); break;
     case 'day': [392, 523, 659, 784].forEach((f, i) => tone(f, 0.35, { vol: 0.14, when: i * 0.12 })); break;
@@ -102,7 +103,7 @@ export function updateEngine() {
   if (!engine) return;
   const v = G.driving;
   const t = ctx.currentTime;
-  if (!v) { engine.g.gain.setTargetAtTime(0, t, 0.1); return; }
+  if (!v || v.def.push) { engine.g.gain.setTargetAtTime(0, t, 0.1); return; }   // 손수레·리어카는 엔진 소리 없음
   const s = Math.min(1.5, Math.abs(v.speed) / v.def.maxSpeed);
   engine.o.frequency.setTargetAtTime(45 + s * 55 + (v.boosting ? 20 : 0), t, 0.1);
   engine.f.frequency.setTargetAtTime(250 + s * 400, t, 0.1);

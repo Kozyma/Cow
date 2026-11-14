@@ -1,9 +1,9 @@
 // 차량: 직접 운전(시뮬레이션/간편) + 유압 조작 + 자동 운용 AI
 import * as THREE from 'three';
-import { G, LAYOUT, BALE_FEED, MAX_BALES, BUCKET_CAP, TRUCK_BULK_CAP, COMPOST, INGREDIENTS, RECIPES, MIX_TIME, MIXER_CAP, MIX_UNIT_FEED } from './state.js';
-import { stock, loadIngredient, recipeOf, planRecipe, mixTotal, freeStationSlot, setOnStation, inStation } from './feed.js';
+import { G, LAYOUT, BALE_FEED, baleKind, MAX_BALES, BUCKET_CAP, TRUCK_BULK_CAP, COMPOST, INGREDIENTS, RECIPES, MIX_TIME, MIXER_CAP, MIX_UNIT_FEED } from './state.js';
+import { stock, loadIngredient, recipeOf, planRecipe, mixTotal, freeStationSlot, setOnStation, inStation, stationItems } from './feed.js';
 import { shedAt, allSheds } from './compost.js';
-import { makeTractor, makeBaler, makeForklift, makeSkidLoader, makeTruck1, makeTruck5, makeMixer, makeBaleWagon, makeCar, makeHelicopter, makePlane, makeLiner, makeJet, glassMat, makeFarmer, seatFigure, pilotFigure, PLAYER_LOOK, NPC_LOOKS, LAMP } from './models.js';
+import { makeTractor, makeBaler, makeForklift, makeSkidLoader, makeTruck1, makeTruck5, makeMixer, makeBaleWagon, makeCar, makeHelicopter, makePlane, makeLiner, makeJet, glassMat, makeFarmer, seatFigure, pilotFigure, makeWheelbarrow, makeHandcart, pushFigure, PLAYER_LOOK, NPC_LOOKS, LAMP } from './models.js';
 import { mat } from './materials.js';
 import { clamp, wrapAngle, approach, damp, dampAngle, rand, lerp, group, part, sphere, torus } from './util.js';
 import { collideCircle, blockedAt } from './physics.js';
@@ -13,6 +13,8 @@ import { toast, floatText } from './ui.js';
 import { sfx } from './audio.js';
 import { mergeStatic } from './merge.js';
 import { collectPaint, animateFlag } from './garage.js';
+import { fieldAt, CROPS } from './field.js';
+import { barrowAction, cartAction } from './handwork.js';
 import {
   spawnBale, baleCount, pickupItem, releaseCarried, supportUnder, itemInFront, freeYardSlot, inYard,
   freeDockSlot, dockItems, setOnTruck, truckCargo, freeTruckSlot, sellItems, nearMarket,
@@ -20,6 +22,15 @@ import {
 } from './items.js';
 
 export const VEH_DEFS = {
+  // 🧑‍🌾 손으로 미는 수레 (처음 시작할 때의 일꾼 장비 · 자동 운전 없음)
+  wheelbarrow: {
+    name: '손수레', icon: '🛞', maxSpeed: 4.8, accel: 7, turn: 3.0, radius: 0.8, work: 1.6, build: makeWheelbarrow, carries: [], color: '#6fb8e0',
+    circles: [[0.45, 0.72], [-0.7, 0.5], [-1.5, 0.42]], push: true, barrow: true,
+  },
+  handcart: {
+    name: '리어카', icon: '🛒', maxSpeed: 4.6, accel: 6, turn: 2.4, radius: 1.0, work: 2.6, build: makeHandcart, carries: [], color: '#d9a066',
+    circles: [[2.15, 0.45], [0.75, 0.75], [-0.6, 0.95]], push: true, cart: true,
+  },
   tractor: {
     name: '트랙터', icon: '🚜', maxSpeed: 8, accel: 6, turn: 1.9, radius: 1.45, work: 2.7, build: makeTractor, carries: [], color: '#63b85c',
     lift: { min: 0, max: 1, rate: 1.3, init: 1, name: '예초기 높이' }, pto: '예초기',
@@ -135,6 +146,8 @@ export class Vehicle {
     this.bulk = 0;           // 트럭 적재함 벌크 (분뇨/퇴비)
     this.bulkKind = null;
     this.collected = 0;      // 베일러 챔버
+    this.baleCrop = 'grass'; // 챔버에 든 작물
+    this.assign = null;      // 담당 지정: { barn } 또는 { field } (null = 전체)
     this.mix = { hay: 0, corn: 0, soy: 0 };   // 배합기 내용물
     this.mixT = 0;           // 배합 진행(초)
     this.dispensed = 0;      // 배출한 사료량
@@ -145,12 +158,12 @@ export class Vehicle {
     this.status = '대기 중';
     this.idleStatus = '대기 중';
     this.ai = { task: null, path: null, idx: 0, think: rand(0.2, 1.2), stuck: 0, reverseT: 0, revSteer: 0, wait: 0, forBarn: null };
-    const sit = this.def.air ? pilotFigure : seatFigure;   // 항공기는 작은 조종사 + 헤드셋
+    const sit = this.def.air ? pilotFigure : this.def.push ? (f) => pushFigure(f, !!this.def.cart) : seatFigure;   // 항공기는 작은 조종사 + 헤드셋 · 수레는 서서 밀기
     this.playerFig = sit(makeFarmer(PLAYER_LOOK));
     this.npcFig = sit(makeFarmer(NPC_LOOKS[index % NPC_LOOKS.length]));
     this.m.seat.add(this.playerFig.group, this.npcFig.group);
     this.playerFig.group.visible = false;
-    const eyeY = this.def.air ? 0.66 : 0.95;
+    const eyeY = this.def.air ? 0.66 : this.def.push ? 1.6 : 0.95;
     this.eye = group(this.m.seat, 0, eyeY, 0.12);
     this.lampOn = LAMP.on();
     this.lampOff = LAMP.off();
@@ -194,10 +207,11 @@ export class Vehicle {
   }
   inField(m = 0) {
     const p = this.workPoint();
-    return G.field.inside(p.x, p.z, m);
+    return !!fieldAt(p.x, p.z, m);
   }
 
   setAuto(on) {
+    if (this.def.push) on = false;   // 손수레·리어카는 사람이 직접 민다
     this.auto = on;
     if (this.def.air) {
       if (this.job?.reservedBy === this) this.job.reservedBy = null;
@@ -210,6 +224,7 @@ export class Vehicle {
     else this.ai.think = 0;
   }
   clearTask() {
+    this.ai.sweep = null;   // 맡아 둔 우리 청소도 놓기 (다른 스키드가 할 수 있게)
     const t = this.ai.task;
     if (t?.item && t.item.reservedBy === this) t.item.reservedBy = null;
     this.ai.task = null;
@@ -268,9 +283,135 @@ export class Vehicle {
     }
   }
 
+  /**
+   * 간편 모드: 작업 버튼(Space) 없이, 운전만 하면 그 자리에 맞는 작업을 알아서 한다
+   *  · 트랙터/베일러: 목초지에 들어가면 작업기 내리고 ON, 나오면 올리고 OFF
+   *  · 지게차/스키드: 짐 앞으로 다가가면 들기, 들고 가다 멈추면 내려놓기
+   *  · 스키드 버킷: 앞으로 가면 바닥 분뇨 퍼담기, 퇴비사 분뇨칸·트럭 적재함 앞에서 멈추면 쏟기
+   *  · 트럭: 출하장 상차 · 판매소 판매 · 배합장 하차 · 퇴비사 상차/분뇨 내리기 · 사료 가게 창 열기 (멈추면)
+   *  · 배합기: 배합장에서 멈추면 레시피 자동 투입 → 오거 자동 → 축사 통로 안에서 자동 배출
+   *  · 베일 운반차: 건초 앞으로 다가가면 집어 싣기, 통로·보관소·배합장에서 멈추면 내리기
+   */
+  easyAuto(dt) {
+    const t = this.type;
+    const stopped = Math.abs(this.speed) < 0.35;
+    this.easyStopT = stopped ? (this.easyStopT || 0) + dt : 0;
+    this.easyCD = Math.max(0, (this.easyCD || 0) - dt);
+    if (this.seq || this.manualHydT > 0) return;
+    const local = this.driver === G.player;
+    const say = (txt, cls = 'good') => { const p = this.workPoint(); floatText(p.x, 2.4, p.z, txt, cls); };
+
+    if (t === 'tractor' || t === 'baler') {
+      const on = this.inField(0.3);
+      if (on !== this.pto) {
+        this.pto = on;
+        this.liftT = on ? 0 : 1;
+        sfx('click');
+        say(`${this.def.pto} ${on ? '자동 ON' : 'OFF'}`, on ? 'good' : '');
+      }
+      return;
+    }
+    if (this.easyCD > 0) return;
+
+    // --- 들고 있는 짐 내려놓기: 짐을 들고 어느 정도 옮긴 뒤 멈추면 ---
+    if (this.carrying && (t === 'forklift' || t === 'skid')) {
+      const moved = this.pickAt ? Math.hypot(this.pos.x - this.pickAt.x, this.pos.z - this.pickAt.z) : 99;
+      if (stopped && this.easyStopT > 0.6 && moved > 2.5) { this.quickAction(); this.pickAt = null; this.easyCD = 1.2; }
+      return;
+    }
+    if (t === 'forklift' || (t === 'skid' && this.load < 0.5)) {
+      // 앞에 짐이 있으면 들기 (방금 내려놓은 짐은 잠깐 다시 집지 않음)
+      const it = itemInFront(this, 0.6, t === 'skid' ? 3.0 : 3.4, 1.0);
+      // 앞으로 다가가는 중일 때만 (내려놓고 서 있는 동안 다시 집지 않게)
+      if (it && this.canGrab(it) && this.speed > 0.2 && (t !== 'skid' || it.kind === 'bale')) {
+        this.quickAction();
+        this.pickAt = { x: this.pos.x, z: this.pos.z };
+        this.easyCD = 1.0;
+        return;
+      }
+    }
+    if (t === 'skid') {
+      this.skidMode = 'level';
+      if (this.load > 0.5) {
+        const fp = this.workPoint();
+        const sp = supportUnder(fp.x, fp.z, this, 0.4);
+        const sa = shedAt(fp.x, fp.z, 1.2);
+        const intoShed = sa && (this.loadKind === 'compost' ? sa.zone === 'compost' : sa.zone === 'raw');
+        // 트럭 적재함 위, 또는 퇴비사 알맞은 칸 앞에서 멈추면 쏟기
+        if ((sp.kind === 'truck' || intoShed) && this.easyStopT > 0.25) {
+          this.quickAction();
+          this.easyCD = 2.2;
+          say(sp.kind === 'truck' ? '트럭에 쏟기 ⤵️' : '퇴비사에 쏟기 ⤵️');
+        }
+      }
+      return;
+    }
+    if (this.isTruck) {
+      if (!stopped || this.easyStopT < 0.5) { if (!this.nearStore()) this.storeShown = false; return; }
+      this.easyCD = 1.5;
+      if (this.nearStore()) {
+        if (!this.storeShown && local) { this.storeShown = true; G.openStore?.(this); }
+        return;
+      }
+      if (this.atStation() && truckCargo(this).some((it) => it.kind === 'sack' || it.kind === 'bale')) { this.unloadToStation(); return; }
+      const bay = LAYOUT.dock.bay;
+      if (Math.hypot(this.pos.x - bay.x, this.pos.z - bay.z) < 6) {
+        if (this.bulk < 0.01 && dockItems().length && freeTruckSlot(this) >= 0) this.loadFromDock();
+        return;
+      }
+      if (nearMarket(this.pos, 4) || nearMarket(this.workPoint(), 3)) {
+        if (truckCargo(this).length || (this.bulk > 0.01 && this.bulkKind === 'compost')) this.sellCargo();
+        return;
+      }
+      const shed = this.nearShedLoad();
+      if (shed) {
+        if (this.def.dump && this.bulk > 0.01 && this.bulkKind === 'manure') { this.seq = [{ lift: 0.85, dur: 2.6 }, { lift: 0, dur: 2.2 }]; this.easyCD = 5; return; }
+        const cap = TRUCK_BULK_CAP[this.type];
+        if (!truckCargo(this).length && (this.bulk < 0.01 || this.bulkKind === 'compost') && this.bulk < cap - 0.5 && shed.compost > 0.5) this.loadCompost(shed);
+      }
+      return;
+    }
+    if (t === 'mixer') {
+      const total = mixTotal(this);
+      if (total > 0 && !this.isMixed()) this.pto = true;   // 원료가 들어 있으면 오거를 돌려 섞기
+      const inAlley = barnAlleyAt(this.pos.x, this.pos.z);
+      if (inAlley && total > 0 && this.isMixed()) {
+        if (this.tiltT < 0.5) { this.pto = true; this.tiltT = 1; say('배출 시작!'); }
+      } else if (this.tiltT > 0.5) this.tiltT = 0;   // 통로 밖에서는 배출구 닫기 (바닥에 쏟지 않게)
+      // 배합장에 서 있으면 자동 투입 (원료가 모자라면 3초마다 다시 확인 → 트럭이 원료를 내려놓으면 바로 시작)
+      if (this.atStation() && stopped && this.easyStopT > 0.5 && total < MIXER_CAP && this.dispensed === 0 && !this.stationTried && G.now > (this.stationRetryT || 0)) {
+        const rec = recipeOf(this.mix);
+        const target = rec ? G.barns.find((b) => b.animalType === rec) : this.pickRecipeTarget();
+        if (target && this.autoLoad(target.animalType)) { this.stationTried = true; toast(`${RECIPES[target.animalType].name} 자동 배합 시작!`, RECIPES[target.animalType].icon, 2200); }
+        else {
+          this.stationRetryT = G.now + 3;
+          if (!total && !this.stationWarned) { this.stationWarned = true; const msg = '원료가 부족해요. 트럭으로 사료 가게에서 옥수수·대두박을 사 오세요'; if (local) toast(msg, '🌽', 3000); }
+        }
+      }
+      if (!this.atStation()) { this.stationTried = false; this.stationWarned = false; }
+      return;
+    }
+    if (t === 'balewagon') {
+      const cargo = truckCargo(this).filter((it) => !it.fly).length;
+      if (!this.carrying && cargo < this.m.slots.length && this.speed > 0.2) {
+        const it = itemInFront(this, 2.2, 5.0, 1.3);
+        if (it && it.support.kind === 'ground' && this.canGrab(it)) { this.wagonQuick(); this.easyCD = 1.0; return; }
+      }
+      if (cargo && stopped && this.easyStopT > 0.6) {
+        const fx = Math.sin(this.heading), fz = Math.cos(this.heading);
+        const rx = this.pos.x - fx * 6.2, rz = this.pos.z - fz * 6.2;
+        const y = LAYOUT.yard, S = LAYOUT.station.bay;
+        const spot = barnAlleyAt(this.pos.x, this.pos.z) || barnAlleyAt(rx, rz) || Math.hypot(this.pos.x - y.x, this.pos.z - y.z) < 9 || inYard(rx, rz) || Math.hypot(this.pos.x - S.x, this.pos.z - S.z) < 7 || inStation(rx, rz, 2);
+        if (spot) { this.seq = [{ tilt: 0.6, dur: 1.7 }, { tilt: 0, dur: 1.5 }]; this.easyCD = 4; }
+      }
+    }
+  }
+
   /** Space 키 */
   action() {
     if (this.def.air) { this.airAction(); return; }
+    if (this.def.barrow) { barrowAction(this, this.driver === G.player); return; }
+    if (this.def.cart) { cartAction(this, this.driver === G.player); return; }
     const easy = this.isEasy();
     const t = this.type;
     if (t === 'tractor' || t === 'baler') {
@@ -332,7 +473,8 @@ export class Vehicle {
       const sp = supportUnder(fp.x, fp.z, this, 1.2);
       const high = sp.kind === 'truck';
       const lift = high ? (sp.truck.def.dump ? 0.95 : 0.75) : 0.4;
-      this.seq = [{ lift, tilt: -0.3, dur: high ? 1.1 : 0.6 }, { tilt: 1.05, dur: 0.6 }, { tilt: 0, lift: 0.12, dur: 0.6 }];
+      // 버킷 기울이는 속도(1.5/초)로 끝까지(쏟기 각도 0.7 이상) 기울 시간을 준다
+      this.seq = [{ lift, tilt: 0, dur: high ? 1.1 : 0.6 }, { tilt: 1.05, dur: 0.85 }, { tilt: 0, lift: 0.12, dur: 0.6 }];
       return;
     }
     if (this.carrying) {
@@ -438,7 +580,7 @@ export class Vehicle {
 
   pickRecipeTarget(maxFeed = 101) {
     const st = stock();
-    const list = G.barns.filter((b) => b.animals.length && b.feed < maxFeed).sort((a, b) => a.feed - b.feed);
+    const list = this.workBarns().filter((b) => b.animals.length && b.feed < maxFeed).sort((a, b) => a.feed - b.feed);
     for (const b of list) if (planRecipe(b.animalType, this.mix, st)) return b;
     return null;
   }
@@ -573,6 +715,7 @@ export class Vehicle {
       }
       this.status = '직접 운전 중';
       this.manualControls(dt);
+      if (this.isEasy() && !def.air && !def.personal && !def.push) this.easyAuto(dt);
     } else if (this.auto || this.ai.task?.kind === 'yield') {
       [thr, st] = this.think(dt);
       if (!this.def.air) this.watchdog(dt);
@@ -746,30 +889,39 @@ export class Vehicle {
     if (this.type === 'tractor') {
       if (this.pto) for (const d of m.discs) d.rotation.y += dt * 22;
       if (this.pto && moving && this.lift < 0.2) {
-        const cut = G.field.cutAt(fp.x, fp.z, 1.45);
+        const cut = fieldAt(fp.x, fp.z, 1.45)?.cutAt(fp.x, fp.z, 1.45) || [];
         for (const t of cut) for (let i = 0; i < 3; i++) spawn('clip', t.x + rand(-0.6, 0.6), 0.5, t.z + rand(-0.6, 0.6), { vy: rand(2, 4), vx: rand(-1.5, 1.5), vz: rand(-1.5, 1.5), grav: 9, life: 0.8, spin: rand(-12, 12) });
         if (cut.length) sfx('cut');
       }
     } else if (this.type === 'baler') {
       if (this.pto) m.reel.rotation.x -= dt * 9;
       if (this.pto && moving && this.lift < 0.2 && this.collected < 4) {
-        const got = G.field.collectAt(fp.x, fp.z, 1.35);
+        // 챔버에는 한 가지 작물만: 다른 작물 밭이면 먼저 베일을 내보내야 한다
+        const f = fieldAt(fp.x, fp.z, 1.35);
+        const got = f && (!this.collected || f.crop === this.baleCrop) ? f.collectAt(fp.x, fp.z, 1.35) : [];
+        if (f && this.collected && f.crop !== this.baleCrop && driven && G.now - (this.mixWarnT || 0) > 4) {
+          this.mixWarnT = G.now;
+          toast(`챔버에 ${CROPS[this.baleCrop].name}이(가) 들어 있어요. 먼저 베일을 내보내요`, '🌀', 2400);
+        }
         if (got.length) {
+          if (!this.collected) this.baleCrop = f.crop;
           this.collected = Math.min(4, this.collected + got.length);
           for (const t of got) for (let i = 0; i < 3; i++) spawn('hay', t.x + rand(-0.5, 0.5), 0.4, t.z + rand(-0.5, 0.5), { vy: rand(2, 3.5), grav: 9, life: 0.7, spin: rand(-10, 10) });
           sfx('cut');
         }
       }
       this.ejectCD -= dt;
-      if (this.collected >= 4 && this.tilt > 0.8 && this.ejectCD <= 0) {
+      if ((this.collected >= 4 || (this.forceEject && this.collected > 0)) && this.tilt > 0.8 && this.ejectCD <= 0) {
         if (baleCount() < MAX_BALES) {
           this.collected = 0;
+          this.forceEject = false;
           this.ejectCD = 1.2;
           const bx = this.pos.x - Math.sin(this.heading) * 3.0, bz = this.pos.z - Math.cos(this.heading) * 3.0;
-          spawnBale(bx, bz, this.heading);
+          const crop = CROPS[this.baleCrop] ? this.baleCrop : 'grass';
+          spawnBale(bx, bz, this.heading, CROPS[crop].bale);
           burst('hay', bx, 1.2, bz, 10, { vy: 3 });
           sfx('bale');
-          if (driven) floatText(bx, 2, bz, '건초 완성! 🌾', 'good');
+          if (driven) floatText(bx, 2, bz, `${CROPS[crop].baleName} 완성! ${CROPS[crop].icon}`, 'good');
         } else if (driven && G.now - (this.fullT || 0) > 4) {
           this.fullT = G.now;
           toast('건초가 너무 많아요! 먼저 옮기거나 팔아주세요', '🌾');
@@ -800,8 +952,8 @@ export class Vehicle {
       const by = m.carry.getWorldPosition(_w).y;
       const level = this.tilt > -0.35 && this.tilt < 0.3;
       if (!this.carrying && this.load < BUCKET_CAP && this.lift < 0.12 && level && this.speed > 0.15) {
-        // 간편 모드는 버킷 폭 전체로 퍼담아, 우리 가운데로 지나가도 양옆 분뇨가 담긴다
-        const got = this.scoop(fp.x, fp.z, easy && driven ? 2.0 : 1.5);
+        // 간편 모드·자동 일꾼은 버킷 폭 전체로 퍼담아, 우리 가운데로 지나가도 양옆 분뇨가 담긴다
+        const got = this.scoop(fp.x, fp.z, (easy && driven) || !driven ? 2.0 : 1.5);
         if (got > 0) {
           if (G.now - (this.scoopSfx || 0) > 0.4) { sfx('scoop'); this.scoopSfx = G.now; }
           if (this.load >= BUCKET_CAP - 0.01 && driven) floatText(fp.x, 2, fp.z, '버킷 가득!', 'good');
@@ -830,6 +982,12 @@ export class Vehicle {
     }
     if (this.type === 'mixer') this.updateMixer(dt, driven);
     if (this.type === 'balewagon') this.updateWagon(dt, driven);
+    if (this.def.barrow) {
+      const k = Math.min(1, this.bulk / TRUCK_BULK_CAP.wheelbarrow);
+      m.load.visible = this.bulk > 0.2;
+      m.load.scale.set(0.6 + k * 0.4, 0.4 + k * 1.1, 0.6 + k * 0.4);
+      this.tintLoad(m.load, this.bulkKind);
+    }
     if (this.isTruck) {
       const cap = TRUCK_BULK_CAP[this.type];
       m.load.visible = this.bulk > 0.3;
@@ -840,7 +998,7 @@ export class Vehicle {
         const rx = this.pos.x - Math.sin(this.heading) * 4.6, rz = this.pos.z - Math.cos(this.heading) * 4.6;
         if (this.bulk > 0.1) {
           const kind = this.bulkKind;
-          if (kind === 'compost' && G.field.inside(rx, rz, 2) && !shedAt(rx, rz, 3)) {
+          if (kind === 'compost' && fieldAt(rx, rz, 2) && !shedAt(rx, rz, 3)) {
             depositBulk('compost', this.bulk, rx, rz, { manual: driven });
           } else {
             const sa = shedAt(rx, rz, 3) || shedAt(this.pos.x, this.pos.z, 5.5);
@@ -962,7 +1120,7 @@ export class Vehicle {
       let n = 0;
       for (const it of cargo) {
         if (barn.feed > 100 - BALE_FEED * 0.6) break;
-        barn.addFeed(BALE_FEED, null);
+        barn.addFeed(baleKind(it).feed, null);
         it.remove();
         n++;
       }
@@ -972,10 +1130,18 @@ export class Vehicle {
       this.ai.forBarn = null;
       return;
     }
+    // 판매소: 남는 베일 팔기
+    if (nearMarket(this.pos, 5) || nearMarket({ x: rx, z: rz }, 3)) {
+      sellItems(cargo, LAYOUT.market);
+      return;
+    }
     const y = LAYOUT.yard;
     const nearYard = Math.hypot(this.pos.x - y.x, this.pos.z - y.z) < 9 || inYard(rx, rz);
     const nearStation = Math.hypot(this.pos.x - LAYOUT.station.bay.x, this.pos.z - LAYOUT.station.bay.z) < 7 || inStation(rx, rz, 2);
     let i = 0;
+    // 일꾼(자동)은 보관소·배합장 칸이 모자라면 남은 베일을 데크에 그대로 싣고 다른 곳으로 간다
+    // (예전에는 아무 데나 내려놓고 → 그걸 다시 집으러 가며 맴돌았다)
+    const keepRest = !driven && (nearYard || nearStation);
     for (const it of cargo) {
       if (nearStation) {
         const slot = freeStationSlot(this);
@@ -985,6 +1151,7 @@ export class Vehicle {
         const slot = freeYardSlot(this);
         if (slot) { it.placeAt(slot.x, slot.z, Math.PI / 2); it.pop = 0.4; continue; }
       }
+      if (keepRest) continue;
       const lx = Math.cos(this.heading), lz = -Math.sin(this.heading);
       const back = 1.0 + Math.floor(i / 2) * 1.5, side = (i % 2 ? 1 : -1) * 0.7;
       it.placeAt(rx - fx * back + lx * side, rz - fz * back + lz * side, this.heading);
@@ -1011,35 +1178,62 @@ export class Vehicle {
     const cargo = truckCargo(this).filter((it) => !it.fly).length;
     const cap = this.m.slots.length;
     if (this.carrying) { this.liftT = 1; return null; }
+    const ai = this.ai;
+    // 보관소·배합장 근처에 내려 둔 베일은 '보관 중' → 다시 집지 않는다 (집었다 내렸다 맴돌기 방지)
+    const Y = LAYOUT.yard, SB = LAYOUT.station.bay;
+    const stored = (p) => inYard(p.x, p.z) || Math.hypot(p.x - Y.x, p.z - Y.z) < 11 || inStation(p.x, p.z, 1) || Math.hypot(p.x - SB.x, p.z - SB.z) < 9;
+    const fid = this.assign?.field;
     let best = null, bd = Infinity;
     for (const it of G.items) {
-      if (it.kind !== 'bale' || it.carriedBy || it.removed || it.support.kind !== 'ground') continue;
-      if (inYard(it.pos.x, it.pos.z) || inStation(it.pos.x, it.pos.z, 1)) continue;
+      if (it.kind !== 'bale' || it.carriedBy || it.removed || it.fly || it.support.kind !== 'ground') continue;
+      if (stored(it.pos) || nearMarket(it.pos, 2)) continue;
       if ((it.reservedBy && it.reservedBy !== this) || it.unreachable > G.now) continue;
+      if (fid) { const f = G.fields.find((q) => q.id === fid); const a = f?.area(5); if (a && !(it.pos.x > a.minX && it.pos.x < a.maxX && it.pos.z > a.minZ && it.pos.z < a.maxZ)) continue; }
       const d = Math.hypot(it.pos.x - this.pos.x, it.pos.z - this.pos.z);
       if (d < bd) { bd = d; best = it; }
     }
+    // 한번 배달하러 나서면 데크를 다 비울 때까지 배달만 한다 (실으러 갔다 내리러 갔다 오락가락 방지)
+    if (!cargo) ai.wDeliver = false;
+    if (cargo >= cap || (cargo > 0 && (!best || bd > 45))) ai.wDeliver = true;
     const unloadSeq = () => { this.seq = [{ tilt: 0.6, dur: 1.7 }, { tilt: 0, dur: 1.5 }]; };
-    if (cargo >= cap || (cargo > 0 && (!best || bd > 45))) {
-      const barn = this.neededBarn(65);
-      if (barn) {
-        this.ai.forBarn = barn;
-        return { kind: 'drop', key: 'wfeed' + barn.uid, center: true, x: barn.cx, z: barn.front - 9, arrive: 2.4, label: `${barn.name} 통로에 건초 내리는 중 🌾`, slow: 0.7, prep: () => { this.liftT = 0.3; }, onArrive: unloadSeq };
-      }
+    if (ai.wDeliver) {
+      const deck = truckCargo(this).filter((it) => !it.fly);
+      const corn = deck.filter((it) => it.product === 'corn').length;
       const st = stock();
       const S = LAYOUT.station;
-      if (st.hay < 2 && freeStationSlot(this)) return { kind: 'drop', key: 'wstation', center: true, x: S.bay.x, z: S.bay.z + 3, arrive: 2.6, label: '배합장에 건초 내리는 중 🥣', prep: () => { this.liftT = 0.3; }, onArrive: unloadSeq };
-      const y = LAYOUT.yard;
-      if (freeYardSlot(this)) return { kind: 'drop', key: 'wyard', center: true, x: y.x, z: y.z + 7.5, arrive: 2.6, label: '건초 보관소에 내리는 중', prep: () => { this.liftT = 0.3; }, onArrive: unloadSeq };
-      this.idleStatus = '건초를 둘 곳이 없어요';
-      return null;
+      const drop = (key, x, z, label) => ({ kind: 'drop', key, center: true, x, z, arrive: 2.6, label, prep: () => { this.liftT = 0.3; }, onArrive: unloadSeq });
+      // 옥수수 사일리지는 배합장 원료로 먼저
+      if (corn && st.corn < 4 && freeStationSlot(this)) return drop('wstation', S.bay.x, S.bay.z + 3, '배합장에 옥수수 사일리지 내리는 중 🌽');
+      const barn = this.neededBarn(65);
+      if (barn) {
+        ai.forBarn = barn;
+        return { kind: 'drop', key: 'wfeed' + barn.uid, center: true, x: barn.cx, z: barn.front - 9, arrive: 2.4, label: `${barn.name} 통로에 건초 내리는 중 🌾`, slow: 0.7, prep: () => { this.liftT = 0.3; }, onArrive: unloadSeq };
+      }
+      if (deck.length > corn && st.hay < 2 && freeStationSlot(this)) return drop('wstation', S.bay.x, S.bay.z + 3, '배합장에 건초 내리는 중 🥣');
+      if (freeYardSlot(this)) return drop('wyard', Y.x, Y.z + 7.5, '건초 보관소에 내리는 중');
+      if (corn && freeStationSlot(this)) return drop('wstation', S.bay.x, S.bay.z + 3, '배합장에 옥수수 사일리지 내리는 중 🌽');
+      // 둘 곳이 하나도 없으면 남는 베일은 판매소에서 팔기
+      const M = LAYOUT.market;
+      return { kind: 'drop', key: 'wsell', center: true, x: M.x, z: M.z, arrive: 3.2, label: '보관소가 가득 · 남는 베일 팔러 가는 중 🏪', prep: () => { this.liftT = 0.3; }, onArrive: unloadSeq };
     }
     if (best) {
       const it = best;
       return {
-        kind: 'pickup', key: 'witem' + it.id, item: it, x: it.pos.x, z: it.pos.z, arrive: 1.1, label: `밭에서 건초 싣는 중 🚛 (${cargo}/${cap})`,
+        kind: 'pickup', key: 'witem' + it.id, item: it, x: it.pos.x, z: it.pos.z, arrive: 1.1, label: `밭에서 베일 싣는 중 🚛 (${cargo}/${cap})`,
         valid: () => !it.carriedBy && !it.removed && it.support.kind === 'ground',
-        prep: () => { this.tiltT = 0; this.liftT = Math.hypot(it.pos.x - this.pos.x, it.pos.z - this.pos.z) < 10 ? 0 : 0.3; },
+        // 집게 사이에 들어오면 바로 집는다 (정확히 한 점을 맞추려고 빙빙 돌지 않기)
+        done: () => itemInFront(this, 2.2, 5.2, 1.4) === it,
+        prep: () => {
+          this.tiltT = 0;
+          const dx = it.pos.x - this.pos.x, dz = it.pos.z - this.pos.z, d = Math.hypot(dx, dz);
+          this.liftT = d < 10 ? 0 : 0.3;
+          // 너무 가까운데 옆·뒤에 있으면: 그 자리에서 돌지 말고 살짝 후진해서 정면으로 다시 들어간다
+          const ang = wrapAngle(Math.atan2(dx, dz) - this.heading);
+          if (d < 6.5 && Math.abs(ang) > 0.75 && !(ai.reverseT > 0) && G.now > (ai.wBackCD || 0)) {
+            ai.wBackCD = G.now + 3;
+            ai.reverseT = 1.6; ai.revSteer = -Math.sign(ang); ai.path = null;
+          }
+        },
         onArrive: () => {
           const ok = itemInFront(this, 2.2, 5.2, 1.4) === it;
           if (!ok) { it.unreachable = G.now + 15; return; }
@@ -1047,7 +1241,7 @@ export class Vehicle {
         },
       };
     }
-    this.idleStatus = '옮길 건초가 없어요';
+    this.idleStatus = '옮길 베일이 없어요';
     return null;
   }
 
@@ -1100,7 +1294,16 @@ export class Vehicle {
     for (const gl of this.glass) gl.visible = !hideGlass;
     this.npcFig.group.visible = !driven && this.auto;
     if (m.beacon) m.beacon.material = running && Math.sin(G.now * 8) > 0 ? this.beaconOn : this.beaconOff;
-    if (running) {
+    if (this.def.push && driven) {
+      // 미는 사람 걸음
+      const f = this.playerFig, a = Math.min(1, Math.abs(this.speed) / 4);
+      this.walkPh = (this.walkPh || 0) + dt * (6 + Math.abs(this.speed) * 1.8) * Math.sign(this.speed || 1);
+      const sw = Math.sin(this.walkPh) * a;
+      f.legs[0].rotation.x = sw * 0.8; f.legs[1].rotation.x = -sw * 0.8;
+      f.root.position.y = Math.abs(Math.sin(this.walkPh)) * 0.07 * a;
+      m.body.position.y = 0;
+    }
+    if (running && !this.def.push) {
       this.smokeT -= dt;
       if (this.smokeT <= 0) {
         this.smokeT = this.boosting ? 0.05 : 0.12 + (1 - Math.min(1, Math.abs(this.speed) / this.def.maxSpeed)) * 0.3;
@@ -1132,7 +1335,7 @@ export class Vehicle {
 
   /** 쉬는 일꾼 차가 다가오는 차량(by)의 길에서 옆으로 비켜 준다 */
   yieldTo(by) {
-    if (!!this.driver || this.seq || this.carrying) return false;
+    if (!!this.driver || this.seq || this.carrying || this.def.push) return false;   // 손수레·리어카는 혼자 움직이지 않는다
     const t = this.ai.task;
     if (t && t.kind !== 'park') return false;
     if (G.now < (this.yieldCD || 0)) return false;
@@ -1219,8 +1422,22 @@ export class Vehicle {
     const fp = this.workPoint();
     const dC = Math.hypot(task.x - this.pos.x, task.z - this.pos.z);
     const dF = Math.hypot(task.x - fp.x, task.z - fp.z);
-    const arrived = task.center ? dC < (task.arrive ?? 1.4) : dF < task.arrive || dC < 0.9;
-    if (arrived) return this.arrive(task);
+    // 밭일(work)은 작업 지점(앞쪽 예초기·픽업)이 칸 위를 지나가야 한다:
+    // 칸이 차체 바로 밑에 있다고 '도착'으로 치면 제자리에서 같은 칸을 끝없이 다시 고르며 멈춰 버린다
+    const arrived = task.center ? dC < (task.arrive ?? 1.4) : dF < task.arrive || (dC < 0.9 && task.kind !== 'work');
+    // 밭일: 작업기가 아직 덜 내려가 칸을 못 벤 채 도착했으면 멈추지 말고 천천히 앞으로 (멈추면 같은 칸만 계속 고르며 서 버린다)
+    if (arrived && task.kind === 'work' && task.valid?.()) return [0.45, 0];
+    if (arrived || task.done?.()) return this.arrive(task);
+    // 밭일 칸이 작업 지점보다 뒤(차 밑)에 있으면: 곧게 조금 후진했다가 다시 지나가며 작업
+    if (task.kind === 'work' && !this.def.skid) {
+      const ax = task.x - this.pos.x, az = task.z - this.pos.z;
+      const fx = Math.sin(this.heading), fz = Math.cos(this.heading);
+      const along = ax * fx + az * fz, lat = Math.abs(ax * fz - az * fx);
+      if (along < this.def.work - 0.4 && along > -this.backReach && lat < 2.2) {
+        ai.reverseT = 1.1; ai.revSteer = 0; ai.path = null;
+        return [-0.6, 0];
+      }
+    }
 
     if (!ai.path || ai.pathFor !== task) this.plan(task);
     const path = ai.path;
@@ -1242,7 +1459,7 @@ export class Vehicle {
     const last = ai.idx === path.length - 1;
     const dx = wp.x - this.pos.x, dz = wp.z - this.pos.z;
     const d = Math.hypot(dx, dz);
-    if (last && d < 1.0) return this.arrive(task);
+    if (last && d < 1.0 && task.kind !== 'work') return this.arrive(task);
 
     const want = Math.atan2(dx, dz);
     const diff = wrapAngle(want - this.heading);
@@ -1276,7 +1493,7 @@ export class Vehicle {
     }
 
     const fx = Math.sin(this.heading), fz = Math.cos(this.heading);
-    let blocked = false, avoid = 0, crawl = false, oncoming = null, blockLat = 0;
+    let blocked = false, avoid = 0, crawl = false, oncoming = null, blockLat = 0, animalAhead = false;
     // 앞 감지: 진행 방향에 나무·벽 모서리가 있으면 미리 비어 있는 쪽으로 핸들을 튼다
     // (목적지 바로 앞이나 축사 안처럼 일부러 가까이 가는 곳에서는 끔)
     const reach = this.frontReach;
@@ -1338,7 +1555,7 @@ export class Vehicle {
       for (const a of b.animals) {
         const ox = a.pos.x - this.pos.x, oz = a.pos.z - this.pos.z;
         const fwd = ox * fx + oz * fz, lat = ox * fz - oz * fx;
-        if (fwd > 0 && fwd < this.def.work + 2 && Math.abs(lat) < 1.6) { crawl = true; this.status = '동물들아 비켜줘~'; }
+        if (fwd > 0 && fwd < this.def.work + 2 && Math.abs(lat) < 1.6) { crawl = true; animalAhead = true; this.status = '동물들아 비켜줘~'; }
       }
     }
     if (blocked) {
@@ -1354,7 +1571,8 @@ export class Vehicle {
       return [0, clamp(steer + (blockLat >= 0 ? -0.6 : 0.6), -1, 1)];
     }
     ai.wait = 0;
-    if (crawl) return [Math.min(thr, 0.3), clamp(steer + avoid, -1, 1)];
+    // 스키드로더는 동물이 비켜 가며(밀려나며) 지나가므로 너무 기어가지 않는다
+    if (crawl) return [Math.min(thr, animalAhead && this.def.skid ? 0.6 : 0.3), clamp(steer + avoid, -1, 1)];
     if (avoid) return this.stuckCheck(dt, thr * 0.7, clamp(steer + avoid, -1, 1), diff);
     return this.stuckCheck(dt, thr, steer, diff);
   }
@@ -1488,7 +1706,8 @@ export class Vehicle {
     };
     if (to && !same) {
       const hint = from ? { x: from.x, z: (from.front + from.back) / 2 } : pos;
-      const e = ends(to).map((q) => ({ ...q, o: { x: to.x, z: q.edge + q.dir * out } })).sort((a, b) => hyp(hint, a.o) + hyp(a.o, task) - hyp(hint, b.o) - hyp(b.o, task))[0];
+      const opts = ends(to).map((q) => ({ ...q, o: { x: to.x, z: q.edge + q.dir * out } })).sort((a, b) => hyp(hint, a.o) + hyp(a.o, task) - hyp(hint, b.o) - hyp(b.o, task));
+      const e = (task.enterDir && opts.find((q) => q.dir === task.enterDir)) || opts[0];   // 들어갈 문을 정해 둔 일(스키드 쓸기)은 그 문으로
       post.push({ x: to.x, z: e.edge + e.dir * outAt(to.x, e.edge, e.dir), tight: true }, { x: to.x, z: e.edge - e.dir * 1.5, tight: true });
     }
     if (from && !same) {
@@ -1547,6 +1766,7 @@ export class Vehicle {
     else if (this.type === 'mixer') t = this.taskMixer();
     else if (this.type === 'balewagon') t = this.taskWagon();
     else if (this.def.personal) { this.idleStatus = '주차장에서 쉬는 중'; t = null; }
+    else if (this.def.push) { this.idleStatus = '사람이 밀어야 움직여요'; t = null; }
     else t = this.taskHauler();
     if (!t) {
       const p = this.park;
@@ -1563,35 +1783,92 @@ export class Vehicle {
   }
 
   // --- 트랙터 / 베일러 ---
-  taskTractor() {
-    const stock = baleCount() + G.field.counts.cut / 4;
-    if (this.resting && stock < 18) this.resting = false;
-    if (!this.resting && stock >= 28) this.resting = true;
-    if (this.resting) { this.idleStatus = '건초가 충분해서 쉬는 중'; return null; }
+  /** 일할 밭들 (담당 밭이 정해져 있으면 그 밭만) */
+  workFields() {
+    const id = this.assign?.field;
+    return G.fields.filter((f) => f.owned && (!id || f.id === id));
+  }
+
+  /** 작물별로 베일이 넉넉한지 (넉넉하면 트랙터가 그 작물은 쉬어 간다) */
+  cropFull(crop) {
+    const corn = crop === 'corn';
+    let bales = 0, cut = 0;
+    for (const it of G.items) if (it.kind === 'bale' && (it.product === 'corn') === corn) bales++;
+    for (const f of G.fields) if (f.owned && (f.crop === 'corn') === corn) cut += f.counts.cut;
+    const stock = bales + cut / 4;
+    const [lo, hi] = corn ? [12, 20] : [18, 28];
+    const r = (this.restCrop ||= {}), k = corn ? 'corn' : 'hay';
+    if (r[k] && stock < lo) r[k] = false;
+    if (!r[k] && stock >= hi) r[k] = true;
+    return r[k];
+  }
+
+  /** 여러 밭 중 갈 칸: 지금 있는 밭을 먼저 끝낸다 */
+  pickTile(state, fields) {
     const wp = this.workPoint();
-    const tile = G.field.nearest('tall', wp.x, wp.z, this.heading);
-    if (!tile) { this.idleStatus = '풀이 자라길 기다리는 중'; return null; }
+    const here = fieldAt(wp.x, wp.z, 1.5);
+    let best = null, bv = Infinity;
+    for (const f of fields) {
+      const r = f.nearestScored(state, wp.x, wp.z, this.heading);
+      if (!r) continue;
+      const v = r.v + (here && f !== here ? 25 : 0);
+      if (v < bv) { bv = v; best = { t: r.t, f }; }
+    }
+    return best;
+  }
+
+  /** 작업기는 가려는 그 밭 안에서만 내린다 (가는 길에 다른 밭을 지나며 베지 않게) */
+  fieldPrep(f) {
+    const p = this.workPoint();
+    const on = f.inside(p.x, p.z, 1.5);
+    this.pto = on; this.liftT = on ? 0 : 1;
+  }
+
+  taskTractor() {
+    const fields = this.workFields();
+    if (!fields.length) { this.idleStatus = '담당 밭이 없어요'; return null; }
+    const open = fields.filter((f) => !this.cropFull(f.crop));
+    if (!open.length) { this.idleStatus = '베일이 충분해서 쉬는 중'; return null; }
+    const pick = this.pickTile('tall', open);
+    if (!pick) { this.idleStatus = '작물이 자라길 기다리는 중'; return null; }
+    const { t: tile, f } = pick;
     return {
-      kind: 'work', key: 'tile' + tile.i, x: tile.x, z: tile.z, arrive: 0.9, label: '풀 베는 중 ✂️', valid: () => tile.state === 'tall',
-      prep: () => { const on = this.inField(1.5); this.pto = on; this.liftT = on ? 0 : 1; }, slow: 0.9,
+      kind: 'work', key: 'tile' + f.id + tile.i, x: tile.x, z: tile.z, arrive: 0.9, label: `${f.name} ${CROPS[f.crop].name} 베는 중 ✂️`, valid: () => tile.state === 'tall' && f.owned,
+      prep: () => this.fieldPrep(f), slow: 0.9,
     };
   }
 
   taskBaler() {
-    if (baleCount() >= MAX_BALES - 4) { this.idleStatus = '건초 보관 공간이 부족해요'; return null; }
-    const wp = this.workPoint();
-    const tile = G.field.nearest('cut', wp.x, wp.z, this.heading);
-    if (!tile) { this.idleStatus = '벤 풀을 기다리는 중'; return null; }
+    const fields = this.workFields();
+    const same = this.collected ? fields.filter((f) => f.crop === this.baleCrop) : fields;
+    // 챔버가 덜 찼는데 같은 작물의 벤 줄이 더 없으면 있는 만큼이라도 베일로 내보낸다 (멍하니 기다리지 않기)
+    if (this.collected > 0 && !same.some((f) => f.counts.cut > 0)) {
+      if (baleCount() >= MAX_BALES) { this.idleStatus = '베일이 너무 많아요 (옮기거나 팔아 주세요)'; return null; }
+      if (!this.seq && this.tilt < 0.1) { this.forceEject = true; this.seq = [{ tilt: 1, dur: 0.9 }, { tilt: 0, dur: 0.7 }]; }
+      this.idleStatus = '남은 풀로 베일 내보내는 중';
+      return null;
+    }
+    if (baleCount() >= MAX_BALES - 2) { this.idleStatus = '베일이 너무 많아요 (옮기거나 팔아 주세요)'; return null; }
+    const pick = this.pickTile('cut', same);
+    if (!pick) { this.idleStatus = fields.length ? '벤 풀을 기다리는 중' : '담당 밭이 없어요'; return null; }
+    const { t: tile, f } = pick;
     return {
-      kind: 'work', key: 'tile' + tile.i, x: tile.x, z: tile.z, arrive: 0.9, label: `건초 만드는 중 (${this.collected}/4)`, valid: () => tile.state === 'cut' && this.collected < 4,
-      prep: () => { const on = this.inField(1.5); this.pto = on; this.liftT = on ? 0 : 1; },
+      kind: 'work', key: 'tile' + f.id + tile.i, x: tile.x, z: tile.z, arrive: 0.9, label: `${CROPS[f.crop].baleName} 만드는 중 (${this.collected}/4)`, valid: () => tile.state === 'cut' && this.collected < 4 && f.owned,
+      prep: () => this.fieldPrep(f),
     };
+  }
+
+  /** 일할 축사들 (담당 축사가 정해져 있으면 그 축사만) */
+  workBarns() {
+    const b = this.assign?.barn;
+    if (b && !G.barns.includes(b)) this.assign = null;
+    return this.assign?.barn ? [this.assign.barn] : G.barns;
   }
 
   // --- 지게차 / 스키드로더 ---
   neededBarn(maxFeed) {
     let best = null, bv = Infinity;
-    for (const b of G.barns) {
+    for (const b of this.workBarns()) {
       if (!b.animals.length) continue;
       let incoming = 0;
       for (const v of G.vehicles) if (v !== this && v.ai.forBarn === b) incoming++;
@@ -1640,6 +1917,8 @@ export class Vehicle {
     for (const it of G.items) {
       if (it.kind !== 'pallet' || it.carriedBy || it.removed || it.support.kind !== 'ground') continue;
       if (it.reservedBy && it.reservedBy !== this) continue;
+      const ab = this.assign?.barn;   // 담당 축사 팔레트만
+      if (ab && it.barn !== ab && !ab.contains(it.pos.x, it.pos.z, 8)) continue;
       if (it.unreachable > G.now) continue;
       const d = Math.hypot(it.pos.x - this.pos.x, it.pos.z - this.pos.z);
       if (d < bd) { bd = d; best = it; }
@@ -1672,7 +1951,13 @@ export class Vehicle {
       const m = LAYOUT.market;
       return this.dropTask(m.x, m.z, 'market', '판매소로 직접 운반 중 🏪', { arrive: 2.5 });
     }
+    // 옥수수 사일리지는 배합장 원료가 모자라면 배합장으로
+    if (it.product === 'corn' && stock().corn < 4) {
+      const s = freeStationSlot(this, this.pos.x, this.pos.z);
+      if (s) return this.dropTask(s.x, s.z, 'st' + s.i, '배합장에 옥수수 사일리지 옮기는 중 🌽', { slot: 's' + s.i, arrive: 0.8 });
+    }
     let barn = this.ai.forBarn;
+    if (barn && !this.workBarns().includes(barn)) barn = null;
     if (!barn || barn.feed > 100 - BALE_FEED * 0.6) barn = this.neededBarn(100 - BALE_FEED * 0.6);
     if (barn) {
       this.ai.forBarn = barn;
@@ -1689,21 +1974,11 @@ export class Vehicle {
   taskHauler() {
     if (this.carrying) return this.deliverTask();
     if (this.type === 'skid') {
-      if (this.load >= BUCKET_CAP * 0.8) return this.compostTask();
-      let worst = null;
-      for (const b of G.barns) if (b.manure >= (this.load > 0 ? 3 : 18) && (!worst || b.manure > worst.manure)) worst = b;
-      if (worst) {
-        const c = worst.dirtiestCell(this.pos.x, this.pos.z);
-        if (c) {
-          return {
-            kind: 'scoop', key: `cell${worst.uid}-${worst.cells.indexOf(c)}`, x: c.x, z: c.z, arrive: 0.7, label: `${worst.name} 바닥 청소 중 🧹 (${Math.round((this.load / BUCKET_CAP) * 100)}%)`,
-            valid: () => c.amt > 0.3 && this.load < BUCKET_CAP * 0.95,
-            prep: () => { const near = Math.hypot(c.x - this.pos.x, c.z - this.pos.z) < 8; this.liftT = near ? 0 : 0.15; this.tiltT = 0; },
-            slow: 0.75,
-          };
-        }
-      }
-      const pile = G.muck.reduce((best, m) => (!best || m.amount > best.amount ? m : best), null);
+      if (this.load >= BUCKET_CAP * 0.85) { this.ai.sweep = null; return this.compostTask(); }
+      const sw = this.sweepTask();
+      if (sw) return sw;
+      const ab = this.assign?.barn;
+      const pile = G.muck.reduce((best, m) => ((ab && !ab.contains(m.x, m.z, 10)) || (best && m.amount <= best.amount) ? best : m), null);
       if (pile && this.load < BUCKET_CAP * 0.9) {
         return { kind: 'scoop', key: 'muck' + G.muck.indexOf(pile), x: pile.x, z: pile.z, arrive: 0.8, label: '쏟아진 분뇨 치우는 중', valid: () => G.muck.includes(pile), prep: () => { this.liftT = 0; this.tiltT = 0; } };
       }
@@ -1727,12 +2002,65 @@ export class Vehicle {
     return null;
   }
 
+  /** 우리(한쪽 칸) 하나의 분뇨 양 */
+  penManure(b, pen) {
+    let s = 0;
+    for (const c of b.cells) if (c.pen === pen) s += c.amt;
+    return s;
+  }
+
+  /**
+   * 스키드로더 청소: 칸마다 멈춰 서서 하나씩 뜨던 방식 대신,
+   * 우리 한가운데를 버킷을 바닥에 붙인 채 앞→뒤(또는 뒤→앞)로 곧게 '쓸고 지나가며' 양쪽 분뇨를 한 번에 담는다.
+   * 한 번 정한 줄은 끝까지 간다 (중간에 다른 칸으로 갈팡질팡하지 않게)
+   */
+  sweepTask() {
+    const ai = this.ai;
+    let s = ai.sweep;
+    if (s && (!G.barns.includes(s.b) || this.penManure(s.b, s.pen) < 0.4)) s = ai.sweep = null;
+    if (!s) {
+      let best = null, bv = 0;
+      for (const b of this.workBarns()) {
+        for (const pen of b.pens) {
+          if (G.vehicles.some((o) => o !== this && o.auto && !o.driver && o.ai.sweep && o.ai.sweep.pen === pen)) continue;   // 다른 스키드가 맡은 칸
+          const amt = this.penManure(b, pen);
+          if (amt < (this.load > 0.5 ? 2 : 6)) continue;
+          const d = Math.hypot(pen.gate - this.pos.x, (b.front + b.back) / 2 - this.pos.z);
+          const v = amt * 2 - d * 0.25;
+          if (!best || v > bv) { best = { b, pen }; bv = v; }
+        }
+      }
+      if (!best) return null;
+      const { b } = best;
+      // 가까운 쪽 끝에서 들어가 반대쪽 끝까지 (퇴비사는 축사 뒤에 있어서, 앞에서 들어가면 끝나는 곳이 퇴비사와 가깝다)
+      const fromFront = Math.abs(this.pos.z - b.front) <= Math.abs(this.pos.z - b.back) + 6;
+      s = ai.sweep = { ...best, dir: fromFront ? -1 : 1, n: (ai.sweepN = (ai.sweepN || 0) + 1) };
+    }
+    const { b, pen, dir } = s;
+    const endZ = dir < 0 ? b.back + 1.6 : b.front - 1.6;
+    const inside = (x, z) => x > pen.minX && x < pen.maxX && z > b.back && z < b.front;
+    const self = this;
+    return {
+      kind: 'scoop', key: `sweep${b.uid}-${pen.side}-${s.n}`, center: true, x: pen.gate, z: endZ, arrive: 1.4,
+      enterDir: dir < 0 ? 1 : -1,   // 들어갈 문: 앞(1) / 뒤(-1)
+      get label() { return `${b.name} 바닥 쓸어 담는 중 🧹 (${Math.round((self.load / BUCKET_CAP) * 100)}%)`; },
+      valid: () => this.load < BUCKET_CAP * 0.95,
+      prep: () => {
+        // 축사 안에 들어서면 버킷을 바닥에 붙이고 수평으로
+        this.liftT = inside(this.pos.x, this.pos.z) || b.contains(this.pos.x, this.pos.z, 1.5) ? 0 : 0.15;
+        this.tiltT = 0;
+      },
+      onArrive: () => { ai.sweep = null; },
+    };
+  }
+
   /** 분뇨 → 퇴비사 / 퇴비 → 트럭·퇴비사 */
   compostTask() {
     let shed = null, bd = Infinity;
     for (const sh of allSheds()) {
       if (sh.raw > COMPOST.cap - 5) continue;
-      const d = Math.hypot(sh.rawPos.x - this.pos.x, sh.rawPos.z - this.pos.z) - (sh.barn.manure > 0 ? 0 : 0);
+      // 담당 축사가 있으면 그 축사 퇴비사를 먼저
+      const d = Math.hypot(sh.rawPos.x - this.pos.x, sh.rawPos.z - this.pos.z) + (this.assign?.barn && sh.barn !== this.assign.barn ? 60 : 0);
       if (d < bd) { bd = d; shed = sh; }
     }
     if (!shed) { this.idleStatus = '퇴비사가 가득 찼어요'; return null; }
@@ -1784,7 +2112,7 @@ export class Vehicle {
     const buyer = G.vehicles.find((v) => v.type === 'truck1' && v.auto && !v.driver) || this;
     if (buyer === this && cargo === 0 && this.bulk < 0.01) {
       const st = stock();
-      const free = [0, 1, 2, 3, 4, 5].filter(() => true).length - (st.corn + st.soy + G.items.filter((it) => it.support.kind === 'station' && it.kind === 'bale').length);
+      const free = 6 - stationItems().length;   // 배합장 칸 실제 빈 자리 (바닥에 둔 베일은 칸을 차지하지 않는다)
       const wants = [];
       if (st.corn < 2) wants.push('corn');
       if (st.soy < 2) wants.push('soy');
@@ -1832,7 +2160,9 @@ export class Vehicle {
     if (total > 0) {
       const rec = recipeOf(this.mix);
       let barn = this.ai.feedBarn && this.ai.feedBarn.feed < 95 ? this.ai.feedBarn : null;
-      if (!barn) barn = (rec && G.barns.find((b) => b.animalType === rec && b.feed < 95)) || G.barns.filter((b) => b.feed < 95).sort((a, b) => a.feed - b.feed)[0];
+      const mine = this.workBarns();
+      if (barn && !mine.includes(barn)) barn = null;
+      if (!barn) barn = (rec && mine.find((b) => b.animalType === rec && b.feed < 95)) || mine.filter((b) => b.feed < 95).sort((a, b) => a.feed - b.feed)[0];
       if (!barn) { this.idleStatus = '사료통이 모두 가득해요'; return null; }
       this.ai.feedBarn = barn;
       const name = rec ? RECIPES[rec].name : '잡사료';
@@ -2678,11 +3008,49 @@ export class Vehicle {
   }
 
   serialize() {
-    return { grade: this.grade, skin: this.skin, custom: this.custom || {}, x: this.pos.x, z: this.pos.z, y: this.pos.y, h: this.heading, auto: this.auto, bulk: this.bulk, bulkKind: this.bulkKind, load: this.load, loadKind: this.loadKind, mix: this.mix, mixT: this.mixT, disp: this.dispensed };
+    const as = assignCode(this);
+    return { as, grade: this.grade, skin: this.skin, custom: this.custom || {}, x: this.pos.x, z: this.pos.z, y: this.pos.y, h: this.heading, auto: this.auto, bulk: this.bulk, bulkKind: this.bulkKind, load: this.load, loadKind: this.loadKind, mix: this.mix, mixT: this.mixT, disp: this.dispensed };
   }
 }
 
-export const START_FLEET = ['tractor', 'baler', 'forklift', 'skid', 'truck1', 'truck5', 'mixer', 'balewagon', 'car', 'heli', 'plane'];
+// ---------------- 담당 지정 (차량마다 맡을 축사·밭) ----------------
+/** 차종별로 맡길 수 있는 곳: barn = 축사, field = 밭 */
+export const ASSIGN_KINDS = { skid: ['barn'], forklift: ['barn'], mixer: ['barn'], balewagon: ['barn', 'field'], tractor: ['field'], baler: ['field'] };
+const barnTag = (b) => `${b.icon} ${b.name}${G.barns.filter((x) => x.id === b.id).length > 1 ? ' ' + (G.barns.filter((x) => x.id === b.id).indexOf(b) + 1) + '동' : ''}`;
+/** 'b<축사 번호>' | 'f<밭 id>' | '' */
+export function assignCode(v) {
+  const a = v.assign;
+  if (a?.barn && G.barns.includes(a.barn)) return 'b' + G.barns.indexOf(a.barn);
+  if (a?.field && G.fields.some((f) => f.id === a.field)) return 'f' + a.field;
+  return '';
+}
+export function setAssignCode(v, code) {
+  const kinds = ASSIGN_KINDS[v.type] || [];
+  v.assign = null;
+  if (typeof code !== 'string' || !code) return;
+  if (code[0] === 'b' && kinds.includes('barn')) { const b = G.barns[Number(code.slice(1))]; if (b) v.assign = { barn: b }; }
+  if (code[0] === 'f' && kinds.includes('field')) { const id = code.slice(1); if (G.fields.some((f) => f.id === id)) v.assign = { field: id }; }
+  // 맡은 곳이 바뀌면 하던 일을 내려놓고 다시 고른다
+  if (v.ai) { v.ai.sweep = null; v.ai.feedBarn = null; if (!v.seq && !v.carrying) { v.ai.task = null; v.ai.path = null; v.ai.think = 0; } }
+}
+/** 고를 수 있는 담당 목록 [{ code, label }] */
+export function assignOptions(v) {
+  const kinds = ASSIGN_KINDS[v.type];
+  if (!kinds) return [];
+  const out = [{ code: '', label: '📍 전체' }];
+  if (kinds.includes('barn')) for (const b of G.barns) out.push({ code: 'b' + G.barns.indexOf(b), label: barnTag(b) });
+  if (kinds.includes('field')) for (const f of G.fields) if (f.owned) out.push({ code: 'f' + f.id, label: `${CROPS[f.crop].icon} ${f.name}` });
+  return out;
+}
+export function assignLabel(v) {
+  const c = assignCode(v);
+  return assignOptions(v).find((o) => o.code === c)?.label || '';
+}
+
+// 🧑‍🌾 처음 시작: 기계 없이 손수레 · 리어카로 손일부터 (돈을 모아 상점에서 트랙터·스키드로더 등을 산다)
+export const START_FLEET = ['wheelbarrow', 'handcart', 'car'];
+/** 예전 기본 장비 (손일 단계 전 저장본) */
+export const OLD_FLEET = ['tractor', 'baler', 'forklift', 'skid', 'truck1', 'truck5', 'mixer', 'balewagon', 'car', 'heli', 'plane'];
 export function createVehicles(types = START_FLEET) {
   G.vehicles = [];
   for (const t of types) addVehicle(t);

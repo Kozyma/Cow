@@ -455,6 +455,86 @@ export function makeTruck1() {
 }
 
 /** 자가용: 동글동글한 2도어 해치백 */
+// ---------------- 손으로 미는 수레 · 농기구 ----------------
+/** 미는 사람 자세: 서서 손잡이를 잡는다 (pull=true면 앞에서 손잡이를 끄는 리어카 자세) */
+export function pushFigure(f, pull = false) {
+  f.group.scale.setScalar(1);
+  f.group.position.set(0, 0, 0);
+  f.arms[0].rotation.x = f.arms[1].rotation.x = pull ? 0.35 : -0.95;
+  f.push = true;
+  return f;
+}
+
+/** 🛞 손수레(외바퀴): 분뇨·퇴비를 담는다 */
+export function makeWheelbarrow() {
+  const g = new THREE.Group(), body = group(g);
+  const T = mat(0x6fb8e0), T2 = mat(0x4f97c4), W = mat(0xc98a5a), D = mat(COL.dark);
+  // 통 (앞이 낮고 뒤가 높은 사다리꼴)
+  part(body, rbox(1.0, 0.12, 1.2, 0.05), T2, 0, 0.5, 0.15);
+  part(body, rbox(1.12, 0.42, 0.1, 0.05), T, 0, 0.72, 0.8, -0.35, 0, 0);
+  part(body, rbox(1.12, 0.42, 0.1, 0.05), T, 0, 0.72, -0.48, 0.25, 0, 0);
+  for (const sx of [-1, 1]) part(body, rbox(0.1, 0.42, 1.35, 0.05), T, sx * 0.56, 0.72, 0.15);
+  // 손잡이 · 다리
+  for (const sx of [-1, 1]) {
+    part(body, cyl(0.045, 0.045, 2.2, 8), W, sx * 0.36, 0.62, -0.25, Math.PI / 2 - 0.12, 0, 0);
+    part(body, sphere(0.07, 8, 6), D, sx * 0.36, 0.76, -1.33);
+    part(body, cyl(0.04, 0.04, 0.5, 6), D, sx * 0.36, 0.25, -0.5);
+  }
+  const wheels = [wheel(body, 0, 0.3, 1.0, 0.3, 0.14)];
+  const load = group(body, 0, 0.62, 0.15);
+  part(load, sphere(1, 12, 8), mat(0x8b6a4f), 0, 0, 0, 0, 0, 0, 0.42, 0.22, 0.5);
+  load.visible = false;
+  const seat = group(body, 0, 0, -1.55);
+  return { group: g, body, wheels, steer: [], seat, load, exhaust: group(body, 0, 0.5, -1) };
+}
+
+/** 🛒 리어카(두 바퀴 수레): 앞에서 손잡이를 끌고, 짐칸에 건초·팔레트·포대를 2개 싣는다 */
+export function makeHandcart() {
+  const g = new THREE.Group(), body = group(g);
+  const W = mat(0xd9a066), W2 = mat(0xb9874f), D = mat(COL.dark), M = mat(0x9aa3b2);
+  const bed = group(body, 0, 0.78, -0.45);
+  part(bed, box(1.5, 0.08, 2.5), W, 0, -0.04, 0);
+  for (let i = 0; i < 5; i++) part(bed, box(1.52, 0.02, 0.08), W2, 0, 0.01, -1.1 + i * 0.55);
+  for (const sx of [-1, 1]) part(bed, box(0.06, 0.3, 2.5), W2, sx * 0.76, 0.12, 0);
+  part(bed, box(1.5, 0.3, 0.06), W2, 0, 0.12, -1.25);
+  // 손잡이 (앞으로 길게 뻗어 사람이 그 사이에서 끈다)
+  for (const sx of [-1, 1]) {
+    part(body, cyl(0.045, 0.045, 1.9, 8), M, sx * 0.5, 0.82, 1.55, Math.PI / 2, 0, 0);
+    part(body, cyl(0.04, 0.04, 0.5, 6), D, sx * 0.5, 0.25, -1.55);
+  }
+  part(body, cyl(0.045, 0.045, 1.0, 8), M, 0, 0.82, 2.48, 0, 0, Math.PI / 2);
+  part(body, box(1.7, 0.08, 0.1), D, 0, 0.42, -0.45);
+  const wheels = [];
+  for (const sx of [-1, 1]) wheels.push(wheel(body, sx * 0.9, 0.42, -0.45, 0.42, 0.12, 0xfffaf0));
+  const seat = group(body, 0, 0, 2.2);
+  const slots = [{ x: 0, z: 0.62 }, { x: 0, z: -0.62 }];
+  return { group: g, body, wheels, steer: [], seat, bed, slots, bedY: 0.78, bedHalf: { x: 0.75, z: 1.25 }, exhaust: group(body, 0, 0.5, -1.5) };
+}
+
+/** 🪏 삽 / 🌾 낫 (손에 드는 농기구) */
+export function makeShovel() {
+  const g = new THREE.Group();
+  part(g, cyl(0.035, 0.035, 1.25, 8), mat(0xc98a5a), 0, 0, 0.55, Math.PI / 2, 0, 0);
+  part(g, rbox(0.3, 0.04, 0.34, 0.03), mat(0x9aa3b2), 0, -0.02, 1.28);
+  const lump = group(g, 0, 0.06, 1.28);
+  part(lump, sphere(0.15, 8, 6), mat(0x8b6a4f), 0, 0, 0, 0, 0, 0, 1, 0.5, 1);
+  lump.visible = false;
+  g.userData.lump = lump;
+  return g;
+}
+export function makeSickle() {
+  const g = new THREE.Group();
+  part(g, cyl(0.035, 0.035, 0.42, 8), mat(0xc98a5a), 0, 0, 0.18, Math.PI / 2, 0, 0);
+  part(g, torus(0.2, 0.025, 4, 14, Math.PI * 1.1), mat(0xd7dde6), 0.18, 0, 0.4, Math.PI / 2, 0, 0);
+  return g;
+}
+/** 품에 안은 풀 한 아름 */
+export function makeArmful() {
+  const g = new THREE.Group();
+  part(g, capsule(0.18, 0.5, 4, 8), mat(0xe8d070), 0, 0, 0, 0, 0, Math.PI / 2);
+  return g;
+}
+
 export function makeCar() {
   const g = new THREE.Group(), body = group(g);
   const C = mat(0xff9eb5), Wt = mat(0xfffaf0), D = mat(COL.dark), glass = glassMat();
@@ -893,15 +973,22 @@ export function makePlane() {
 
 // ---------------- 아이템 ----------------
 
-export function makeBale() {
+/** 베일: 목초 건초(노랑) · 라이그라스(연두) · 옥수수 사일리지(비닐로 감싼 초록 베일 + 노란 띠) */
+const BALE_COLORS = {
+  grass: [0xf4d36b, 0xe8c158, 0xfae39a, 0xd9b24e],
+  rye: [0xc9d873, 0xb5c862, 0xe2eca2, 0x9fb455],
+  corn: [0x7fbf6a, 0x6aa95a, 0xf2e6a0, 0xffd04d],
+};
+export function makeBale(product = null) {
   const g = new THREE.Group();
   const b = group(g, 0, 0.6, 0);
-  part(b, cyl(0.6, 0.6, 1.1, 22), mat(0xf4d36b), 0, 0, 0, 0, 0, Math.PI / 2);
+  const [c0, c1, c2, c3] = BALE_COLORS[product === 'rye' ? 'rye' : product === 'corn' ? 'corn' : 'grass'];
+  part(b, cyl(0.6, 0.6, 1.1, 22), mat(c0), 0, 0, 0, 0, 0, Math.PI / 2);
   for (const sx of [-1, 1]) {
-    part(b, cyl(0.45, 0.45, 0.02, 20), mat(0xe8c158), sx * 0.555, 0, 0, 0, 0, Math.PI / 2);
-    part(b, cyl(0.22, 0.22, 0.02, 16), mat(0xfae39a), sx * 0.565, 0, 0, 0, 0, Math.PI / 2);
+    part(b, cyl(0.45, 0.45, 0.02, 20), mat(c1), sx * 0.555, 0, 0, 0, 0, Math.PI / 2);
+    part(b, cyl(0.22, 0.22, 0.02, 16), mat(c2), sx * 0.565, 0, 0, 0, 0, Math.PI / 2);
   }
-  for (const x of [-0.3, 0.3]) part(b, cyl(0.615, 0.615, 0.06, 22), mat(0xd9b24e), x, 0, 0, 0, 0, Math.PI / 2);
+  for (const x of product === 'corn' ? [0] : [-0.3, 0.3]) part(b, cyl(0.615, 0.615, product === 'corn' ? 0.22 : 0.06, 22), mat(c3), x, 0, 0, 0, 0, Math.PI / 2);
   return g;
 }
 
