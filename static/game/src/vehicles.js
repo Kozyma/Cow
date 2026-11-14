@@ -24,12 +24,12 @@ import {
 export const VEH_DEFS = {
   // 🧑‍🌾 손으로 미는 수레 (처음 시작할 때의 일꾼 장비 · 자동 운전 없음)
   wheelbarrow: {
-    name: '손수레', icon: '🛞', maxSpeed: 4.8, accel: 7, turn: 3.0, radius: 0.8, work: 1.6, build: makeWheelbarrow, carries: [], color: '#6fb8e0',
-    circles: [[0.45, 0.72], [-0.7, 0.5], [-1.5, 0.42]], push: true, barrow: true,
+    name: '손수레', icon: '🛞', maxSpeed: 4.8, accel: 7, turn: 3.0, radius: 0.85, work: 1.5, build: makeWheelbarrow, carries: [], color: '#6fb8e0',
+    circles: [[0.45, 0.8], [-0.75, 0.55], [-1.85, 0.42]], push: true, barrow: true,
   },
   handcart: {
     name: '리어카', icon: '🛒', maxSpeed: 4.6, accel: 6, turn: 2.4, radius: 1.0, work: 2.6, build: makeHandcart, carries: [], color: '#d9a066',
-    circles: [[2.15, 0.45], [0.75, 0.75], [-0.6, 0.95]], push: true, cart: true,
+    circles: [[2.9, 0.42], [1.65, 0.45], [0.35, 1.0], [-1.05, 1.0]], push: true, cart: true,
   },
   tractor: {
     name: '트랙터', icon: '🚜', maxSpeed: 8, accel: 6, turn: 1.9, radius: 1.45, work: 2.7, build: makeTractor, carries: [], color: '#63b85c',

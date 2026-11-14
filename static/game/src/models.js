@@ -465,50 +465,120 @@ export function pushFigure(f, pull = false) {
   return f;
 }
 
-/** 🛞 손수레(외바퀴): 분뇨·퇴비를 담는다 */
+/** 바퀴살 바퀴 (리어카): 가는 타이어 + 림 + 바퀴살 + 허브 */
+function spokeWheel(parent, x, y, z, r, opts = {}) {
+  const steer = group(parent, x, y, z);
+  const spin = group(steer);
+  const tire = mat(COL.tire), rim = mat(opts.rim ?? 0xdfe5ec), hub = mat(opts.hub ?? 0xffd34d);
+  part(spin, torus(r - 0.055, 0.055, 8, 32), tire, 0, 0, 0, 0, Math.PI / 2, 0);
+  part(spin, torus(r - 0.12, 0.024, 6, 32), rim, 0, 0, 0, 0, Math.PI / 2, 0);
+  part(spin, cyl(0.075, 0.075, opts.w ?? 0.16, 12), hub, 0, 0, 0, 0, 0, Math.PI / 2);
+  part(spin, cyl(0.035, 0.035, (opts.w ?? 0.16) + 0.04, 8), mat(COL.dark), 0, 0, 0, 0, 0, Math.PI / 2);
+  const n = opts.spokes ?? 12, L = r - 0.13;
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * Math.PI * 2;
+    part(spin, cyl(0.011, 0.011, L, 4), rim, (i % 2 ? 0.03 : -0.03), Math.cos(a) * L / 2, Math.sin(a) * L / 2, a, 0, 0);
+  }
+  return { steer, spin, r, side: Math.sign(x) || 1 };
+}
+
+/** 위가 넓고 바닥이 좁은 통 (손수레 통) */
+function taperBox(w, h, d, bx, bz) {
+  const g = new THREE.BoxGeometry(w, h, d);
+  const p = g.attributes.position;
+  for (let i = 0; i < p.count; i++) if (p.getY(i) < 0) { p.setX(i, p.getX(i) * bx); p.setZ(i, p.getZ(i) * bz); }
+  g.computeVertexNormals();
+  return g;
+}
+
+/** 두 점을 잇는 둥근 막대 (프레임·손잡이) */
+function tube(parent, a, b, r, m) {
+  const dx = b[0] - a[0], dy = b[1] - a[1], dz = b[2] - a[2];
+  const L = Math.hypot(dx, dy, dz);
+  const mesh = part(parent, cyl(r, r, L, 8), m, (a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2);
+  mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3(dx / L, dy / L, dz / L));
+  return mesh;
+}
+
+/** 🛞 손수레 (두 바퀴): 앞쪽에 바퀴 두 개, 깊은 철제 통, 뒤로 뻗은 손잡이 · 받침 다리 */
 export function makeWheelbarrow() {
   const g = new THREE.Group(), body = group(g);
-  const T = mat(0x6fb8e0), T2 = mat(0x4f97c4), W = mat(0xc98a5a), D = mat(COL.dark);
-  // 통 (앞이 낮고 뒤가 높은 사다리꼴)
-  part(body, rbox(1.0, 0.12, 1.2, 0.05), T2, 0, 0.5, 0.15);
-  part(body, rbox(1.12, 0.42, 0.1, 0.05), T, 0, 0.72, 0.8, -0.35, 0, 0);
-  part(body, rbox(1.12, 0.42, 0.1, 0.05), T, 0, 0.72, -0.48, 0.25, 0, 0);
-  for (const sx of [-1, 1]) part(body, rbox(0.1, 0.42, 1.35, 0.05), T, sx * 0.56, 0.72, 0.15);
-  // 손잡이 · 다리
+  const TUB = mat(0x6fb8e0), TUB_IN = mat(0x3f7fa6), RIM = mat(0xdfe5ec), FR = mat(0x5a6372), GRIP = mat(0xef6f6c), D = mat(COL.dark);
+  // 통: 위 1.1×1.4 → 바닥이 좁아지는 사다리꼴, 앞쪽이 살짝 숙여져 있다
+  const tub = group(body, 0, 0.9, 0.1);
+  tub.rotation.x = 0.06;
+  part(tub, taperBox(1.1, 0.5, 1.4, 0.68, 0.62), TUB, 0, 0, 0);
+  part(tub, taperBox(0.98, 0.02, 1.28, 1, 1), TUB_IN, 0, 0.245, 0);          // 통 안쪽 (깊이감)
+  part(tub, rbox(1.16, 0.07, 0.08, 0.03), RIM, 0, 0.26, 0.71);               // 말린 테두리
+  part(tub, rbox(1.16, 0.07, 0.08, 0.03), RIM, 0, 0.26, -0.71);
+  for (const sx of [-1, 1]) part(tub, rbox(0.08, 0.07, 1.46, 0.03), RIM, sx * 0.57, 0.26, 0);
+  for (const sx of [-1, 1]) part(tub, box(0.02, 0.32, 0.9), TUB_IN, sx * 0.47, -0.02, 0, 0, 0, sx * 0.33);   // 옆면 눌림 줄
+  // 프레임: 앞 바퀴 축 → 통 아래 → 뒤 손잡이 (양쪽)
   for (const sx of [-1, 1]) {
-    part(body, cyl(0.045, 0.045, 2.2, 8), W, sx * 0.36, 0.62, -0.25, Math.PI / 2 - 0.12, 0, 0);
-    part(body, sphere(0.07, 8, 6), D, sx * 0.36, 0.76, -1.33);
-    part(body, cyl(0.04, 0.04, 0.5, 6), D, sx * 0.36, 0.25, -0.5);
+    tube(body, [sx * 0.3, 0.34, 0.62], [sx * 0.36, 0.62, -0.5], 0.035, FR);
+    tube(body, [sx * 0.36, 0.62, -0.5], [sx * 0.4, 0.86, -1.45], 0.035, FR);
+    part(body, capsule(0.05, 0.22, 4, 8), GRIP, sx * 0.405, 0.88, -1.6, Math.PI / 2 - 0.25, 0, 0);
+    // 받침 다리 + 발판
+    tube(body, [sx * 0.34, 0.6, -0.45], [sx * 0.38, 0.03, -0.62], 0.03, FR);
+    part(body, rbox(0.12, 0.04, 0.2, 0.02), D, sx * 0.38, 0.02, -0.63);
+    // 통 받침대
+    tube(body, [sx * 0.3, 0.36, 0.55], [sx * 0.3, 0.68, 0.45], 0.025, FR);
   }
-  const wheels = [wheel(body, 0, 0.3, 1.0, 0.3, 0.14)];
-  const load = group(body, 0, 0.62, 0.15);
-  part(load, sphere(1, 12, 8), mat(0x8b6a4f), 0, 0, 0, 0, 0, 0, 0.42, 0.22, 0.5);
+  tube(body, [-0.34, 0.6, -0.5], [0.34, 0.6, -0.5], 0.025, FR);   // 다리 사이 가로대
+  part(body, cyl(0.04, 0.04, 1.2, 10), FR, 0, 0.3, 0.62, 0, 0, Math.PI / 2);   // 바퀴 축
+  const wheels = [];
+  for (const sx of [-1, 1]) wheels.push(wheel(body, sx * 0.62, 0.3, 0.62, 0.3, 0.15, 0xffd34d));
+  const load = group(body, 0, 1.12, 0.1);
+  part(load, sphere(1, 14, 10), mat(0x8b6a4f), 0, 0, 0, 0, 0, 0, 0.46, 0.2, 0.62);
   load.visible = false;
-  const seat = group(body, 0, 0, -1.55);
+  const seat = group(body, 0, 0, -2.0);
   return { group: g, body, wheels, steer: [], seat, load, exhaust: group(body, 0, 0.5, -1) };
 }
 
-/** 🛒 리어카(두 바퀴 수레): 앞에서 손잡이를 끌고, 짐칸에 건초·팔레트·포대를 2개 싣는다 */
+/** 🛒 리어카: 나무 짐칸(널빤지 바닥 · 옆 난간 · 뒷판), 옆으로 큰 바퀴살 바퀴 두 개와 흙받이,
+ *  앞으로 길게 뻗은 손잡이 (사람이 손잡이 사이에 서서 끈다), 앞 받침 다리 */
 export function makeHandcart() {
   const g = new THREE.Group(), body = group(g);
-  const W = mat(0xd9a066), W2 = mat(0xb9874f), D = mat(COL.dark), M = mat(0x9aa3b2);
-  const bed = group(body, 0, 0.78, -0.45);
-  part(bed, box(1.5, 0.08, 2.5), W, 0, -0.04, 0);
-  for (let i = 0; i < 5; i++) part(bed, box(1.52, 0.02, 0.08), W2, 0, 0.01, -1.1 + i * 0.55);
-  for (const sx of [-1, 1]) part(bed, box(0.06, 0.3, 2.5), W2, sx * 0.76, 0.12, 0);
-  part(bed, box(1.5, 0.3, 0.06), W2, 0, 0.12, -1.25);
-  // 손잡이 (앞으로 길게 뻗어 사람이 그 사이에서 끈다)
+  const W = mat(0xe0b077), W2 = mat(0xcf9a5e), WD = mat(0xa8744a), FR = mat(0x4f6f8f), GRIP = mat(COL.dark), RED = mat(0xef6f6c);
+  const bed = group(body, 0, 0.82, -0.45);
+  // 바닥 널빤지 (길이 방향, 사이 틈)
+  for (let i = 0; i < 7; i++) part(bed, rbox(0.2, 0.06, 2.5, 0.02), i % 2 ? W2 : W, -0.63 + i * 0.21, -0.03, 0);
+  // 아래 철제 틀
+  for (const sx of [-1, 1]) part(bed, box(0.07, 0.08, 2.56), FR, sx * 0.7, -0.1, 0);
+  for (const z of [-1.2, -0.45, 0.3, 1.2]) part(bed, box(1.48, 0.06, 0.07), FR, 0, -0.1, z);
+  // 옆 난간: 기둥 + 나무 널 2단
   for (const sx of [-1, 1]) {
-    part(body, cyl(0.045, 0.045, 1.9, 8), M, sx * 0.5, 0.82, 1.55, Math.PI / 2, 0, 0);
-    part(body, cyl(0.04, 0.04, 0.5, 6), D, sx * 0.5, 0.25, -1.55);
+    for (const z of [-1.22, -0.4, 0.4, 1.22]) part(bed, rbox(0.07, 0.46, 0.07, 0.02), WD, sx * 0.76, 0.2, z);
+    for (const y of [0.13, 0.36]) part(bed, rbox(0.05, 0.12, 2.5, 0.025), W2, sx * 0.76, y, 0);
   }
-  part(body, cyl(0.045, 0.045, 1.0, 8), M, 0, 0.82, 2.48, 0, 0, Math.PI / 2);
-  part(body, box(1.7, 0.08, 0.1), D, 0, 0.42, -0.45);
+  // 뒷판 · 앞판
+  for (const z of [-1.24, 1.24]) for (const y of [0.13, 0.36]) part(bed, rbox(1.5, 0.12, 0.05, 0.025), W2, 0, y, z);
+  // 모서리 철 장식
+  for (const sx of [-1, 1]) for (const z of [-1.24, 1.24]) part(bed, box(0.09, 0.08, 0.09), FR, sx * 0.76, 0.44, z);
+  // 바퀴 · 흙받이 · 축
   const wheels = [];
-  for (const sx of [-1, 1]) wheels.push(wheel(body, sx * 0.9, 0.42, -0.45, 0.42, 0.12, 0xfffaf0));
-  const seat = group(body, 0, 0, 2.2);
+  for (const sx of [-1, 1]) {
+    wheels.push(spokeWheel(body, sx * 0.97, 0.52, -0.45, 0.52, { w: 0.12, hub: 0xef6f6c }));
+    part(body, torus(0.6, 0.035, 4, 20, Math.PI), RED, sx * 0.97, 0.52, -0.45, 0, Math.PI / 2, 0, 1, 1, 2.6);
+    part(body, box(0.16, 0.05, 0.16), FR, sx * 0.86, 0.75, -0.45);
+  }
+  part(body, cyl(0.04, 0.04, 2.0, 10), FR, 0, 0.52, -0.45, 0, 0, Math.PI / 2);
+  for (const sx of [-1, 1]) tube(body, [sx * 0.62, 0.72, -0.45], [sx * 0.62, 0.55, -0.45], 0.03, FR);
+  // 손잡이: 짐칸 앞 모서리에서 앞으로 길게, 끝을 가로대로 잇는다
+  for (const sx of [-1, 1]) {
+    tube(body, [sx * 0.62, 0.78, 0.4], [sx * 0.5, 0.86, 2.55], 0.04, FR);
+    part(body, capsule(0.055, 0.2, 4, 8), GRIP, sx * 0.5, 0.86, 2.45, Math.PI / 2, 0, 0);
+  }
+  tube(body, [-0.5, 0.86, 2.62], [0.5, 0.86, 2.62], 0.035, FR);
+  part(body, capsule(0.05, 0.6, 4, 8), GRIP, 0, 0.86, 2.62, 0, 0, Math.PI / 2);
+  // 앞 받침 다리 (세워 두면 평평하게)
+  for (const sx of [-1, 1]) {
+    tube(body, [sx * 0.6, 0.74, 0.7], [sx * 0.6, 0.03, 0.75], 0.03, FR);
+    part(body, rbox(0.12, 0.04, 0.16, 0.02), GRIP, sx * 0.6, 0.02, 0.76);
+  }
+  const seat = group(body, 0, 0, 2.95);
   const slots = [{ x: 0, z: 0.62 }, { x: 0, z: -0.62 }];
-  return { group: g, body, wheels, steer: [], seat, bed, slots, bedY: 0.78, bedHalf: { x: 0.75, z: 1.25 }, exhaust: group(body, 0, 0.5, -1.5) };
+  return { group: g, body, wheels, steer: [], seat, bed, slots, bedY: 0.82, bedHalf: { x: 0.72, z: 1.22 }, exhaust: group(body, 0, 0.5, -1.5) };
 }
 
 /** 🪏 삽 / 🌾 낫 (손에 드는 농기구) */
