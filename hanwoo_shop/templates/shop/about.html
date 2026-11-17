@@ -1,0 +1,17 @@
+{% extends "shop/base.html" %}
+{% block title %}농장 이야기 | {{ S.shop_name }}{% endblock %}
+{% block body %}
+<section class="about-hero"><div class="wrap">
+  <h1>{{ S.tagline }}</h1>
+  {% if S.farm_name or S.farm_addr %}<p>{{ S.farm_name }}{% if S.farm_name and S.farm_addr %}, {% endif %}{{ S.farm_addr }}</p>{% endif %}
+</div></section>
+<div class="wrap narrow wide">
+  <div class="prose about-body">{% if S.about %}{{ S.about }}{% else %}{{ S.intro }}{% endif %}</div>
+  <section class="trace">
+    <h2>이력번호로 직접 확인하세요</h2>
+    <p>국내에서 태어난 소에는 한 마리마다 12자리 이력번호가 붙습니다. 상품 화면에 적힌 번호를 축산물이력제에서 조회하면 출생일, 사육지, 도축일, 등급 판정 결과를 볼 수 있습니다.</p>
+    <a class="btn line" href="https://www.mtrace.go.kr" target="_blank" rel="noopener">축산물이력제 열기</a>
+  </section>
+  <a class="btn red" href="{{ url_for('shop') }}">한우 보러 가기</a>
+</div>
+{% endblock %}

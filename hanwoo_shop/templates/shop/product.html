@@ -1,0 +1,140 @@
+{% extends "shop/base.html" %}{% from "shop/_ui.html" import card, icon, stars, stamp %}
+{% block title %}{{ p.name }} {{ p.weight_g }}g | {{ S.shop_name }}{% endblock %}
+{% block body %}
+{% set out = sold_out(p) %}{% set imgs = p_images(p) %}
+<div class="wrap">
+  <nav class="crumb" aria-label="현재 위치"><a href="{{ url_for('home') }}">홈</a><a href="{{ url_for('shop', cat=p.category) }}">{{ p.category }}</a><span>{{ p.name }}</span></nav>
+  <div class="pd">
+    <div class="pd-gallery">
+      <div class="pd-main"><img id="pd-main" src="{{ imgs[0] }}" alt="{{ p.name }} {{ p.weight_g }}g" width="600" height="600">{% if out %}<span class="out">품절</span>{% endif %}</div>
+      {% if imgs|length > 1 %}<div class="pd-thumbs">{% for u in imgs %}<button type="button" class="{{ 'on' if loop.first }}" data-thumb="{{ u }}" aria-label="사진 {{ loop.index }}"><img src="{{ u }}" alt="" loading="lazy"></button>{% endfor %}</div>{% endif %}
+    </div>
+
+    <div class="pd-info">
+      {% if p.is_best or p.is_new %}<div class="flags static">{% if p.is_best %}<b class="flag">베스트</b>{% endif %}{% if p.is_new %}<b class="flag new">신상품</b>{% endif %}</div>{% endif %}
+      <h1>{{ p.name }} <span class="num">{{ p.weight_g }}g</span></h1>
+      {% if p.summary %}<p class="pd-sum">{{ p.summary }}</p>{% endif %}
+      {% if p.rv_cnt %}<a class="pd-rv num" href="#reviews">{{ stars(p.rv_avg) }} {{ p.rv_avg }} <u>후기 {{ p.rv_cnt }}개</u></a>{% endif %}
+      <div class="pd-price num">
+        {% if disc(p) %}<del>{{ won(p.list_price) }}</del><em>{{ disc(p) }}%</em>{% endif %}<strong>{{ won(p.price) }}</strong>
+      </div>
+
+      <dl class="label" aria-label="상품 표시 사항">
+        <div class="label-head"><span>{{ p.origin }}<b>{{ p.cut }}</b></span>{{ stamp(p.grade) }}</div>
+        <div class="label-row"><dt>중량</dt><dd class="num">{{ p.weight_g }}g</dd><dt>100g당</dt><dd class="num">{{ per100(p)[6:] }}</dd></div>
+        <div class="label-row"><dt>등급</dt><dd>{{ p.grade }}</dd><dt>보관</dt><dd>{{ p.storage }}</dd></div>
+        {% if p.trace_no %}
+        <div class="label-trace"><dt>이력번호</dt><dd class="num">{{ p.trace_no }}</dd>
+          <a href="https://www.mtrace.go.kr" target="_blank" rel="noopener">축산물이력제에서 조회</a></div>
+        <div class="label-bars" aria-hidden="true">{% for ch in p.trace_no %}<i style="width:{{ (ch|int) % 4 + 1 }}px;margin-right:{{ (ch|int) % 3 + 2 }}px"></i><i style="width:{{ (ch|int + 2) % 3 + 1 }}px;margin-right:{{ (ch|int + 1) % 4 + 1 }}px"></i>{% endfor %}</div>
+        {% endif %}
+      </dl>
+
+      <dl class="pd-ship">
+        <dt>배송비</dt><dd class="num">{{ won(S.shipping_fee) }}{% if S.free_ship_over|int %} ({{ won(S.free_ship_over) }} 이상 무료){% endif %}</dd>
+        <dt>출고</dt><dd>{{ S.ship_days }}</dd>
+      </dl>
+
+      {% if out %}
+      <button class="btn block" disabled>품절된 상품입니다</button>
+      {% else %}
+      <form method="post" action="{{ url_for('cart_add') }}" class="pd-buy" data-qty data-price="{{ p.price }}" data-max="{{ p.stock }}">
+        <input type="hidden" name="_csrf" value="{{ csrf_token() }}"><input type="hidden" name="pid" value="{{ p.id }}"><input type="hidden" name="back" value="{{ request.path }}">
+        <div class="pd-qty">
+          <div class="qty"><button type="button" data-step="-1" aria-label="수량 줄이기">−</button><input type="number" name="qty" value="1" min="1" max="{{ p.stock }}" aria-label="수량"><button type="button" data-step="1" aria-label="수량 늘리기">+</button></div>
+          {% if p.stock <= 5 %}<span class="pd-left num">{{ p.stock }}개 남았습니다</span>{% endif %}
+          <div class="pd-total">합계 <strong class="num" data-total>{{ won(p.price) }}</strong></div>
+        </div>
+        <div class="pd-btns">
+          <button class="btn line" type="submit">장바구니 담기</button>
+          <button class="btn red" type="submit" name="buy" value="1">바로 구매</button>
+        </div>
+      </form>
+      {% endif %}
+      <form method="post" action="{{ url_for('wish_toggle', pid=p.id) }}" class="pd-wish">
+        <input type="hidden" name="_csrf" value="{{ csrf_token() }}"><input type="hidden" name="back" value="{{ request.path }}">
+        <button class="{{ 'on' if p.id in wish_ids }}">{{ icon('heart') }}{{ '찜한 상품입니다' if p.id in wish_ids else '찜하기' }}</button>
+      </form>
+    </div>
+  </div>
+
+  <nav class="tabs" aria-label="상품 정보">
+    <a href="#detail">상세 정보</a><a href="#reviews">후기 <span class="num">{{ p.rv_cnt }}</span></a><a href="#qna">문의 <span class="num">{{ qnas|length }}</span></a><a href="#guide">배송·교환·환불</a>
+  </nav>
+
+  <section id="detail" class="pd-sec">
+    <h2>상세 정보</h2>
+    {% if p.description %}<div class="prose">{{ p.description }}</div>{% endif %}
+    {% for u in imgs[1:] %}<img class="pd-long" src="{{ u }}" alt="{{ p.name }} 사진 {{ loop.index + 1 }}" loading="lazy">{% endfor %}
+    <table class="spec">
+      <tr><th>품목</th><td>{{ p.origin }} {{ p.cut }}</td><th>등급</th><td>{{ p.grade }}</td></tr>
+      <tr><th>중량</th><td class="num">{{ p.weight_g }}g</td><th>보관 방법</th><td>{{ p.storage }}</td></tr>
+      <tr><th>이력번호</th><td class="num">{{ p.trace_no or '출고 상품에 표시' }}</td><th>생산자</th><td>{{ S.farm_name or S.shop_name }}</td></tr>
+    </table>
+  </section>
+
+  <section id="reviews" class="pd-sec">
+    <h2>후기 <span class="num">{{ p.rv_cnt }}</span></h2>
+    {% if reviews %}
+    <div class="rv-sum">
+      <div class="rv-avg"><strong class="num">{{ p.rv_avg }}</strong>{{ stars(p.rv_avg) }}</div>
+      <ul class="rv-dist num">{% for n, c in dist %}<li><span>{{ n }}점</span><i><b style="width:{{ (c / p.rv_cnt * 100)|round }}%"></b></i><span>{{ c }}</span></li>{% endfor %}</ul>
+    </div>
+    <ul class="rv-list">
+      {% for r in reviews %}
+      <li>
+        <div class="rv-head">{{ stars(r.rating) }}<b>{{ r.author }}</b><time class="num">{{ r.created_at[:10] }}</time></div>
+        <p>{{ r.content }}</p>
+        {% if r.image %}<a href="{{ url_for('uploads', name=r.image) }}" target="_blank" rel="noopener"><img src="{{ url_for('uploads', name=r.image) }}" alt="후기 사진" loading="lazy"></a>{% endif %}
+        {% if r.reply %}<div class="reply"><b>{{ S.shop_name }}</b><p>{{ r.reply }}</p></div>{% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="empty small">아직 후기가 없습니다. 배송이 끝난 주문의 상세 화면에서 후기를 쓸 수 있습니다.</p>
+    {% endif %}
+  </section>
+
+  <section id="qna" class="pd-sec">
+    <h2>문의 <span class="num">{{ qnas|length }}</span></h2>
+    {% if member %}
+    <form method="post" action="{{ url_for('qna_new', pid=p.id) }}" class="qna-form">
+      <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+      <label for="qna-content">이 상품에 대해 궁금한 점을 적어 주세요</label>
+      <textarea id="qna-content" class="in" name="content" rows="3" maxlength="1000" required minlength="5"></textarea>
+      <div><label class="chk"><input type="checkbox" name="secret" value="1"> 비밀글로 남기기</label><button class="btn sm">문의 등록</button></div>
+    </form>
+    {% else %}
+    <p class="qna-login"><a class="ulink" href="{{ url_for('login', next=request.path) }}">로그인</a>하면 문의를 남길 수 있습니다.</p>
+    {% endif %}
+    {% if qnas %}
+    <ul class="qna-list">
+      {% for q in qnas %}{% set open = not q.secret or q.mine or is_admin %}
+      <li>
+        <div class="qna-q"><span class="qna-st {{ 'done' if q.answer }}">{{ '답변 완료' if q.answer else '답변 대기' }}</span>
+          <p>{% if open %}{{ q.content }}{% else %}{{ icon('lock') }} 비밀글입니다.{% endif %}</p>
+          <span class="qna-by">{{ q.author }} <time class="num">{{ q.created_at[:10] }}</time></span></div>
+        {% if q.answer and open %}<div class="reply"><b>{{ S.shop_name }}</b><p>{{ q.answer }}</p></div>{% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+  </section>
+
+  <section id="guide" class="pd-sec">
+    <h2>배송·교환·환불</h2>
+    <table class="spec">
+      <tr><th>배송</th><td>{{ S.ship_days }}<br>배송비 {{ won(S.shipping_fee) }}{% if S.free_ship_over|int %}, {{ won(S.free_ship_over) }} 이상 주문하면 무료{% endif %}</td></tr>
+      <tr><th>포장</th><td>{{ p.storage }} 상품은 아이스박스에 보냉제와 함께 담아 보냅니다.</td></tr>
+      <tr><th>교환·환불</th><td>신선식품이라 단순 변심으로는 반품이 어렵습니다. 상품에 문제가 있으면 받은 날 사진과 함께 고객센터로 알려 주세요. <a class="ulink" href="{{ url_for('policy', kind='guide') }}">자세히 보기</a></td></tr>
+    </table>
+  </section>
+
+  {% if related %}
+  <section class="sec">
+    <header class="sec-h"><h2>{{ p.category }} 다른 상품</h2></header>
+    <div class="grid">{% for r in related %}{{ card(r) }}{% endfor %}</div>
+  </section>
+  {% endif %}
+</div>
+{% endblock %}

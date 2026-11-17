@@ -1,0 +1,31 @@
+{% extends "admin/base.html" %}{% block title %}공지 · 자주 묻는 질문{% endblock %}
+{% block body %}
+<h1>공지사항</h1>
+{% macro nform(n) %}
+<form method="post" class="card">
+  <input type="hidden" name="_csrf" value="{{ csrf_token() }}"><input type="hidden" name="kind" value="notice">{% if n %}<input type="hidden" name="id" value="{{ n.id }}">{% endif %}
+  <label class="f">제목<input class="in" name="title" value="{{ n.title if n else '' }}" required maxlength="100" placeholder="예: 설 연휴 배송 안내"></label>
+  <label class="f">내용<textarea class="in" name="content" rows="{{ 3 if n else 4 }}">{{ n.content if n else '' }}</textarea></label>
+  <div class="inline between">
+    <label class="checkline"><input type="checkbox" name="pinned" value="1" {{ 'checked' if n and n.pinned }}> 맨 위에 고정{% if n %} <span class="muted num">{{ n.created_at[:10] }}</span>{% endif %}</label>
+    <span class="inline">{% if n %}<button class="btn danger sm" name="act" value="delete" onclick="return confirm('이 공지를 삭제할까요?')">삭제</button>{% endif %}<button class="btn sm">{{ '저장' if n else '공지 등록' }}</button></span>
+  </div>
+</form>
+{% endmacro %}
+{{ nform(none) }}
+{% for n in notices %}{{ nform(n) }}{% endfor %}
+
+<h1 style="margin-top:36px">자주 묻는 질문</h1>
+<p class="muted" style="margin-top:-10px">처음 들어 있는 질문과 답변은 예시입니다. 실제 운영 방식에 맞게 고쳐 주세요.</p>
+{% macro fform(f) %}
+<form method="post" class="card">
+  <input type="hidden" name="_csrf" value="{{ csrf_token() }}"><input type="hidden" name="kind" value="faq">{% if f %}<input type="hidden" name="id" value="{{ f.id }}">{% endif %}
+  <div class="g41"><label class="f">질문<input class="in" name="q" value="{{ f.q if f else '' }}" required maxlength="120"></label>
+    <label class="f">순서<input class="in num" type="number" name="sort" value="{{ f.sort if f else 0 }}"></label></div>
+  <label class="f">답변<textarea class="in" name="a" rows="2" required>{{ f.a if f else '' }}</textarea></label>
+  <div class="inline between"><span></span><span class="inline">{% if f %}<button class="btn danger sm" name="act" value="delete" onclick="return confirm('이 질문을 삭제할까요?')">삭제</button>{% endif %}<button class="btn sm">{{ '저장' if f else '질문 추가' }}</button></span></div>
+</form>
+{% endmacro %}
+{% for f in faqs %}{{ fform(f) }}{% endfor %}
+{{ fform(none) }}
+{% endblock %}

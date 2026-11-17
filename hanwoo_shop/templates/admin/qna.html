@@ -1,0 +1,15 @@
+{% extends "admin/base.html" %}{% block title %}상품 문의{% endblock %}
+{% block body %}
+<h1>상품 문의</h1>
+<div class="tabs"><a href="{{ url_for('admin_qna') }}" class="{{ 'on' if not open_only }}">전체</a><a href="{{ url_for('admin_qna', f='open') }}" class="{{ 'on' if open_only }}">답변 대기</a></div>
+{% if not rows %}<div class="card"><p class="muted">{{ '답변을 기다리는 문의가 없습니다.' if open_only else '아직 문의가 없습니다.' }}</p></div>{% endif %}
+{% for q in rows %}
+<form method="post" class="card post" action="{{ url_for('admin_qna', f='open' if open_only else none) }}">
+  <input type="hidden" name="_csrf" value="{{ csrf_token() }}"><input type="hidden" name="id" value="{{ q.id }}">
+  <div class="post-h"><span class="st {{ '배송완료' if q.answer else '입금대기' }}">{{ '답변 완료' if q.answer else '답변 대기' }}</span><b>{{ q.p_name or '삭제된 상품' }}</b><span class="muted">{{ q.author }}, <span class="num">{{ q.created_at[:16] }}</span></span>{% if q.secret %}<span class="chip">비밀글</span>{% endif %}</div>
+  <p class="post-b">{{ q.content }}</p>
+  <label class="f">답변<textarea class="in" name="answer" rows="3" placeholder="답변을 적으면 상품 화면에 표시됩니다">{{ q.answer or '' }}</textarea></label>
+  <div class="inline between"><span></span><span class="inline"><button class="btn danger sm" name="act" value="delete" onclick="return confirm('이 문의를 삭제할까요?')">삭제</button><button class="btn sm">답변 저장</button></span></div>
+</form>
+{% endfor %}
+{% endblock %}

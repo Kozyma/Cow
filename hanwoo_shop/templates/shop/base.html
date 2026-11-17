@@ -1,0 +1,97 @@
+{% from "shop/_ui.html" import icon %}<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{% block title %}{{ S.shop_name }} | {{ S.tagline }}{% endblock %}</title>
+<meta name="description" content="{{ S.intro }}">
+<link rel="icon" href="{{ url_for('static', filename='favicon.svg') }}" type="image/svg+xml">
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<link rel="stylesheet" href="{{ url_for('static', filename='shop.css') }}">
+</head>
+<body>
+<a class="skip" href="#main">본문으로 건너뛰기</a>
+{% if S.notice %}<div class="topnote">{{ S.notice }}</div>{% endif %}
+<div class="util"><div class="wrap">
+  <span class="util-msg">{{ S.ship_days }}</span>
+  <nav aria-label="회원 메뉴">
+    {% if member %}
+    <a href="{{ url_for('my') }}"><b>{{ member.name }}</b>님</a>
+    <form method="post" action="{{ url_for('logout') }}"><input type="hidden" name="_csrf" value="{{ csrf_token() }}"><button>로그아웃</button></form>
+    {% else %}
+    <a href="{{ url_for('login') }}">로그인</a><a href="{{ url_for('join') }}">회원가입</a>
+    {% endif %}
+    <a href="{{ url_for('order_lookup') }}">주문 조회</a><a href="{{ url_for('cs') }}">고객센터</a>
+  </nav>
+</div></div>
+<header class="head">
+  <div class="wrap head-in">
+    <a class="logo" href="{{ url_for('home') }}" aria-label="{{ S.shop_name }} 첫 화면">
+      {%- if S.shop_name.startswith('한우') and S.shop_name|length > 2 -%}
+      <span class="logo-stamp">한우</span><span>{{ S.shop_name[2:] }}</span>
+      {%- else -%}<span>{{ S.shop_name }}</span>{%- endif -%}
+    </a>
+    <form class="search" action="{{ url_for('shop') }}" role="search">
+      <input type="search" name="q" value="{{ request.args.get('q', '') if request.endpoint == 'shop' else '' }}" placeholder="부위나 상품 이름으로 찾기" aria-label="상품 검색" maxlength="40">
+      <button aria-label="검색">{{ icon('search') }}</button>
+    </form>
+    <nav class="head-icons" aria-label="바로가기">
+      <a href="{{ url_for('my') }}">{{ icon('user') }}<span>마이</span></a>
+      <a href="{{ url_for('my_wish') }}">{{ icon('heart') }}<span>찜</span></a>
+      <a href="{{ url_for('cart') }}">{{ icon('cart') }}<span>장바구니</span>{% if cart_count %}<b class="cnt num">{{ cart_count }}</b>{% endif %}</a>
+    </nav>
+  </div>
+  <nav class="cats" aria-label="상품 분류"><div class="wrap cats-in">
+    {% set a = request.args %}{% set on_shop = request.endpoint == 'shop' %}
+    <a href="{{ url_for('shop') }}" class="{{ 'on' if on_shop and not a.get('cat') and not a.get('flag') and not a.get('q') }}">전체 상품</a>
+    {% for c in CATEGORIES %}<a href="{{ url_for('shop', cat=c) }}" class="{{ 'on' if on_shop and a.get('cat') == c }}">{{ c }}</a>{% endfor %}
+    <a href="{{ url_for('shop', flag='best') }}" class="{{ 'on' if on_shop and a.get('flag') == 'best' }}">베스트</a>
+    <a href="{{ url_for('shop', flag='new') }}" class="{{ 'on' if on_shop and a.get('flag') == 'new' }}">신상품</a>
+    <a href="{{ url_for('about') }}" class="cats-end {{ 'on' if request.endpoint == 'about' }}">농장 이야기</a>
+  </div></nav>
+</header>
+{% with msgs = get_flashed_messages(with_categories=true) %}{% if msgs %}
+<div class="wrap flashes" role="status">
+  {% for cat, m in msgs %}<div class="flash {{ cat }}">{{ m }}{% if cat == 'cart' %} <a href="{{ url_for('cart') }}">장바구니 보기</a>{% endif %}</div>{% endfor %}
+</div>
+{% endif %}{% endwith %}
+<main id="main">{% block body %}{% endblock %}</main>
+<footer class="foot"><div class="wrap">
+  <div class="foot-top">
+    <div>
+      <h2>고객센터</h2>
+      {% if S.phone %}<a class="foot-tel num" href="tel:{{ S.phone }}">{{ S.phone }}</a>{% endif %}
+      <p>{{ S.cs_hours }}</p>
+      {% if S.kakao_url %}<p><a class="ulink" href="{{ S.kakao_url }}" target="_blank" rel="noopener">카카오톡으로 문의하기</a></p>{% endif %}
+    </div>
+    <div>
+      <h2>입금 계좌</h2>
+      {% if S.bank_account %}<p class="foot-bank num">{{ S.bank_name }} {{ S.bank_account }}</p><p>예금주 {{ S.bank_holder }}</p>
+      {% else %}<p>주문을 마치면 안내해 드립니다.</p>{% endif %}
+    </div>
+    <div>
+      <h2>배송</h2>
+      <p>{{ S.ship_days }}</p>
+      <p class="num">배송비 {{ won(S.shipping_fee) }}{% if S.free_ship_over|int %}, {{ won(S.free_ship_over) }} 이상 무료{% endif %}</p>
+    </div>
+    <nav aria-label="안내">
+      <h2>안내</h2>
+      <a href="{{ url_for('cs') }}">공지사항 · 자주 묻는 질문</a>
+      <a href="{{ url_for('policy', kind='guide') }}">배송·교환·환불 안내</a>
+      <a href="{{ url_for('policy', kind='terms') }}">이용약관</a>
+      <a href="{{ url_for('policy', kind='privacy') }}"><b>개인정보처리방침</b></a>
+    </nav>
+  </div>
+  <div class="foot-biz">
+    <p><b>{{ S.farm_name or S.shop_name }}</b>
+      {% if S.owner %}<span>대표 {{ S.owner }}</span>{% endif %}
+      {% if S.biz_no %}<span>사업자등록번호 {{ S.biz_no }}</span>{% endif %}
+      {% if S.mail_order_no %}<span>통신판매업 신고 {{ S.mail_order_no }}</span>{% endif %}</p>
+    <p>{% if S.farm_addr %}<span>{{ S.farm_addr }}</span>{% endif %}{% if S.email %}<span>{{ S.email }}</span>{% endif %}</p>
+    <p>&copy; {{ year }} {{ S.shop_name }} <a class="foot-admin" href="{{ url_for('admin_home') }}">관리자</a></p>
+  </div>
+</div></footer>
+<script src="{{ url_for('static', filename='shop.js') }}" defer></script>
+</body>
+</html>

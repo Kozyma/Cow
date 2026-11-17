@@ -1,0 +1,26 @@
+{% extends "admin/base.html" %}{% block title %}상품 · 재고{% endblock %}
+{% block body %}
+<div class="head"><h1>상품 · 재고</h1><a class="btn" href="{{ url_for('admin_product') }}">상품 등록</a></div>
+{% if not items %}
+<div class="card"><p>등록된 상품이 없습니다.</p>
+  <form method="post" action="{{ url_for('admin_seed') }}" class="inline"><input type="hidden" name="_csrf" value="{{ csrf_token() }}"><button class="btn line">예시 상품 10개 넣어 보기</button></form>
+  <p class="muted">예시 상품의 가격과 중량은 임의로 넣은 값입니다. 화면을 확인한 뒤 실제 내용으로 고치거나 삭제하세요.</p></div>
+{% else %}
+<div class="card tw"><table>
+  <tr><th></th><th>상품</th><th>분류</th><th class="r">판매가</th><th class="r">판매</th><th>이력번호</th><th>재고와 판매 상태</th><th></th></tr>
+  {% for p in items %}<tr>
+    <td><img class="thumb" src="{{ p_img(p) }}" alt="" width="46" height="46" loading="lazy"></td>
+    <td><a href="{{ url_for('admin_product', pid=p.id) }}"><b>{{ p.name }}</b></a>{% if p.is_best %} <span class="chip">베스트</span>{% endif %}{% if p.is_new %} <span class="chip">신상품</span>{% endif %}{% if not p.image %} <span class="chip warn">사진 없음</span>{% endif %}<div class="muted num">{{ p.weight_g }}g, {{ p.cut }} {{ p.grade }}, {{ p.storage }}</div></td>
+    <td class="nw">{{ p.category }}</td>
+    <td class="r num">{{ won(p.price) }}{% if disc(p) %}<div class="muted">정가 {{ won(p.list_price) }}</div>{% else %}<div class="muted">{{ per100(p) }}</div>{% endif %}</td>
+    <td class="r num">{{ p.sold }}개</td>
+    <td class="num muted">{{ p.trace_no or '없음' }}</td>
+    <td><form class="inline" method="post" action="{{ url_for('admin_product_quick', pid=p.id) }}"><input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+      <input class="in xs num" type="number" name="stock" value="{{ p.stock }}" min="0" aria-label="{{ p.name }} 재고">
+      <select class="in xs" name="status" aria-label="{{ p.name }} 판매 상태">{% for s in PRODUCT_STATUSES %}<option {{ 'selected' if s == p.status }}>{{ s }}</option>{% endfor %}</select>
+      <button class="btn line sm">저장</button></form></td>
+    <td><a class="btn line sm" href="{{ url_for('admin_product', pid=p.id) }}">수정</a></td>
+  </tr>{% endfor %}
+</table></div>
+{% endif %}
+{% endblock %}

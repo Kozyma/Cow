@@ -1,0 +1,14 @@
+{% extends "shop/base.html" %}
+{% block title %}주문 조회 | {{ S.shop_name }}{% endblock %}
+{% block body %}
+<div class="wrap narrow">
+  <h1 class="page-t">주문 조회</h1>
+  <p class="note">주문번호와 주문할 때 적은 휴대폰 번호로 조회합니다.{% if not member %} 회원은 <a class="ulink" href="{{ url_for('login', next=url_for('my')) }}">로그인</a>하면 마이페이지에서 바로 볼 수 있습니다.{% endif %}</p>
+  <form method="post" class="box">
+    <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+    <label class="f">주문번호<input class="in" name="order_no" required placeholder="HW로 시작하는 번호" autocapitalize="characters"></label>
+    <label class="f">휴대폰 번호<input class="in" name="phone" required inputmode="numeric" placeholder="01012345678"></label>
+    <button class="btn block">주문 조회하기</button>
+  </form>
+</div>
+{% endblock %}

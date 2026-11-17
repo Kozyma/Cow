@@ -1,0 +1,34 @@
+{% extends "admin/base.html" %}{% block title %}{{ o.order_no }}{% endblock %}
+{% block body %}
+<div class="head"><h1><a href="{{ url_for('admin_orders') }}" class="muted">주문 관리 /</a> <span class="num">{{ o.order_no }}</span> <span class="st {{ o.status }}">{{ o.status }}</span></h1></div>
+<div class="two">
+  <div>
+    <div class="card"><h2>주문 상품</h2><table>
+      <tr><th>상품</th><th class="r">단가</th><th class="r">수량</th><th class="r">금액</th></tr>
+      {% for it in items %}<tr><td>{{ it.name }}<div class="muted">{{ it.spec }}</div></td><td class="r num">{{ won(it.price) }}</td><td class="r num">{{ it.qty }}</td><td class="r num">{{ won(it.price * it.qty) }}</td></tr>{% endfor %}
+      <tr><td colspan="3" class="r muted">배송비</td><td class="r num">{{ won(o.shipping_fee) }}</td></tr>
+      <tr><td colspan="3" class="r"><b>결제 금액</b></td><td class="r num"><b>{{ won(o.total) }}</b></td></tr>
+    </table></div>
+    <div class="card"><h2>배송 정보</h2><dl class="dl">
+      <dt>받는 분</dt><dd>{{ o.name }} <span class="num">{{ fmt_phone(o.phone) }}</span>{% if o.member_id %} <span class="chip">회원</span>{% endif %}</dd>
+      <dt>주소</dt><dd>{% if o.zipcode %}({{ o.zipcode }}) {% endif %}{{ o.addr1 }} {{ o.addr2 }}</dd>
+      <dt>받는 날</dt><dd class="num">{{ o.wish_date or '가장 빠른 날' }}</dd>
+      <dt>배송 메모</dt><dd>{{ o.memo or '없음' }}</dd>
+      <dt>입금자 이름</dt><dd>{{ o.depositor }}</dd>
+      <dt>주문 일시</dt><dd class="num">{{ o.created_at }}</dd>
+      {% if o.paid_at %}<dt>입금 확인</dt><dd class="num">{{ o.paid_at }}</dd>{% endif %}
+      {% if o.shipped_at %}<dt>출고</dt><dd class="num">{{ o.shipped_at }}</dd>{% endif %}
+    </dl></div>
+  </div>
+  <form method="post" class="card" style="align-self:start">
+    <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+    <h2>처리</h2>
+    <label class="f">주문 상태<select class="in" name="status">{% for s in ORDER_STATUSES %}<option {{ 'selected' if s == o.status }}>{{ s }}</option>{% endfor %}</select>
+      <small>'취소'로 바꾸면 재고가 자동으로 되돌아갑니다. '배송완료'가 되면 고객이 후기를 쓸 수 있습니다.</small></label>
+    <label class="f">택배사<input class="in" name="tracking_co" value="{{ o.tracking_co or '' }}" placeholder="예: 우체국택배"></label>
+    <label class="f">송장번호<input class="in" name="tracking_no" value="{{ o.tracking_no or '' }}"><small>입력하면 고객의 주문 상세 화면에 보입니다.</small></label>
+    <label class="f">관리자 메모 <small>고객에게는 보이지 않습니다</small><textarea class="in" name="admin_memo" rows="3">{{ o.admin_memo or '' }}</textarea></label>
+    <button class="btn" style="width:100%">저장</button>
+  </form>
+</div>
+{% endblock %}

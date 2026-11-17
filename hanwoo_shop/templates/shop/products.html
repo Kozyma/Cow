@@ -1,0 +1,27 @@
+{% extends "shop/base.html" %}{% from "shop/_ui.html" import card %}
+{% block title %}{{ title }} | {{ S.shop_name }}{% endblock %}
+{% block body %}
+<div class="wrap">
+  <header class="list-h">
+    <h1>{{ title }}</h1>
+    <div class="list-bar">
+      <span class="num">상품 {{ total }}개</span>
+      <nav class="sorts" aria-label="정렬">
+        {% for key, v in SORTS.items() %}<a href="{{ url_for('shop', cat=cat, q=q, flag=flag, sort=key) }}" class="{{ 'on' if sort == key }}"{% if sort == key %} aria-current="true"{% endif %}>{{ v[0] }}</a>{% endfor %}
+      </nav>
+    </div>
+  </header>
+  {% if items %}
+  <div class="grid">{% for p in items %}{{ card(p) }}{% endfor %}</div>
+  {% if pages > 1 %}
+  <nav class="pager num" aria-label="쪽 이동">
+    {% for n in range(1, pages + 1) %}<a href="{{ url_for('shop', cat=cat, q=q, flag=flag, sort=sort, page=n) }}" class="{{ 'on' if n == page }}"{% if n == page %} aria-current="page"{% endif %}>{{ n }}</a>{% endfor %}
+  </nav>
+  {% endif %}
+  {% elif q %}
+  <div class="empty"><p><b>'{{ q }}'</b>에 맞는 상품이 없습니다.</p><p>등심, 안심, 불고기처럼 부위나 용도로 찾아보세요.</p><a class="btn line" href="{{ url_for('shop') }}">전체 상품 보기</a></div>
+  {% else %}
+  <div class="empty"><p>이 분류에는 아직 상품이 없습니다.</p><a class="btn line" href="{{ url_for('shop') }}">전체 상품 보기</a></div>
+  {% endif %}
+</div>
+{% endblock %}

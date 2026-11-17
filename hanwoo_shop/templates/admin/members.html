@@ -1,0 +1,15 @@
+{% extends "admin/base.html" %}{% block title %}회원 · 고객{% endblock %}
+{% block body %}
+<h1>회원 <span class="muted">{{ members|length }}명</span></h1>
+<div class="card tw">{% if members %}<table>
+  <tr><th>이름</th><th>이메일</th><th>연락처</th><th>가입일</th><th>알림 수신</th><th class="r">주문</th><th class="r">누적 결제</th></tr>
+  {% for m in members %}<tr><td><b>{{ m.name }}</b></td><td>{{ m.email }}</td><td class="num"><a href="{{ url_for('admin_orders', q=m.phone) }}">{{ fmt_phone(m.phone) }}</a></td><td class="num muted">{{ m.created_at[:10] }}</td><td>{{ '동의' if m.marketing else '미동의' }}</td><td class="r num">{{ m.cnt }}회</td><td class="r num">{{ won(m.paid) }}</td></tr>{% endfor %}
+</table>{% else %}<p class="muted">아직 가입한 회원이 없습니다.</p>{% endif %}</div>
+
+<h1 style="margin-top:32px">주문 고객 <span class="muted">{{ customers|length }}명</span></h1>
+<p class="muted" style="margin-top:-10px">회원과 비회원을 합쳐, 주문에 적힌 연락처를 기준으로 묶은 목록입니다. 취소한 주문은 빼고 셉니다.</p>
+<div class="card tw">{% if customers %}<table>
+  <tr><th>이름</th><th>연락처</th><th>최근 배송지</th><th class="r">주문</th><th class="r">누적 결제</th><th>최근 주문</th></tr>
+  {% for r in customers %}<tr><td class="nw"><b>{{ r.name }}</b>{% if r.member_id %} <span class="chip">회원</span>{% endif %}</td><td class="num"><a href="{{ url_for('admin_orders', q=r.phone) }}">{{ fmt_phone(r.phone) }}</a></td><td>{{ r.addr }}</td><td class="r num">{{ r.cnt }}회</td><td class="r num">{{ won(r.paid) }}</td><td class="num muted nw">{{ r.last_at[:10] }}</td></tr>{% endfor %}
+</table>{% else %}<p class="muted">아직 주문한 고객이 없습니다.</p>{% endif %}</div>
+{% endblock %}

@@ -1,0 +1,56 @@
+{% extends "shop/base.html" %}
+{% block title %}주문하기 | {{ S.shop_name }}{% endblock %}
+{% block body %}
+<div class="wrap">
+  <h1 class="page-t">주문하기</h1>
+  {% if not member %}<p class="note">회원이 아니어도 주문할 수 있습니다. <a class="ulink" href="{{ url_for('login', next=url_for('checkout')) }}">로그인</a>하면 배송지가 자동으로 채워지고 주문 내역을 모아 볼 수 있습니다.</p>{% endif %}
+  <form method="post" class="cols">
+    <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+    <div class="stack">
+      <fieldset class="box">
+        <legend>받는 분</legend>
+        <div class="row2">
+          <label class="f">이름<input class="in" name="name" value="{{ form.name }}" required maxlength="30" autocomplete="name"></label>
+          <label class="f">휴대폰 번호<input class="in" name="phone" value="{{ form.phone }}" required inputmode="numeric" placeholder="01012345678" autocomplete="tel"></label>
+        </div>
+        <div class="zip">
+          <label class="f">우편번호<input class="in" name="zipcode" data-zip value="{{ form.zipcode }}" inputmode="numeric" maxlength="5"></label>
+          <button type="button" class="btn line" data-addr>주소 찾기</button>
+        </div>
+        <label class="f">주소<input class="in" name="addr1" data-addr1 value="{{ form.addr1 }}" required autocomplete="street-address"></label>
+        <label class="f">상세 주소<input class="in" name="addr2" data-addr2 value="{{ form.addr2 }}" placeholder="동, 호수"></label>
+        <label class="f">배송 메모 <small>선택</small><input class="in" name="memo" value="{{ form.memo }}" maxlength="100" placeholder="예: 부재 시 문 앞에 놓아 주세요"></label>
+      </fieldset>
+      <fieldset class="box">
+        <legend>받는 날</legend>
+        <label class="f">받고 싶은 날
+          <select class="in" name="wish_date">
+            <option value="">가장 빠른 날로 보내 주세요</option>
+            {% for v, t in wish_dates %}<option value="{{ v }}" {{ 'selected' if form.wish_date == v }}>{{ t }}</option>{% endfor %}
+          </select></label>
+        <p class="hint">{{ S.ship_days }}<br>입금 확인이 늦어지면 받는 날이 하루 이틀 밀릴 수 있습니다.</p>
+      </fieldset>
+      <fieldset class="box">
+        <legend>결제</legend>
+        <p class="pay-way">무통장 입금</p>
+        {% if S.bank_account %}<p class="bank num">{{ S.bank_name }} <b>{{ S.bank_account }}</b><span>예금주 {{ S.bank_holder }}</span></p>
+        {% else %}<p class="hint">입금 계좌는 주문을 마치면 안내해 드립니다.</p>{% endif %}
+        <label class="f">입금자 이름 <small>받는 분과 같으면 비워 두세요</small><input class="in" name="depositor" value="{{ form.depositor }}" maxlength="30"></label>
+      </fieldset>
+    </div>
+    <aside class="summary">
+      <h2>주문 상품</h2>
+      <ul class="mini">{% for l in lines %}<li><img src="{{ p_img(l.p) }}" alt="" width="48" height="48"><span>{{ l.p.name }} {{ l.p.weight_g }}g<small class="num">{{ l.qty }}개</small></span><b class="num">{{ won(l.sum) }}</b></li>{% endfor %}</ul>
+      <dl class="sum num">
+        <dt>상품 금액</dt><dd>{{ won(total) }}</dd>
+        <dt>배송비</dt><dd>{{ '무료' if fee == 0 else won(fee) }}</dd>
+        <dt class="t">결제 금액</dt><dd class="t">{{ won(total + fee) }}</dd>
+      </dl>
+      <label class="chk agree"><input type="checkbox" name="agree" value="1" required>
+        <span>주문과 배송을 위해 이름, 연락처, 주소를 수집·이용하는 데 동의합니다. <a class="ulink" href="{{ url_for('policy', kind='privacy') }}" target="_blank">개인정보처리방침</a></span></label>
+      <button class="btn red block" type="submit">{{ won(total + fee) }} 주문하기</button>
+      <p class="hint">신선식품이라 출고한 뒤에는 단순 변심으로 반품하기 어렵습니다.</p>
+    </aside>
+  </form>
+</div>
+{% endblock %}

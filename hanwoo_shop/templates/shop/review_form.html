@@ -1,0 +1,19 @@
+{% extends "shop/base.html" %}
+{% block title %}후기 쓰기 | {{ S.shop_name }}{% endblock %}
+{% block body %}
+<div class="wrap narrow">
+  <h1 class="page-t">후기 쓰기</h1>
+  <form method="post" enctype="multipart/form-data" class="box">
+    <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+    <div class="rv-target"><img src="{{ p_img(p) }}" alt="" width="64" height="64"><div><b>{{ p.name }} {{ p.weight_g }}g</b><span>{{ it.spec }}</span></div></div>
+    <fieldset class="rate">
+      <legend>별점</legend>
+      {% for n in [5, 4, 3, 2, 1] %}<input type="radio" id="r{{ n }}" name="rating" value="{{ n }}" {{ 'checked' if form.rating == n }}><label for="r{{ n }}" title="{{ n }}점"><span class="sr">{{ n }}점</span>★</label>{% endfor %}
+    </fieldset>
+    <label class="f">드셔 보니 어떠셨나요? <small>10자 이상</small><textarea class="in" name="content" rows="6" required minlength="10" maxlength="1000">{{ form.content }}</textarea></label>
+    <label class="f">사진 <small>선택, JPG·PNG·WEBP</small><input class="in" type="file" name="image" accept=".jpg,.jpeg,.png,.webp"></label>
+    <p class="hint">후기에는 이름이 일부 가려져 표시됩니다.</p>
+    <button class="btn red block">후기 등록</button>
+  </form>
+</div>
+{% endblock %}

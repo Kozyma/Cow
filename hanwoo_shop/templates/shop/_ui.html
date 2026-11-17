@@ -1,0 +1,51 @@
+{% macro icon(name) -%}
+<svg class="ic" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+{%- if name == 'search' %}<circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/>
+{%- elif name == 'user' %}<circle cx="12" cy="8" r="3.8"/><path d="M4.5 20c.8-4 3.8-6 7.5-6s6.700 2 7.500 6"/>
+{%- elif name == 'heart' %}<path d="M12 20s-7.500-4.600-7.500-10.200A4.300 4.300 0 0 1 12 7.200a4.300 4.300 0 0 1 7.500 2.600C19.500 15.400 12 20 12 20z"/>
+{%- elif name == 'cart' %}<path d="M3 4h2.500l2.200 11h10.600L20.500 7H6.300"/><circle cx="9" cy="19" r="1.400"/><circle cx="17" cy="19" r="1.400"/>
+{%- elif name == 'left' %}<path d="M15 5l-7 7 7 7"/>
+{%- elif name == 'right' %}<path d="M9 5l7 7-7 7"/>
+{%- elif name == 'lock' %}<rect x="5.500" y="10.500" width="13" height="9" rx="1.500"/><path d="M8.500 10.500V8a3.500 3.500 0 0 1 7 0v2.500"/>
+{%- endif %}</svg>
+{%- endmacro %}
+
+{% macro stars(v) -%}
+<span class="stars" style="--p:{{ ((v or 0) / 5 * 100)|round(1) }}%" role="img" aria-label="별점 5점 중 {{ v or 0 }}점"></span>
+{%- endmacro %}
+
+{% macro stamp(grade) -%}
+{% if grade and grade != '등급없음' %}<span class="stamp" title="{{ grade }} 등급">{{ grade }}</span>{% endif %}
+{%- endmacro %}
+
+{% macro card(p) %}
+<article class="card{% if sold_out(p) %} is-out{% endif %}">
+  <div class="card-top">
+  <a class="card-img" href="{{ url_for('product', pid=p.id) }}">
+    <img src="{{ p_img(p) }}" alt="{{ p.name }} {{ p.weight_g }}g" loading="lazy" width="600" height="600">
+    {% if p.is_best or p.is_new %}<span class="flags">{% if p.is_best %}<b class="flag">베스트</b>{% endif %}{% if p.is_new %}<b class="flag new">신상품</b>{% endif %}</span>{% endif %}
+    {% if sold_out(p) %}<span class="out">품절</span>{% endif %}
+  </a>
+  {% if not sold_out(p) %}
+  <form class="card-add" method="post" action="{{ url_for('cart_add') }}">
+    <input type="hidden" name="_csrf" value="{{ csrf_token() }}"><input type="hidden" name="pid" value="{{ p.id }}">
+    <input type="hidden" name="back" value="{{ request.full_path.rstrip('?') }}">
+    <button aria-label="{{ p.name }} 장바구니에 담기" title="장바구니에 담기">{{ icon('cart') }}</button>
+  </form>
+  {% endif %}
+  </div>
+  <div class="card-body">
+    <div class="card-meta">{{ stamp(p.grade) }}<span>{{ p.cut }}</span><span>{{ p.weight_g }}g</span><span>{{ p.storage }}</span></div>
+    <a class="card-name" href="{{ url_for('product', pid=p.id) }}">{{ p.name }}</a>
+    <div class="card-price num">{% if disc(p) %}<em>{{ disc(p) }}%</em>{% endif %}<strong>{{ won(p.price) }}</strong>{% if disc(p) %}<del>{{ won(p.list_price) }}</del>{% endif %}</div>
+    <div class="card-sub num">{{ per100(p) }}</div>
+    {% if p.rv_cnt %}<div class="card-rv num">{{ stars(p.rv_avg) }} {{ p.rv_avg }} <span>후기 {{ p.rv_cnt }}</span></div>{% endif %}
+  </div>
+</article>
+{% endmacro %}
+
+{% macro status_steps(status) %}
+{% set flow = ['입금대기','결제완료','상품준비','배송중','배송완료'] %}
+{% if status == '취소' %}<ol class="steps"><li class="on">주문 취소</li></ol>
+{% else %}<ol class="steps">{% for s in flow %}<li class="{{ 'on' if s == status else ('past' if flow.index(s) < flow.index(status) else '') }}">{{ s }}</li>{% endfor %}</ol>{% endif %}
+{% endmacro %}

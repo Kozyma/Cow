@@ -1,0 +1,55 @@
+{% extends "admin/base.html" %}{% block title %}설정{% endblock %}
+{% block body %}
+<h1>설정</h1>
+<form method="post" style="max-width:820px">
+  <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+  <div class="card"><h2>쇼핑몰</h2>
+    <div class="g2">
+      <label class="f">쇼핑몰 이름<input class="in" name="shop_name" value="{{ S.shop_name }}" required></label>
+      <label class="f">한 줄 문구<input class="in" name="tagline" value="{{ S.tagline }}"></label>
+    </div>
+    <label class="f">소개글 <small>검색 결과와 농장 이야기에 쓰입니다</small><textarea class="in" name="intro" rows="2">{{ S.intro }}</textarea></label>
+    <label class="f">맨 위 공지 띠 <small>비워 두면 표시하지 않습니다. 예: 설 선물세트는 1월 20일까지 주문받습니다</small><input class="in" name="notice" value="{{ S.notice }}"></label>
+    <label class="f">첫 화면 약속 4가지 <small>한 줄에 하나씩, '제목|설명' 형식. 실제로 지키는 내용만 적어 주세요</small><textarea class="in" name="points" rows="4">{{ S.points }}</textarea></label>
+    <label class="f">농장 이야기 <small>농장 이야기 화면의 본문</small><textarea class="in" name="about" rows="7">{{ S.about }}</textarea></label>
+  </div>
+  <div class="card"><h2>입금 계좌와 배송</h2>
+    <div class="g3">
+      <label class="f">은행<input class="in" name="bank_name" value="{{ S.bank_name }}" placeholder="예: 농협"></label>
+      <label class="f">계좌번호<input class="in" name="bank_account" value="{{ S.bank_account }}"></label>
+      <label class="f">예금주<input class="in" name="bank_holder" value="{{ S.bank_holder }}"></label>
+    </div>
+    <div class="g2">
+      <label class="f">배송비 (원)<input class="in num" name="shipping_fee" value="{{ S.shipping_fee }}" inputmode="numeric"></label>
+      <label class="f">무료 배송 기준 (원) <small>0이면 항상 배송비를 받습니다</small><input class="in num" name="free_ship_over" value="{{ S.free_ship_over }}" inputmode="numeric"></label>
+    </div>
+    <label class="f">출고 안내<input class="in" name="ship_days" value="{{ S.ship_days }}"></label>
+  </div>
+  <div class="card"><h2>고객센터와 사업자 정보 <span class="muted">쇼핑몰 하단에 표시됩니다</span></h2>
+    <div class="g2">
+      <label class="f">고객센터 전화<input class="in" name="phone" value="{{ S.phone }}"></label>
+      <label class="f">상담 시간<input class="in" name="cs_hours" value="{{ S.cs_hours }}"></label>
+      <label class="f">이메일<input class="in" name="email" value="{{ S.email }}"></label>
+      <label class="f">카카오톡 채널 주소 <small>선택</small><input class="in" name="kakao_url" value="{{ S.kakao_url }}" placeholder="https://pf.kakao.com/..."></label>
+      <label class="f">상호 (농장 이름)<input class="in" name="farm_name" value="{{ S.farm_name }}"></label>
+      <label class="f">대표자<input class="in" name="owner" value="{{ S.owner }}"></label>
+      <label class="f">사업자등록번호<input class="in" name="biz_no" value="{{ S.biz_no }}"></label>
+      <label class="f">통신판매업 신고번호<input class="in" name="mail_order_no" value="{{ S.mail_order_no }}"></label>
+    </div>
+    <label class="f">사업장 주소<input class="in" name="farm_addr" value="{{ S.farm_addr }}"></label>
+  </div>
+  <div class="card"><h2>약관과 안내문</h2>
+    <p class="muted">비워 두면 기본 문구가 표시됩니다. 기본 문구는 초안이므로 실제 운영 방식과 맞는지 꼭 확인하고, 다르면 아래에 직접 적어 주세요.
+      <a href="{{ url_for('policy', kind='terms') }}" target="_blank" style="text-decoration:underline">이용약관</a>,
+      <a href="{{ url_for('policy', kind='privacy') }}" target="_blank" style="text-decoration:underline">개인정보처리방침</a>,
+      <a href="{{ url_for('policy', kind='guide') }}" target="_blank" style="text-decoration:underline">배송·교환·환불 안내</a></p>
+    <label class="f">이용약관<textarea class="in" name="terms_text" rows="4">{{ S.terms_text }}</textarea></label>
+    <label class="f">개인정보처리방침<textarea class="in" name="privacy_text" rows="4">{{ S.privacy_text }}</textarea></label>
+    <label class="f">배송·교환·환불 안내<textarea class="in" name="guide_text" rows="4">{{ S.guide_text }}</textarea></label>
+  </div>
+  <div class="card"><h2>관리자 비밀번호 변경</h2>
+    <label class="f">새 비밀번호 <small>바꿀 때만 입력, 8자 이상</small><input class="in" type="password" name="new_password" autocomplete="new-password" style="max-width:320px"></label>
+  </div>
+  <button class="btn">설정 저장</button>
+</form>
+{% endblock %}

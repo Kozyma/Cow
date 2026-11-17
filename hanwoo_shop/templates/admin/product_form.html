@@ -1,0 +1,47 @@
+{% extends "admin/base.html" %}{% block title %}상품 {{ '수정' if pid else '등록' }}{% endblock %}
+{% block body %}
+{% set p = p or {} %}
+<div class="head"><h1><a href="{{ url_for('admin_products') }}" class="muted">상품 · 재고 /</a> {{ '상품 수정' if pid else '상품 등록' }}</h1>
+  {% if pid %}<a class="btn line" href="{{ url_for('product', pid=pid) }}" target="_blank" rel="noopener">쇼핑몰에서 보기</a>{% endif %}</div>
+<form method="post" enctype="multipart/form-data" style="max-width:820px">
+  <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+  <div class="card"><h2>기본 정보</h2>
+    <label class="f">상품명<input class="in" name="name" value="{{ p.name or '' }}" required placeholder="예: 등심 구이용"></label>
+    <div class="g3">
+      <label class="f">분류 <small>쇼핑몰 메뉴</small><select class="in" name="category">{% for c in CATEGORIES %}<option {{ 'selected' if c == p.category }}>{{ c }}</option>{% endfor %}</select></label>
+      <label class="f">부위<select class="in" name="cut">{% for c in CUTS %}<option {{ 'selected' if c == p.cut }}>{{ c }}</option>{% endfor %}</select></label>
+      <label class="f">등급<select class="in" name="grade">{% for g in GRADES %}<option {{ 'selected' if g == (p.grade or '1+') }}>{{ g }}</option>{% endfor %}</select></label>
+    </div>
+    <div class="g3">
+      <label class="f">중량 (g)<input class="in num" type="number" name="weight_g" value="{{ p.weight_g or '' }}" min="0" required></label>
+      <label class="f">보관<select class="in" name="storage">{% for s in STORAGES %}<option {{ 'selected' if s == p.storage }}>{{ s }}</option>{% endfor %}</select></label>
+      <label class="f">원산지 표시<input class="in" name="origin" value="{{ p.origin or '국내산 한우' }}"></label>
+    </div>
+    <label class="f">축산물 이력번호 <small>숫자 12자리. 상품 화면의 라벨에 표시됩니다</small><input class="in num" name="trace_no" value="{{ p.trace_no or '' }}" inputmode="numeric" style="max-width:260px"></label>
+  </div>
+  <div class="card"><h2>가격과 재고</h2>
+    <div class="g3">
+      <label class="f">판매가 (원)<input class="in num" type="number" name="price" value="{{ p.price or '' }}" min="0" step="100" required></label>
+      <label class="f">정가 (원) <small>할인할 때만</small><input class="in num" type="number" name="list_price" value="{{ p.list_price or '' }}" min="0" step="100"></label>
+      <label class="f">재고 (개)<input class="in num" type="number" name="stock" value="{{ p.stock or 0 }}" min="0"></label>
+    </div>
+    <p class="muted">정가를 판매가보다 높게 적으면 쇼핑몰에 할인율이 표시됩니다. 실제로 그 가격에 판 적이 있을 때만 적어 주세요.</p>
+    <div class="g3">
+      <label class="f">판매 상태<select class="in" name="status">{% for s in PRODUCT_STATUSES %}<option {{ 'selected' if s == p.status }}>{{ s }}</option>{% endfor %}</select></label>
+      <label class="f">진열 순서 <small>작을수록 앞</small><input class="in num" type="number" name="sort" value="{{ p.sort or 0 }}"></label>
+      <div class="f">표시<div class="checks"><label><input type="checkbox" name="is_best" value="1" {{ 'checked' if p.is_best }}> 베스트</label><label><input type="checkbox" name="is_new" value="1" {{ 'checked' if p.is_new }}> 신상품</label></div></div>
+    </div>
+  </div>
+  <div class="card"><h2>소개와 사진</h2>
+    <label class="f">한 줄 소개<input class="in" name="summary" value="{{ p.summary or '' }}" maxlength="120"></label>
+    <label class="f">상세 설명<textarea class="in" name="description" rows="7">{{ p.description or '' }}</textarea></label>
+    <label class="f">대표 사진 <small>정사각형 권장. JPG, PNG, WEBP</small><input class="in" type="file" name="image" accept=".jpg,.jpeg,.png,.webp"></label>
+    {% if p.image %}<div class="pics"><figure><img src="{{ url_for('uploads', name=p.image) }}" alt=""><label><input type="checkbox" name="del_main" value="1"> 삭제</label></figure></div>
+    {% else %}<p class="muted">사진을 올리지 않으면 부위에 맞는 기본 그림이 표시됩니다.</p>{% endif %}
+    <label class="f">추가 사진 <small>여러 장 선택 가능, 최대 6장. 상세 화면에 이어서 표시됩니다</small><input class="in" type="file" name="images" accept=".jpg,.jpeg,.png,.webp" multiple></label>
+    {% if extras %}<div class="pics">{% for n in extras %}<figure><img src="{{ url_for('uploads', name=n) }}" alt=""><label><input type="checkbox" name="del_image" value="{{ n }}"> 삭제</label></figure>{% endfor %}</div>{% endif %}
+  </div>
+  <div class="inline"><button class="btn">저장</button><a class="btn line" href="{{ url_for('admin_products') }}">취소</a></div>
+</form>
+{% if pid %}<form method="post" action="{{ url_for('admin_product_delete', pid=pid) }}" onsubmit="return confirm('이 상품을 삭제할까요? 후기와 문의도 함께 지워집니다.')" style="margin-top:28px"><input type="hidden" name="_csrf" value="{{ csrf_token() }}"><button class="btn danger sm">상품 삭제</button></form>{% endif %}
+{% endblock %}

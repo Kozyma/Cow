@@ -1,0 +1,83 @@
+{% extends "shop/base.html" %}{% from "shop/_ui.html" import card, stars %}
+{% block title %}마이페이지 | {{ S.shop_name }}{% endblock %}
+{% block body %}
+<div class="wrap">
+  <h1 class="page-t">{{ member.name }}님</h1>
+  <div class="my">
+    <nav class="my-nav" aria-label="마이페이지">
+      <a href="{{ url_for('my') }}" class="{{ 'on' if tab == 'orders' }}">주문 내역</a>
+      <a href="{{ url_for('my_wish') }}" class="{{ 'on' if tab == 'wish' }}">찜한 상품</a>
+      <a href="{{ url_for('my_posts') }}" class="{{ 'on' if tab == 'posts' }}">내 후기 · 문의</a>
+      <a href="{{ url_for('my_profile') }}" class="{{ 'on' if tab == 'profile' }}">회원 정보</a>
+    </nav>
+    <div class="my-body">
+    {% if tab == 'orders' %}
+      {% if orders %}
+      <ul class="olist">
+        {% for o in orders %}
+        <li><a href="{{ url_for('order_view', order_no=o.order_no) }}">
+          <div><time class="num">{{ o.created_at[:10] }}</time><b>{{ o['items'] }}</b><span class="num">주문번호 {{ o.order_no }}</span></div>
+          <div class="olist-r"><span class="st st-{{ o.status }}">{{ o.status }}</span><strong class="num">{{ won(o.total) }}</strong></div>
+        </a></li>
+        {% endfor %}
+      </ul>
+      {% else %}<div class="empty"><p>아직 주문한 내역이 없습니다.</p><a class="btn" href="{{ url_for('shop') }}">한우 보러 가기</a></div>{% endif %}
+
+    {% elif tab == 'wish' %}
+      {% if items %}<div class="grid g3">{% for p in items %}{{ card(p) }}{% endfor %}</div>
+      {% else %}<div class="empty"><p>찜한 상품이 없습니다.</p><p>상품 화면에서 찜하기를 누르면 여기에 모입니다.</p></div>{% endif %}
+
+    {% elif tab == 'posts' %}
+      <h2 class="my-h">내 후기</h2>
+      {% if my_reviews %}<ul class="rv-list">{% for r in my_reviews %}<li>
+        <div class="rv-head">{{ stars(r.rating) }}<b>{{ r.p_name or '판매 종료 상품' }}</b><time class="num">{{ r.created_at[:10] }}</time></div>
+        <p>{{ r.content }}</p>{% if r.reply %}<div class="reply"><b>{{ S.shop_name }}</b><p>{{ r.reply }}</p></div>{% endif %}</li>{% endfor %}</ul>
+      {% else %}<p class="empty small">쓴 후기가 없습니다. 배송이 끝난 주문에서 후기를 쓸 수 있습니다.</p>{% endif %}
+      <h2 class="my-h">내 문의</h2>
+      {% if my_qnas %}<ul class="qna-list">{% for q in my_qnas %}<li>
+        <div class="qna-q"><span class="qna-st {{ 'done' if q.answer }}">{{ '답변 완료' if q.answer else '답변 대기' }}</span><p>{{ q.content }}</p>
+          <span class="qna-by">{{ q.p_name or '판매 종료 상품' }} <time class="num">{{ q.created_at[:10] }}</time></span></div>
+        {% if q.answer %}<div class="reply"><b>{{ S.shop_name }}</b><p>{{ q.answer }}</p></div>{% endif %}</li>{% endfor %}</ul>
+      {% else %}<p class="empty small">남긴 문의가 없습니다.</p>{% endif %}
+
+    {% elif tab == 'profile' %}
+      <form method="post" class="box">
+        <input type="hidden" name="_csrf" value="{{ csrf_token() }}"><input type="hidden" name="act" value="info">
+        <h2>기본 정보</h2>
+        <label class="f">이메일<input class="in" value="{{ member.email }}" disabled></label>
+        <div class="row2">
+          <label class="f">이름<input class="in" name="name" value="{{ member.name }}" required maxlength="30"></label>
+          <label class="f">휴대폰 번호<input class="in" name="phone" value="{{ member.phone }}" required inputmode="numeric"></label>
+        </div>
+        <div class="zip">
+          <label class="f">우편번호<input class="in" name="zipcode" data-zip value="{{ member.zipcode or '' }}" maxlength="5"></label>
+          <button type="button" class="btn line" data-addr>주소 찾기</button>
+        </div>
+        <label class="f">기본 배송지<input class="in" name="addr1" data-addr1 value="{{ member.addr1 or '' }}"></label>
+        <label class="f">상세 주소<input class="in" name="addr2" data-addr2 value="{{ member.addr2 or '' }}"></label>
+        <label class="chk"><input type="checkbox" name="marketing" value="1" {{ 'checked' if member.marketing }}><span>입고 소식과 행사 안내를 문자로 받겠습니다</span></label>
+        <button class="btn">정보 저장</button>
+      </form>
+      <form method="post" class="box">
+        <input type="hidden" name="_csrf" value="{{ csrf_token() }}"><input type="hidden" name="act" value="pw">
+        <h2>비밀번호 변경</h2>
+        <div class="row2">
+          <label class="f">현재 비밀번호<input class="in" type="password" name="password" required autocomplete="current-password"></label>
+          <label class="f">새 비밀번호 <small>8자 이상</small><input class="in" type="password" name="new_password" required minlength="8" autocomplete="new-password"></label>
+        </div>
+        <button class="btn line">비밀번호 변경</button>
+      </form>
+      <details class="leave">
+        <summary>회원 탈퇴</summary>
+        <form method="post" onsubmit="return confirm('정말 탈퇴할까요? 찜한 상품과 회원 정보가 지워집니다.')">
+          <input type="hidden" name="_csrf" value="{{ csrf_token() }}"><input type="hidden" name="act" value="leave">
+          <p class="hint">탈퇴하면 회원 정보와 찜한 상품이 지워집니다. 주문 기록은 관련 법령에 따라 정해진 기간 동안 보관됩니다.</p>
+          <label class="f">비밀번호 확인<input class="in" type="password" name="password" required autocomplete="current-password"></label>
+          <button class="btn line">탈퇴하기</button>
+        </form>
+      </details>
+    {% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}

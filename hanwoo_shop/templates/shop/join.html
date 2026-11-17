@@ -1,0 +1,22 @@
+{% extends "shop/base.html" %}
+{% block title %}회원가입 | {{ S.shop_name }}{% endblock %}
+{% block body %}
+<div class="wrap narrow">
+  <h1 class="page-t">회원가입</h1>
+  <form method="post" class="box">
+    <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+    <label class="f">이메일 <small>로그인할 때 씁니다</small><input class="in" type="email" name="email" value="{{ form.email }}" required autocomplete="email"></label>
+    <label class="f">비밀번호 <small>8자 이상</small><input class="in" type="password" name="password" required minlength="8" autocomplete="new-password"></label>
+    <label class="f">비밀번호 다시 입력<input class="in" type="password" name="password2" required minlength="8" autocomplete="new-password"></label>
+    <label class="f">이름<input class="in" name="name" value="{{ form.name }}" required maxlength="30" autocomplete="name"></label>
+    <label class="f">휴대폰 번호<input class="in" name="phone" value="{{ form.phone }}" required inputmode="numeric" placeholder="01012345678" autocomplete="tel"></label>
+    <div class="agrees">
+      <label class="chk"><input type="checkbox" name="agree_terms" value="1" required><span><a class="ulink" href="{{ url_for('policy', kind='terms') }}" target="_blank">이용약관</a>에 동의합니다 (필수)</span></label>
+      <label class="chk"><input type="checkbox" name="agree_privacy" value="1" required><span><a class="ulink" href="{{ url_for('policy', kind='privacy') }}" target="_blank">개인정보 수집·이용</a>에 동의합니다 (필수)</span></label>
+      <label class="chk"><input type="checkbox" name="marketing" value="1"><span>입고 소식과 행사 안내를 문자로 받겠습니다 (선택)</span></label>
+    </div>
+    <button class="btn red block">가입하기</button>
+  </form>
+  <p class="alt">이미 회원이신가요? <a class="ulink" href="{{ url_for('login', next=request.args.get('next')) }}">로그인</a></p>
+</div>
+{% endblock %}

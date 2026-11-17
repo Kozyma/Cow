@@ -1,0 +1,29 @@
+{% extends "admin/base.html" %}{% block title %}주문 관리{% endblock %}
+{% block body %}
+<div class="head"><h1>주문 관리</h1>
+  <div class="inline">
+    <form class="inline" method="get"><input class="in" name="q" value="{{ q }}" placeholder="주문번호, 이름, 연락처" style="width:220px" aria-label="주문 검색">{% if status %}<input type="hidden" name="status" value="{{ status }}">{% endif %}<button class="btn line">검색</button></form>
+    <a class="btn line" href="{{ url_for('admin_orders_csv', status=status) }}">엑셀(CSV)로 받기</a>
+  </div>
+</div>
+<div class="tabs">
+  <a href="{{ url_for('admin_orders') }}" class="{{ 'on' if not status }}">전체</a>
+  {% for s in ORDER_STATUSES %}<a href="{{ url_for('admin_orders', status=s) }}" class="{{ 'on' if status == s }}">{{ s }}<b>{{ counts.get(s, 0) }}</b></a>{% endfor %}
+</div>
+<div class="card tw">
+{% if orders %}<table>
+  <tr><th>주문번호</th><th>받는 분</th><th>상품</th><th class="r">결제 금액</th><th>받는 날</th><th>상태</th><th>다음 단계</th></tr>
+  {% set nxt = {'입금대기': '결제완료', '결제완료': '상품준비', '상품준비': '배송중', '배송중': '배송완료'} %}
+  {% set lbl = {'입금대기': '입금 확인', '결제완료': '준비 시작', '상품준비': '출고 처리', '배송중': '배송 완료'} %}
+  {% for o in orders %}<tr>
+    <td class="num"><a href="{{ url_for('admin_order', oid=o.id) }}"><b>{{ o.order_no }}</b></a><div class="muted">{{ o.created_at[5:16] }}</div></td>
+    <td class="nw">{{ o.name }}{% if o.member_id %} <span class="chip">회원</span>{% endif %}<div class="muted num">{{ fmt_phone(o.phone) }}{% if o.depositor and o.depositor != o.name %}, 입금자 {{ o.depositor }}{% endif %}</div></td>
+    <td>{{ o['items'] }}</td>
+    <td class="r num"><b>{{ won(o.total) }}</b></td>
+    <td class="num nw">{{ o.wish_date[5:] if o.wish_date else '빠른 날' }}</td>
+    <td><span class="st {{ o.status }}">{{ o.status }}</span></td>
+    <td>{% if o.status in nxt %}<form class="inline" method="post" action="{{ url_for('admin_order_status', oid=o.id) }}"><input type="hidden" name="_csrf" value="{{ csrf_token() }}"><input type="hidden" name="back" value="{{ request.full_path.rstrip('?') }}"><button class="btn sm" name="status" value="{{ nxt[o.status] }}">{{ lbl[o.status] }}</button></form>{% endif %}</td>
+  </tr>{% endfor %}
+</table>{% else %}<p class="muted">조건에 맞는 주문이 없습니다.</p>{% endif %}
+</div>
+{% endblock %}

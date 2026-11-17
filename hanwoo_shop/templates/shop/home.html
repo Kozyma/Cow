@@ -1,0 +1,108 @@
+{% extends "shop/base.html" %}{% from "shop/_ui.html" import card, icon, stars %}
+{% block body %}
+{% if banners %}
+<section class="hero" data-slider aria-roledescription="carousel" aria-label="안내 배너">
+  <div class="hero-track">
+  {% for b in banners %}
+    <a class="slide t-{{ b.theme }}{% if b.image %} has-photo{% endif %}{% if loop.first %} on{% endif %}" href="{{ b.link or url_for('shop') }}"{% if b.image %} style="background-image:url('{{ url_for('uploads', name=b.image) }}')"{% endif %}>
+      <div class="wrap slide-in">
+        <div class="slide-text">
+          <h2>{% for line in b.title.splitlines() %}{{ line }}{% if not loop.last %}<br>{% endif %}{% endfor %}</h2>
+          {% if b.subtitle %}<p>{{ b.subtitle }}</p>{% endif %}
+          {% if b.link_label %}<span class="btn">{{ b.link_label }}</span>{% endif %}
+        </div>
+        {% if not b.image %}
+        {% set k = {'red': 'steak', 'black': 'ribs', 'paper': 'gift'}[b.theme] %}
+        <img class="slide-art" src="{{ url_for('art', kind=k, seed=b.id + 2, m=3, bg={'red': 'c8102e', 'black': '111111', 'paper': 'ece6da'}[b.theme]) }}" alt="" width="600" height="600">
+        {% endif %}
+      </div>
+    </a>
+  {% endfor %}
+  </div>
+  {% if banners|length > 1 %}
+  <div class="wrap hero-ctrl">
+    <button type="button" data-prev aria-label="이전 배너">{{ icon('left') }}</button>
+    <span class="num"><b data-cur>1</b> / {{ banners|length }}</span>
+    <button type="button" data-next aria-label="다음 배너">{{ icon('right') }}</button>
+  </div>
+  {% endif %}
+</section>
+{% endif %}
+
+{% if POINTS %}
+<section class="points"><div class="wrap points-in">
+  {% for t, d in POINTS %}<div><b>{{ t }}</b><span>{{ d }}</span></div>{% endfor %}
+</div></section>
+{% endif %}
+
+<div class="wrap">
+  <nav class="tiles" aria-label="분류별로 보기">
+    {% set tile_kind = {'구이': 'steak', '스테이크': 'tender', '불고기·국거리': 'slices', '갈비·찜': 'ribs', '사골·곰탕': 'bones', '선물세트': 'gift'} %}
+    {% for c in CATEGORIES %}
+    <a href="{{ url_for('shop', cat=c) }}">
+      <img src="{{ url_for('art', kind=tile_kind[c], seed=loop.index + 10, m=2, bg='ffffff') }}" alt="" width="600" height="600" loading="lazy">
+      <b>{{ c }}</b><span class="num">{{ counts.get(c, 0) }}개</span>
+    </a>
+    {% endfor %}
+  </nav>
+
+  <section class="sec">
+    <header class="sec-h"><h2>많이 찾는 한우</h2><a href="{{ url_for('shop', flag='best') }}">베스트 전체 보기</a></header>
+    {% if best %}<div class="grid">{% for p in best %}{{ card(p) }}{% endfor %}</div>
+    {% else %}<p class="empty">상품을 준비하고 있습니다.</p>{% endif %}
+  </section>
+</div>
+
+{% if gifts %}
+<section class="gift"><div class="wrap gift-in">
+  <div class="gift-text">
+    <h2>받는 날에 맞춰<br>보내는 선물세트</h2>
+    <p>주문할 때 받는 날을 고를 수 있습니다. 여러 곳으로 보낼 때는 고객센터로 알려 주세요.</p>
+    <a class="btn white" href="{{ url_for('shop', cat='선물세트') }}">선물세트 전체 보기</a>
+  </div>
+  <div class="gift-items">{% for p in gifts %}{{ card(p) }}{% endfor %}</div>
+</div></section>
+{% endif %}
+
+<div class="wrap">
+  {% if new %}
+  <section class="sec">
+    <header class="sec-h"><h2>새로 들어온 한우</h2><a href="{{ url_for('shop', flag='new') }}">신상품 전체 보기</a></header>
+    <div class="grid">{% for p in new %}{{ card(p) }}{% endfor %}</div>
+  </section>
+  {% endif %}
+
+  {% if reviews %}
+  <section class="sec">
+    <header class="sec-h"><h2>드셔 본 분들의 후기</h2></header>
+    <div class="rv-row">
+      {% for r in reviews %}
+      <a class="rv-card" href="{{ url_for('product', pid=r.product_id) }}#reviews">
+        {% if r.image %}<img src="{{ url_for('uploads', name=r.image) }}" alt="" loading="lazy">{% endif %}
+        <div>{{ stars(r.rating) }}<p>{{ r.content }}</p><span>{{ r.author }} | {{ r.p_name }} {{ r.p_weight }}g</span></div>
+      </a>
+      {% endfor %}
+    </div>
+  </section>
+  {% endif %}
+
+  <section class="info">
+    <div>
+      <h2>공지사항 <a href="{{ url_for('cs') }}">더 보기</a></h2>
+      {% if notices %}<ul>{% for n in notices %}<li><a href="{{ url_for('notice', nid=n.id) }}">{{ n.title }}</a><time class="num">{{ n.created_at[5:10]|replace('-', '.') }}</time></li>{% endfor %}</ul>
+      {% else %}<p>등록된 공지가 없습니다.</p>{% endif %}
+    </div>
+    <div>
+      <h2>고객센터</h2>
+      {% if S.phone %}<p class="info-big num">{{ S.phone }}</p>{% endif %}
+      <p>{{ S.cs_hours }}</p>
+      <p><a class="ulink" href="{{ url_for('cs') }}">자주 묻는 질문</a></p>
+    </div>
+    <div>
+      <h2>이력번호 조회</h2>
+      <p>상품 화면에 적힌 이력번호 12자리를 축산물이력제에서 조회하면 출생부터 등급 판정까지 확인할 수 있습니다.</p>
+      <p><a class="ulink" href="https://www.mtrace.go.kr" target="_blank" rel="noopener">축산물이력제 열기</a></p>
+    </div>
+  </section>
+</div>
+{% endblock %}

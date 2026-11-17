@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex"><title>관리자 로그인 | {{ S.shop_name }}</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='admin.css') }}"></head>
+<body><div class="login">
+  <h1>{{ S.shop_name }} 백오피스</h1>
+  {% with msgs = get_flashed_messages(with_categories=true) %}{% for cat, m in msgs %}<div class="flash {{ cat }}">{{ m }}</div>{% endfor %}{% endwith %}
+  <form method="post" class="card">
+    <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+    {% if first %}
+    <p class="muted" style="margin-top:0">처음 접속하셨습니다. 앞으로 쓸 관리자 비밀번호를 정해 주세요. (8자 이상)</p>
+    <label class="f">새 비밀번호<input class="in" type="password" name="password" required minlength="8" autofocus autocomplete="new-password"></label>
+    <label class="f">한 번 더 입력<input class="in" type="password" name="password2" required minlength="8" autocomplete="new-password"></label>
+    <button class="btn" style="width:100%">비밀번호 정하고 시작하기</button>
+    {% else %}
+    <label class="f">관리자 비밀번호<input class="in" type="password" name="password" required autofocus autocomplete="current-password"></label>
+    <button class="btn" style="width:100%">로그인</button>
+    {% endif %}
+  </form>
+  <p class="muted"><a href="{{ url_for('home') }}">쇼핑몰로 돌아가기</a></p>
+</div></body></html>

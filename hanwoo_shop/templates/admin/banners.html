@@ -1,0 +1,29 @@
+{% extends "admin/base.html" %}{% block title %}메인 배너{% endblock %}
+{% block body %}
+<h1>메인 배너</h1>
+<p class="muted" style="margin-top:-10px">쇼핑몰 첫 화면 맨 위에 순서대로 넘어가며 보입니다. 사진을 올리면 사진이 배경이 되고, 올리지 않으면 색과 기본 그림으로 표시됩니다.</p>
+{% macro form(b) %}
+<form method="post" enctype="multipart/form-data" class="card">
+  <input type="hidden" name="_csrf" value="{{ csrf_token() }}">{% if b %}<input type="hidden" name="id" value="{{ b.id }}">{% endif %}
+  <div class="g2">
+    <label class="f">큰 문구 <small>줄을 바꾸면 그대로 표시됩니다</small><textarea class="in" name="title" rows="2" required>{{ b.title if b else '' }}</textarea></label>
+    <label class="f">작은 문구<input class="in" name="subtitle" value="{{ b.subtitle if b else '' }}"></label>
+  </div>
+  <div class="g4">
+    <label class="f">누르면 갈 주소<input class="in" name="link" value="{{ b.link if b else '/shop' }}" placeholder="/shop?cat=선물세트"></label>
+    <label class="f">버튼 글자<input class="in" name="link_label" value="{{ b.link_label if b else '' }}" placeholder="한우 보러 가기"></label>
+    <label class="f">색<select class="in" name="theme">{% for t, n in [('red', '빨강'), ('black', '검정'), ('paper', '밝은 종이색')] %}<option value="{{ t }}" {{ 'selected' if b and b.theme == t }}>{{ n }}</option>{% endfor %}</select></label>
+    <label class="f">순서<input class="in num" type="number" name="sort" value="{{ b.sort if b else 0 }}"></label>
+  </div>
+  <label class="f">배경 사진 <small>가로로 긴 사진 권장 (1600×600 정도)</small><input class="in" type="file" name="image" accept=".jpg,.jpeg,.png,.webp"></label>
+  {% if b and b.image %}<div class="pics wide"><figure><img src="{{ url_for('uploads', name=b.image) }}" alt=""><label><input type="checkbox" name="del_image" value="1"> 사진 삭제</label></figure></div>{% endif %}
+  <div class="inline between">
+    <label class="checkline"><input type="checkbox" name="active" value="1" {{ 'checked' if not b or b.active }}> 쇼핑몰에 보이기</label>
+    <span class="inline">{% if b %}<button class="btn danger sm" name="act" value="delete" onclick="return confirm('이 배너를 삭제할까요?')">삭제</button>{% endif %}<button class="btn">{{ '저장' if b else '배너 추가' }}</button></span>
+  </div>
+</form>
+{% endmacro %}
+{% for b in banners %}{{ form(b) }}{% endfor %}
+<h2 style="margin-top:28px">새 배너</h2>
+{{ form(none) }}
+{% endblock %}

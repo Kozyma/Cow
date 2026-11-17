@@ -1,0 +1,44 @@
+{% extends "shop/base.html" %}
+{% block title %}장바구니 | {{ S.shop_name }}{% endblock %}
+{% block body %}
+<div class="wrap">
+  <h1 class="page-t">장바구니</h1>
+  {% if not lines %}
+  <div class="empty"><p>장바구니가 비어 있습니다.</p><a class="btn" href="{{ url_for('shop') }}">한우 보러 가기</a></div>
+  {% else %}
+  <div class="cols">
+    <ul class="lines">
+      {% for l in lines %}
+      <li>
+        <a class="lines-img" href="{{ url_for('product', pid=l.p.id) }}"><img src="{{ p_img(l.p) }}" alt="" width="96" height="96"></a>
+        <div class="lines-info">
+          <a href="{{ url_for('product', pid=l.p.id) }}"><b>{{ l.p.name }} {{ l.p.weight_g }}g</b></a>
+          <span>{{ l.p.cut }}, {{ l.p.grade }}, {{ l.p.storage }}</span>
+          {% if not l.ok %}<span class="warn">{% if sold_out(l.p) %}품절되었습니다. 삭제해 주세요.{% else %}{{ l.p.stock }}개까지만 주문할 수 있습니다.{% endif %}</span>{% endif %}
+        </div>
+        <form method="post" action="{{ url_for('cart_update') }}" class="lines-qty">
+          <input type="hidden" name="_csrf" value="{{ csrf_token() }}"><input type="hidden" name="pid" value="{{ l.p.id }}">
+          <select class="in" name="qty" onchange="this.form.submit()" aria-label="{{ l.p.name }} 수량">
+            {% for n in range(1, [[l.p.stock, l.qty]|max, 20]|min + 1) %}<option {{ 'selected' if n == l.qty }}>{{ n }}</option>{% endfor %}
+          </select>
+          <button class="tlink" name="qty" value="0">삭제</button>
+        </form>
+        <strong class="num">{{ won(l.sum) }}</strong>
+      </li>
+      {% endfor %}
+    </ul>
+    <aside class="summary">
+      <h2>결제 예정 금액</h2>
+      <dl class="sum num">
+        <dt>상품 금액</dt><dd>{{ won(total) }}</dd>
+        <dt>배송비</dt><dd>{{ '무료' if fee == 0 else won(fee) }}</dd>
+        <dt class="t">합계</dt><dd class="t">{{ won(total + fee) }}</dd>
+      </dl>
+      {% if fee and S.free_ship_over|int %}<p class="hint num">{{ won(S.free_ship_over|int - total) }} 더 담으면 배송비가 무료입니다.</p>{% endif %}
+      <a class="btn red block" href="{{ url_for('checkout') }}">주문하기</a>
+      <a class="btn line block" href="{{ url_for('shop') }}">더 둘러보기</a>
+    </aside>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

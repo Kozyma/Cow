@@ -1,0 +1,41 @@
+{% extends "admin/base.html" %}{% block title %}대시보드{% endblock %}
+{% block body %}
+<h1>대시보드</h1>
+{% set todo = [] %}
+{% if not S.bank_account %}{% set _ = todo.append('입금 계좌를 등록하세요. 주문을 마친 고객에게 안내됩니다.') %}{% endif %}
+{% if not S.biz_no or not S.mail_order_no %}{% set _ = todo.append('사업자등록번호와 통신판매업 신고번호를 입력하세요. 쇼핑몰 하단에 표시해야 합니다.') %}{% endif %}
+{% if not S.phone %}{% set _ = todo.append('고객센터 전화번호를 입력하세요.') %}{% endif %}
+{% if todo %}<div class="todo"><b>판매를 시작하기 전에</b><ul>{% for t in todo %}<li>{{ t }}</li>{% endfor %}</ul><a href="{{ url_for('admin_settings') }}" style="text-decoration:underline">설정으로 가기</a></div>{% endif %}
+<div class="kpis">
+  <a class="kpi" href="{{ url_for('admin_orders') }}"><span>오늘 주문</span><b class="num">{{ d.today_orders }}건</b></a>
+  <a class="kpi {{ 'alert' if d.wait_pay }}" href="{{ url_for('admin_orders', status='입금대기') }}"><span>입금 확인 대기</span><b class="num">{{ d.wait_pay }}건</b></a>
+  <a class="kpi {{ 'alert' if d.to_ship }}" href="{{ url_for('admin_orders', status='결제완료') }}"><span>출고할 주문</span><b class="num">{{ d.to_ship }}건</b></a>
+  <div class="kpi"><span>이번 달 매출 ({{ d.month_orders }}건)</span><b class="num">{{ won(d.month_sales) }}</b></div>
+</div>
+<div class="kpis three">
+  <a class="kpi sm {{ 'alert' if d.open_qna }}" href="{{ url_for('admin_qna', f='open') }}"><span>답변할 문의</span><b class="num">{{ d.open_qna }}건</b></a>
+  <a class="kpi sm" href="{{ url_for('admin_reviews') }}"><span>답글 없는 후기</span><b class="num">{{ d.no_reply_reviews }}건</b></a>
+  <a class="kpi sm" href="{{ url_for('admin_members') }}"><span>회원</span><b class="num">{{ d.members }}명</b></a>
+</div>
+<div class="two">
+  <div class="card"><h2>최근 14일 매출 <span class="muted">입금이 확인된 주문 기준</span></h2>
+    <div class="bars">{% for day, v in d.days %}<div title="{{ day }} {{ won(v) }}"><i style="height:{{ (v / mx * 100)|round(1) }}%"></i>{{ day[8:] }}</div>{% endfor %}</div>
+  </div>
+  <div class="card"><h2>재고 3개 이하</h2>
+    {% if d.low_stock %}<table>{% for p in d.low_stock %}<tr><td><a href="{{ url_for('admin_product', pid=p.id) }}">{{ p.name }} {{ p.weight_g }}g</a></td><td class="r num"><b>{{ p.stock }}</b>개</td></tr>{% endfor %}</table>
+    {% else %}<p class="muted">재고가 부족한 상품이 없습니다.</p>{% endif %}
+  </div>
+</div>
+<div class="two">
+  <div class="card"><h2>최근 주문</h2>
+    {% if recent %}<div class="tw"><table>
+      <tr><th>주문번호</th><th>받는 분</th><th>상품</th><th class="r">금액</th><th>상태</th></tr>
+      {% for o in recent %}<tr><td class="num"><a href="{{ url_for('admin_order', oid=o.id) }}"><b>{{ o.order_no }}</b></a><div class="muted">{{ o.created_at[5:16] }}</div></td><td class="nw">{{ o.name }}</td><td>{{ o['items'] }}</td><td class="r num">{{ won(o.total) }}</td><td><span class="st {{ o.status }}">{{ o.status }}</span></td></tr>{% endfor %}
+    </table></div>{% else %}<p class="muted">아직 주문이 없습니다.</p>{% endif %}
+  </div>
+  <div class="card"><h2>이번 달 많이 팔린 상품</h2>
+    {% if d.best %}<table>{% for b in d.best %}<tr><td>{{ b.name }}</td><td class="r num">{{ b.qty }}개</td><td class="r num">{{ won(b.amt) }}</td></tr>{% endfor %}</table>
+    {% else %}<p class="muted">이번 달 판매 내역이 없습니다.</p>{% endif %}
+  </div>
+</div>
+{% endblock %}

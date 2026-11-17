@@ -1,0 +1,27 @@
+{% extends "shop/base.html" %}
+{% block title %}고객센터 | {{ S.shop_name }}{% endblock %}
+{% block body %}
+<div class="wrap">
+  <h1 class="page-t">고객센터</h1>
+  <div class="cs-top">
+    <div>{% if S.phone %}<a class="cs-tel num" href="tel:{{ S.phone }}">{{ S.phone }}</a>{% endif %}<p>{{ S.cs_hours }}</p></div>
+    <div class="cs-links">
+      <a class="btn line" href="{{ url_for('order_lookup') }}">주문 조회</a>
+      <a class="btn line" href="{{ url_for('policy', kind='guide') }}">배송·교환·환불 안내</a>
+      {% if S.kakao_url %}<a class="btn line" href="{{ S.kakao_url }}" target="_blank" rel="noopener">카카오톡 문의</a>{% endif %}
+    </div>
+  </div>
+  <div class="cs-cols">
+    <section>
+      <h2>자주 묻는 질문</h2>
+      {% if faqs %}<div class="faq">{% for f in faqs %}<details><summary>{{ f.q }}</summary><p>{{ f.a }}</p></details>{% endfor %}</div>
+      {% else %}<p class="empty small">등록된 질문이 없습니다.</p>{% endif %}
+    </section>
+    <section>
+      <h2>공지사항</h2>
+      {% if notices %}<ul class="nlist">{% for n in notices %}<li><a href="{{ url_for('notice', nid=n.id) }}">{% if n.pinned %}<b class="tag">중요</b>{% endif %}{{ n.title }}</a><time class="num">{{ n.created_at[:10] }}</time></li>{% endfor %}</ul>
+      {% else %}<p class="empty small">등록된 공지가 없습니다.</p>{% endif %}
+    </section>
+  </div>
+</div>
+{% endblock %}

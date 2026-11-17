@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex">
+<title>{% block title %}백오피스{% endblock %} | {{ S.shop_name }}</title>
+<link rel="icon" href="{{ url_for('static', filename='favicon.svg') }}" type="image/svg+xml">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<link rel="stylesheet" href="{{ url_for('static', filename='admin.css') }}">
+</head>
+<body>
+<aside class="side">
+  <div class="b">{{ S.shop_name }}</div><small>백오피스</small>
+  <a href="{{ url_for('admin_home') }}" class="{{ 'on' if tab == 'home' }}">대시보드</a>
+  <span class="grp">판매</span>
+  <a href="{{ url_for('admin_orders') }}" class="{{ 'on' if tab == 'orders' }}">주문 관리</a>
+  <a href="{{ url_for('admin_products') }}" class="{{ 'on' if tab == 'products' }}">상품 · 재고</a>
+  <span class="grp">고객</span>
+  <a href="{{ url_for('admin_qna') }}" class="{{ 'on' if tab == 'qna' }}">상품 문의</a>
+  <a href="{{ url_for('admin_reviews') }}" class="{{ 'on' if tab == 'reviews' }}">후기</a>
+  <a href="{{ url_for('admin_members') }}" class="{{ 'on' if tab == 'members' }}">회원 · 고객</a>
+  <span class="grp">쇼핑몰 꾸미기</span>
+  <a href="{{ url_for('admin_banners') }}" class="{{ 'on' if tab == 'banners' }}">메인 배너</a>
+  <a href="{{ url_for('admin_board') }}" class="{{ 'on' if tab == 'board' }}">공지 · 자주 묻는 질문</a>
+  <a href="{{ url_for('admin_settings') }}" class="{{ 'on' if tab == 'settings' }}">설정</a>
+  <div class="sp"></div>
+  <a href="{{ url_for('home') }}" target="_blank" rel="noopener">쇼핑몰 열기</a>
+  <form method="post" action="{{ url_for('admin_logout') }}" style="margin:0"><input type="hidden" name="_csrf" value="{{ csrf_token() }}"><button>로그아웃</button></form>
+</aside>
+<main class="main">
+  {% with msgs = get_flashed_messages(with_categories=true) %}
+    {% for cat, m in msgs %}<div class="flash {{ cat }}">{{ m }}</div>{% endfor %}
+  {% endwith %}
+  {% block body %}{% endblock %}
+</main>
+</body>
+</html>

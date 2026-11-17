@@ -1,0 +1,69 @@
+{% extends "shop/base.html" %}{% from "shop/_ui.html" import status_steps %}
+{% block title %}주문 {{ o.order_no }} | {{ S.shop_name }}{% endblock %}
+{% block body %}
+<div class="wrap">
+  {% if done %}
+  <div class="done">
+    <h1>주문이 접수되었습니다</h1>
+    <p>{% if S.bank_account %}아래 계좌로 입금해 주시면 확인한 뒤 출고 준비를 시작합니다.{% else %}입금 계좌를 문자로 안내해 드리겠습니다.{% endif %}</p>
+  </div>
+  {% else %}
+  <h1 class="page-t">주문 상세</h1>
+  {% endif %}
+  <div class="cols">
+    <div class="stack">
+      <section class="box">
+        <h2>주문번호 <span class="num">{{ o.order_no }}</span> <time class="num">{{ o.created_at[:16] }}</time></h2>
+        {{ status_steps(o.status) }}
+        {% if o.status == '입금대기' %}
+        <div class="bankbox num">
+          {% if S.bank_account %}<p>{{ S.bank_name }} <b>{{ S.bank_account }}</b> <span>예금주 {{ S.bank_holder }}</span></p>{% endif %}
+          <p>입금자 이름 <b>{{ o.depositor }}</b></p><p>입금할 금액 <b>{{ won(o.total) }}</b></p>
+        </div>
+        {% endif %}
+        {% if o.tracking_no %}<div class="bankbox num"><p>{{ o.tracking_co }} 송장번호 <b>{{ o.tracking_no }}</b></p></div>{% endif %}
+        <ul class="lines small">
+          {% for it in items %}
+          <li>
+            <span class="lines-img"><img src="{% if it.p_image %}{{ url_for('uploads', name=it.p_image) }}{% else %}{{ art_url(it.p_cut or it.spec.split(' / ')[0], it.p_grade, it.product_id) }}{% endif %}" alt="" width="64" height="64"></span>
+            <div class="lines-info">
+              {% if it.p_id %}<a href="{{ url_for('product', pid=it.p_id) }}"><b>{{ it.name }}</b></a>{% else %}<b>{{ it.name }}</b>{% endif %}
+              <span>{{ it.spec }}</span>
+              <span class="num">{{ won(it.price) }} × {{ it.qty }}개</span>
+            </div>
+            <strong class="num">{{ won(it.price * it.qty) }}</strong>
+            {% if o.status == '배송완료' and it.p_id %}
+              {% if it.review_id %}<span class="tag">후기 작성 완료</span>
+              {% else %}<a class="btn sm line" href="{{ url_for('review_new', item_id=it.id) }}">후기 쓰기</a>{% endif %}
+            {% endif %}
+          </li>
+          {% endfor %}
+        </ul>
+      </section>
+      {% if o.status == '입금대기' %}
+      <form method="post" action="{{ url_for('order_cancel', order_no=o.order_no) }}" onsubmit="return confirm('이 주문을 취소할까요?')">
+        <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+        <button class="tlink">주문 취소하기</button>
+      </form>
+      {% endif %}
+    </div>
+    <aside class="summary">
+      <h2>배송 정보</h2>
+      <dl class="kv">
+        <dt>받는 분</dt><dd>{{ o.name }}</dd>
+        <dt>연락처</dt><dd class="num">{{ fmt_phone(o.phone) }}</dd>
+        <dt>주소</dt><dd>{{ o.addr1 }} {{ o.addr2 }}</dd>
+        {% if o.wish_date %}<dt>받는 날</dt><dd class="num">{{ o.wish_date }}</dd>{% endif %}
+        {% if o.memo %}<dt>메모</dt><dd>{{ o.memo }}</dd>{% endif %}
+      </dl>
+      <dl class="sum num">
+        <dt>상품 금액</dt><dd>{{ won(o.items_total) }}</dd>
+        <dt>배송비</dt><dd>{{ '무료' if o.shipping_fee == 0 else won(o.shipping_fee) }}</dd>
+        <dt class="t">결제 금액</dt><dd class="t">{{ won(o.total) }}</dd>
+      </dl>
+      {% if S.phone %}<p class="hint">주문을 바꾸거나 문의할 때는 {{ S.phone }}로 연락해 주세요.</p>{% endif %}
+      <a class="btn line block" href="{{ url_for('shop') }}">계속 둘러보기</a>
+    </aside>
+  </div>
+</div>
+{% endblock %}

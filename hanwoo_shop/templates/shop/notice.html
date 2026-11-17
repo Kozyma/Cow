@@ -1,0 +1,9 @@
+{% extends "shop/base.html" %}
+{% block title %}{{ n.title }} | {{ S.shop_name }}{% endblock %}
+{% block body %}
+<div class="wrap narrow wide">
+  <nav class="crumb"><a href="{{ url_for('cs') }}">고객센터</a><span>공지사항</span></nav>
+  <article class="doc"><h1>{{ n.title }}</h1><time class="num">{{ n.created_at[:10] }}</time><div class="prose">{{ n.content }}</div></article>
+  <a class="btn line" href="{{ url_for('cs') }}">목록으로</a>
+</div>
+{% endblock %}
