@@ -71,8 +71,8 @@ Windows는 `run_windows.bat` 더블클릭.
 `main`에 푸시하면 기존 배포 흐름(GitHub Actions → EC2)으로 함께 올라갑니다.
 
 - 쇼핑몰: https://koreacow.kr/hanwoo/
-- 백오피스: https://koreacow.kr/hanwoo/admin — 비밀번호는 GitHub Secret `SHOP_ADMIN_PASSWORD`
-  (지정하지 않았으면 농장 관리 앱과 같은 `APP_PASSWORD`). 바꾼 뒤에는 `Deploy to EC2`를 다시 실행
+- 백오피스: https://koreacow.kr/hanwoo/admin — 비밀번호는 쇼핑몰 DB에 저장되며 백오피스 **설정 > 관리자 비밀번호 변경**에서 바꿉니다
+  (잊었을 때는 GitHub Secret `SHOP_ADMIN_PASSWORD`를 지정하고 `Deploy to EC2`를 다시 실행하면 그 값으로 로그인됩니다)
 - 데이터: Docker 볼륨 `shop-data` (`shop_data.db`, `uploads/`) — 재배포해도 유지됩니다
 
 쇼핑몰이 쓰는 환경변수:
@@ -80,7 +80,7 @@ Windows는 `run_windows.bat` 더블클릭.
 | 변수 | 뜻 |
 |---|---|
 | `URL_PREFIX` | 다른 사이트의 하위 경로에 붙일 때의 경로 (`/hanwoo`) |
-| `ADMIN_PASSWORD` | 백오피스 비밀번호. 지정하면 화면에서는 바꿀 수 없습니다 |
+| `ADMIN_PASSWORD` | 백오피스 비밀번호를 강제로 지정(복구용). 지정하면 화면에서는 바꿀 수 없습니다 |
 | `ADMIN_SETUP=off` | 비밀번호가 비어 있어도 '처음 접속한 사람이 정하기'를 허용하지 않음 |
 | `SECRET_KEY` | 로그인 세션 서명 키 |
 | `COOKIE_SECURE=1` | HTTPS에서만 로그인 쿠키 전송 |
