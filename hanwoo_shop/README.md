@@ -71,7 +71,8 @@ Windows는 `run_windows.bat` 더블클릭.
 `main`에 푸시하면 기존 배포 흐름(GitHub Actions → EC2)으로 함께 올라갑니다.
 
 - 쇼핑몰: https://koreacow.kr/hanwoo/
-- 백오피스: https://koreacow.kr/hanwoo/admin — 비밀번호는 농장 관리 앱과 같은 `APP_PASSWORD`
+- 백오피스: https://koreacow.kr/hanwoo/admin — 비밀번호는 GitHub Secret `SHOP_ADMIN_PASSWORD`
+  (지정하지 않았으면 농장 관리 앱과 같은 `APP_PASSWORD`). 바꾼 뒤에는 `Deploy to EC2`를 다시 실행
 - 데이터: Docker 볼륨 `shop-data` (`shop_data.db`, `uploads/`) — 재배포해도 유지됩니다
 
 쇼핑몰이 쓰는 환경변수:
