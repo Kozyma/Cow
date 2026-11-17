@@ -31,6 +31,30 @@ services:
     volumes:
       - ./static/game:/game:ro
 
+  # 한우의 기준 쇼핑몰 (hanwoo_shop/) — 농장 관리 앱과 별개 컨테이너·별개 DB
+  # Caddy가 koreacow.kr/hanwoo/ 아래 요청만 여기로 넘긴다
+  shop:
+    build: ./hanwoo_shop
+    image: cow-shop:latest
+    container_name: cow-shop
+    restart: unless-stopped
+    expose:
+      - "8100"
+    environment:
+      DATA_DIR: /shop/data
+      PORT: "8100"
+      URL_PREFIX: /hanwoo
+      SECRET_KEY: ${SECRET_KEY:-}
+      # 쇼핑몰 백오피스(/hanwoo/admin) 비밀번호 = 농장 관리 앱 비밀번호(APP_PASSWORD)
+      ADMIN_PASSWORD: ${APP_PASSWORD:-}
+      # 비밀번호가 비어 있을 때 '처음 접속한 사람이 비밀번호를 정하는' 화면을 띄우지 않고 잠근다
+      ADMIN_SETUP: "off"
+      COOKIE_SECURE: "1"
+      TRUST_PROXY: "1"
+    volumes:
+      # 주문 DB(shop_data.db)와 상품 사진(uploads/) → 재배포에도 유지
+      - shop-data:/shop/data
+
   caddy:
     image: caddy:2-alpine
     container_name: cow-caddy
@@ -46,8 +70,10 @@ services:
     depends_on:
       - web
       - game-ws
+      - shop
 
 volumes:
   cow-data:
+  shop-data:
   caddy-data:
   caddy-config:

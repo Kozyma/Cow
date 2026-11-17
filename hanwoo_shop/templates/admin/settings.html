@@ -3,6 +3,12 @@
 <h1>설정</h1>
 <form method="post" style="max-width:820px">
   <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+  <div class="card"><h2>판매 상태</h2>
+    <label class="f">지금 상태<select class="in" name="sales_open" style="max-width:420px">
+      <option value="0" {{ 'selected' if S.sales_open != '1' }}>미리보기 (주문과 회원가입을 받지 않음)</option>
+      <option value="1" {{ 'selected' if S.sales_open == '1' }}>판매 중 (주문과 회원가입을 받음)</option>
+    </select><small>미리보기 중에는 쇼핑몰 맨 위에 안내 띠가 보이고 검색 엔진에 노출되지 않습니다. 관리자로 로그인한 브라우저에서는 시험 주문을 해 볼 수 있습니다.</small></label>
+  </div>
   <div class="card"><h2>쇼핑몰</h2>
     <div class="g2">
       <label class="f">쇼핑몰 이름<input class="in" name="shop_name" value="{{ S.shop_name }}" required></label>

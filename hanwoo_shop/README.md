@@ -58,42 +58,35 @@ Windows는 `run_windows.bat` 더블클릭.
 카드·간편결제는 PG사(토스페이먼츠, 포트원 등)와 계약한 뒤 연동해야 하며, 이 버전에는 들어 있지 않습니다.
 주문 접수·출고 알림 문자도 자동으로 나가지 않습니다.
 
-## 서버 배포 (기존 EC2 Docker 구성에 추가할 때)
+## 판매 상태 (미리보기 / 판매 중)
 
-이 폴더에 `Dockerfile`이 들어 있습니다. 기존 `docker-compose.yml`·`Caddyfile`은 건드리지 않았으니,
-올릴 준비가 되면 아래 두 군데를 **직접 추가**하면 됩니다. (도메인은 예시)
+처음에는 **미리보기** 상태입니다. 방문자는 상품을 구경할 수 있지만 주문과 회원가입은 막혀 있고,
+쇼핑몰 맨 위에 안내 띠가 보이며 검색 엔진에 노출되지 않습니다.
+관리자로 로그인한 브라우저에서는 미리보기 중에도 시험 주문을 해 볼 수 있습니다.
+판매를 시작할 때 백오피스 **설정 > 판매 상태**를 `판매 중`으로 바꾸면 됩니다.
 
-`docker-compose.yml` 의 `services:` 아래:
+## 서버 배포 (koreacow.kr/hanwoo/)
 
-```yaml
-  shop:
-    build: ./hanwoo_shop
-    container_name: cow-shop
-    restart: unless-stopped
-    expose:
-      - "8100"
-    environment:
-      SECRET_KEY: ${SHOP_SECRET_KEY}          # .env 에 임의의 긴 문자열
-      ADMIN_PASSWORD: ${SHOP_ADMIN_PASSWORD}  # .env 에 관리자 비밀번호
-      COOKIE_SECURE: "1"                      # HTTPS 에서만 로그인 쿠키 전송
-      TRUST_PROXY: "1"                        # Caddy 뒤에서 실제 접속 IP 사용
-    volumes:
-      - shop-data:/shop/data
-```
+저장소 루트의 `docker-compose.yml`에 `shop` 서비스가, `Caddyfile`에 `/hanwoo/*` 경로가 추가되어 있습니다.
+`main`에 푸시하면 기존 배포 흐름(GitHub Actions → EC2)으로 함께 올라갑니다.
 
-(`volumes:` 목록에 `shop-data:` 추가, `caddy` 의 `depends_on` 에 `shop` 추가)
+- 쇼핑몰: https://koreacow.kr/hanwoo/
+- 백오피스: https://koreacow.kr/hanwoo/admin — 비밀번호는 농장 관리 앱과 같은 `APP_PASSWORD`
+- 데이터: Docker 볼륨 `shop-data` (`shop_data.db`, `uploads/`) — 재배포해도 유지됩니다
 
-`Caddyfile` 맨 아래:
+쇼핑몰이 쓰는 환경변수:
 
-```
-shop.koreacow.kr {
-	encode zstd gzip
-	reverse_proxy shop:8100
-}
-```
+| 변수 | 뜻 |
+|---|---|
+| `URL_PREFIX` | 다른 사이트의 하위 경로에 붙일 때의 경로 (`/hanwoo`) |
+| `ADMIN_PASSWORD` | 백오피스 비밀번호. 지정하면 화면에서는 바꿀 수 없습니다 |
+| `ADMIN_SETUP=off` | 비밀번호가 비어 있어도 '처음 접속한 사람이 정하기'를 허용하지 않음 |
+| `SECRET_KEY` | 로그인 세션 서명 키 |
+| `COOKIE_SECURE=1` | HTTPS에서만 로그인 쿠키 전송 |
+| `TRUST_PROXY=1` | Caddy 뒤에서 실제 접속 IP 사용 |
 
-> 공개 서버에 올릴 때는 `ADMIN_PASSWORD`를 꼭 환경변수로 지정하세요.
-> 지정하지 않으면 `/admin`에 처음 접속한 사람이 비밀번호를 정하게 됩니다.
+나중에 `shop.koreacow.kr` 같은 별도 주소로 옮기려면 DNS에 해당 주소를 추가한 뒤,
+`URL_PREFIX`를 지우고 `Caddyfile`에 그 주소의 블록을 따로 만들면 됩니다.
 
 ## 백업
 

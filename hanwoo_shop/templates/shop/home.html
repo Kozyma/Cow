@@ -4,7 +4,7 @@
 <section class="hero" data-slider aria-roledescription="carousel" aria-label="안내 배너">
   <div class="hero-track">
   {% for b in banners %}
-    <a class="slide t-{{ b.theme }}{% if b.image %} has-photo{% endif %}{% if loop.first %} on{% endif %}" href="{{ b.link or url_for('shop') }}"{% if b.image %} style="background-image:url('{{ url_for('uploads', name=b.image) }}')"{% endif %}>
+    <a class="slide t-{{ b.theme }}{% if b.image %} has-photo{% endif %}{% if loop.first %} on{% endif %}" href="{{ site_url(b.link) }}"{% if b.image %} style="background-image:url('{{ url_for('uploads', name=b.image) }}')"{% endif %}>
       <div class="wrap slide-in">
         <div class="slide-text">
           <h2>{% for line in b.title.splitlines() %}{{ line }}{% if not loop.last %}<br>{% endif %}{% endfor %}</h2>

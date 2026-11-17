@@ -10,7 +10,7 @@
     <label class="f">작은 문구<input class="in" name="subtitle" value="{{ b.subtitle if b else '' }}"></label>
   </div>
   <div class="g4">
-    <label class="f">누르면 갈 주소<input class="in" name="link" value="{{ b.link if b else '/shop' }}" placeholder="/shop?cat=선물세트"></label>
+    <label class="f">누르면 갈 주소<input class="in" name="link" value="{{ b.link if b else '/shop' }}" placeholder="/shop?cat=선물세트"><small>쇼핑몰 안쪽 주소만. 예: /shop, /about</small></label>
     <label class="f">버튼 글자<input class="in" name="link_label" value="{{ b.link_label if b else '' }}" placeholder="한우 보러 가기"></label>
     <label class="f">색<select class="in" name="theme">{% for t, n in [('red', '빨강'), ('black', '검정'), ('paper', '밝은 종이색')] %}<option value="{{ t }}" {{ 'selected' if b and b.theme == t }}>{{ n }}</option>{% endfor %}</select></label>
     <label class="f">순서<input class="in num" type="number" name="sort" value="{{ b.sort if b else 0 }}"></label>

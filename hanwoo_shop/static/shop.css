@@ -47,6 +47,7 @@ h1,h2,h3,p{overflow-wrap:anywhere}
 
 /* 상단 */
 .topnote{background:#000;color:#fff;text-align:center;font-size:14px;padding:9px 16px}
+.topnote.preview{background:#fff3c4;color:#4a3600;border-bottom:1px solid #e6cf7a;font-weight:600}
 .util{background:var(--bg2);font-size:13px;color:var(--ink2)}
 .util .wrap{display:flex;justify-content:space-between;align-items:center;height:36px;gap:16px}
 .util-msg{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}

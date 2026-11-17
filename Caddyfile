@@ -20,6 +20,13 @@ koreacow.kr {
 		file_server
 	}
 
+	# 한우의 기준 쇼핑몰 — /hanwoo/ 아래는 전부 쇼핑몰 컨테이너로 (정적 파일·업로드 사진 포함)
+	redir /hanwoo /hanwoo/
+	handle /hanwoo/* {
+		encode zstd gzip
+		reverse_proxy shop:8100
+	}
+
 	# 그 밖의 페이지는 Flask(gunicorn)로, 응답은 압축해서
 	handle {
 		encode zstd gzip

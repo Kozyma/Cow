@@ -5,6 +5,7 @@
 {% if not S.bank_account %}{% set _ = todo.append('입금 계좌를 등록하세요. 주문을 마친 고객에게 안내됩니다.') %}{% endif %}
 {% if not S.biz_no or not S.mail_order_no %}{% set _ = todo.append('사업자등록번호와 통신판매업 신고번호를 입력하세요. 쇼핑몰 하단에 표시해야 합니다.') %}{% endif %}
 {% if not S.phone %}{% set _ = todo.append('고객센터 전화번호를 입력하세요.') %}{% endif %}
+{% if preview %}<div class="todo"><b>지금은 미리보기 상태입니다.</b> 방문자는 구경만 할 수 있고 주문과 회원가입은 막혀 있습니다. 판매를 시작할 때 <a href="{{ url_for('admin_settings') }}" style="text-decoration:underline">설정</a>에서 '판매 중'으로 바꿔 주세요.</div>{% endif %}
 {% if todo %}<div class="todo"><b>판매를 시작하기 전에</b><ul>{% for t in todo %}<li>{{ t }}</li>{% endfor %}</ul><a href="{{ url_for('admin_settings') }}" style="text-decoration:underline">설정으로 가기</a></div>{% endif %}
 <div class="kpis">
   <a class="kpi" href="{{ url_for('admin_orders') }}"><span>오늘 주문</span><b class="num">{{ d.today_orders }}건</b></a>

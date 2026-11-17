@@ -46,9 +46,10 @@
         <dt>배송비</dt><dd>{{ '무료' if fee == 0 else won(fee) }}</dd>
         <dt class="t">결제 금액</dt><dd class="t">{{ won(total + fee) }}</dd>
       </dl>
-      <label class="chk agree"><input type="checkbox" name="agree" value="1" required>
+      <label class="chk agree"><input type="checkbox" name="agree" value="1" {{ 'required' if can_buy }}>
         <span>주문과 배송을 위해 이름, 연락처, 주소를 수집·이용하는 데 동의합니다. <a class="ulink" href="{{ url_for('policy', kind='privacy') }}" target="_blank">개인정보처리방침</a></span></label>
-      <button class="btn red block" type="submit">{{ won(total + fee) }} 주문하기</button>
+      {% if can_buy %}<button class="btn red block" type="submit">{{ won(total + fee) }} 주문하기</button>
+      {% else %}<button class="btn block" type="button" disabled>판매 준비 중입니다</button><p class="hint">아직 판매를 시작하지 않아 주문을 받지 않습니다.</p>{% endif %}
       <p class="hint">신선식품이라 출고한 뒤에는 단순 변심으로 반품하기 어렵습니다.</p>
     </aside>
   </form>

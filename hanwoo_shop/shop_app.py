@@ -42,6 +42,30 @@ app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 app.config["SESSION_COOKIE_SECURE"] = os.environ.get("COOKIE_SECURE") == "1"
 app.permanent_session_lifetime = timedelta(days=30)
 
+# 다른 사이트의 하위 경로(예: koreacow.kr/hanwoo)에 붙여 띄울 때 쓰는 접두 경로
+URL_PREFIX = "/" + os.environ.get("URL_PREFIX", "").strip("/") if os.environ.get("URL_PREFIX", "").strip("/") else ""
+# 같은 도메인의 다른 앱(농장 관리)과 로그인 쿠키가 섞이지 않게 이름과 경로를 따로 둔다
+app.config["SESSION_COOKIE_NAME"] = "hanwoo_session"
+app.config["SESSION_COOKIE_PATH"] = URL_PREFIX or "/"
+
+
+class _PrefixMiddleware:
+    """URL_PREFIX 아래로 들어온 요청에서 접두 경로를 떼어 SCRIPT_NAME 으로 넘긴다.
+    이렇게 하면 url_for 가 만드는 모든 주소에 접두 경로가 자동으로 붙는다."""
+
+    def __init__(self, wsgi_app, prefix):
+        self.app, self.prefix = wsgi_app, prefix
+
+    def __call__(self, environ, start_response):
+        path = environ.get("PATH_INFO", "")
+        if path == self.prefix or path.startswith(self.prefix + "/"):
+            environ["SCRIPT_NAME"] = environ.get("SCRIPT_NAME", "") + self.prefix
+            environ["PATH_INFO"] = path[len(self.prefix):] or "/"
+        return self.app(environ, start_response)
+
+
+if URL_PREFIX:
+    app.wsgi_app = _PrefixMiddleware(app.wsgi_app, URL_PREFIX)
 if os.environ.get("TRUST_PROXY") == "1":      # Caddy·nginx 뒤에서 실제 접속 IP를 읽는다
     from werkzeug.middleware.proxy_fix import ProxyFix
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
@@ -49,7 +73,10 @@ if os.environ.get("TRUST_PROXY") == "1":      # Caddy·nginx 뒤에서 실제 �
 
 def _secret_key():
     """세션 서명 키: 환경변수 SECRET_KEY, 없으면 처음 실행할 때 만들어 DB에 보관."""
-    key = os.environ.get("SECRET_KEY") or db.get_setting("_secret_key")
+    env = os.environ.get("SECRET_KEY")
+    if env:      # 다른 앱과 같은 값을 받아도 서명이 서로 통하지 않게 구분값을 붙인다
+        return env + "|hanwoo-shop"
+    key = db.get_setting("_secret_key")
     if not key:
         key = secrets.token_hex(32)
         db.set_settings({"_secret_key": key})
@@ -139,7 +166,8 @@ def points(s):
 
 app.jinja_env.globals.update(won=won, per100=per100, disc=disc, p_img=p_img, p_images=p_images,
                              csrf_token=lambda: csrf_token(),
-                             sold_out=sold_out, art_url=art_url, fmt_phone=fmt_phone)
+                             sold_out=sold_out, art_url=art_url, fmt_phone=fmt_phone,
+                             site_url=lambda path: site_url(path))
 
 
 def csrf_token():
@@ -173,8 +201,29 @@ def fail(key):
     _fails[key] = (0, time.time() + 300) if cnt >= 5 else (cnt, 0)
 
 
+def local_ok(n):
+    """사이트 안쪽 주소('/…')인지. 바깥 주소로 보내는 값은 걸러낸다."""
+    return bool(n) and n.startswith("/") and not n.startswith("//") and "\\" not in n
+
+
+def site_url(path):
+    """앱 안쪽 주소('/shop?cat=…')에 접두 경로를 붙인다. 이미 붙어 있으면 그대로."""
+    root = request.script_root
+    if not local_ok(path):
+        return root + "/"
+    if root and (path == root or path.startswith(root + "/")):
+        return path
+    return root + path
+
+
 def safe_next(n):
-    return n if n and n.startswith("/") and not n.startswith("//") and "\\" not in n else None
+    """돌아갈 주소로 써도 되는 값이면 접두 경로를 붙여 돌려주고, 아니면 None."""
+    return site_url(n) if local_ok(n) else None
+
+
+def can_buy():
+    """주문·가입을 받을 수 있는지. 미리보기 중에는 관리자로 로그인한 브라우저만 가능."""
+    return db.get_setting("sales_open") == "1" or bool(session.get("admin"))
 
 
 def current_member():
@@ -268,6 +317,7 @@ def _inject():
                 cart_count=sum(cart_dict().values()),
                 wish_ids=db.wish_ids(m["id"]) if m else set(),
                 is_admin=bool(session.get("admin")),
+                preview=s.get("sales_open") != "1", can_buy=can_buy(),
                 CATEGORIES=CATEGORIES, CUTS=CUTS, GRADES=GRADES, STORAGES=STORAGES,
                 PRODUCT_STATUSES=PRODUCT_STATUSES, ORDER_STATUSES=ORDER_STATUSES,
                 BANNER_THEMES=BANNER_THEMES, SORTS=SORTS, CUT_CATEGORY=CUT_CATEGORY,
@@ -409,6 +459,9 @@ def checkout():
     form = {}
     if m:
         form = {k: m[k] or "" for k in ("name", "phone", "zipcode", "addr1", "addr2")}
+    if request.method == "POST" and not can_buy():
+        flash("아직 판매를 시작하지 않았습니다. 지금은 주문을 받지 않습니다.", "error")
+        return redirect(url_for("checkout"))
     if request.method == "POST":
         form = {k: (request.form.get(k) or "").strip() for k in
                 ("name", "phone", "zipcode", "addr1", "addr2", "memo", "wish_date", "depositor")}
@@ -488,6 +541,9 @@ def join():
     if current_member():
         return redirect(url_for("my"))
     form = {}
+    if request.method == "POST" and not can_buy():
+        flash("아직 판매를 시작하지 않아 회원가입을 받지 않습니다.", "error")
+        return redirect(url_for("join"))
     if request.method == "POST":
         form = {k: (request.form.get(k) or "").strip() for k in ("email", "name", "phone")}
         form["phone"] = re.sub(r"\D", "", form["phone"])
@@ -706,6 +762,8 @@ def admin_login():
         return redirect(url_for("admin_home"))
     env_pw = os.environ.get("ADMIN_PASSWORD", "").strip()
     first = not env_pw and not db.get_setting("_admin_hash")
+    if first and os.environ.get("ADMIN_SETUP") == "off":
+        return render_template("admin/login.html", first=False, locked=True)
     if request.method == "POST":
         key = "a:" + (request.remote_addr or "?")
         pw = request.form.get("password") or ""
@@ -728,10 +786,10 @@ def admin_login():
                 _fails.pop(key, None)
                 sign_in("admin", True)
                 nxt = safe_next(request.args.get("next")) or ""
-                return redirect(nxt if nxt.startswith("/admin") else url_for("admin_home"))
+                return redirect(nxt if nxt.startswith(request.script_root + "/admin") else url_for("admin_home"))
             fail(key)
             flash("비밀번호가 맞지 않습니다.", "error")
-    return render_template("admin/login.html", first=first)
+    return render_template("admin/login.html", first=first, locked=False)
 
 
 @app.route("/admin/logout", methods=["POST"])
@@ -901,7 +959,7 @@ def admin_banners():
         else:
             d = dict(title=(f.get("title") or "").strip()[:80],
                      subtitle=(f.get("subtitle") or "").strip()[:120],
-                     link=safe_next((f.get("link") or "").strip()) or "/shop",
+                     link=(f.get("link") or "").strip() if local_ok((f.get("link") or "").strip()) else "/shop",
                      link_label=(f.get("link_label") or "").strip()[:20],
                      theme=f.get("theme") if f.get("theme") in BANNER_THEMES else "red",
                      sort=f.get("sort", 0, type=int) or 0, active=1 if f.get("active") else 0)
@@ -989,6 +1047,7 @@ def admin_settings():
         for k in ("shipping_fee", "free_ship_over"):
             if k in data:
                 data[k] = str(max(0, int(re.sub(r"\D", "", data[k]) or 0)))
+        data["sales_open"] = "1" if request.form.get("sales_open") == "1" else "0"
         if data.get("kakao_url") and not data["kakao_url"].startswith(("https://", "http://")):
             data["kakao_url"] = ""
         db.set_settings(data)

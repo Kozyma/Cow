@@ -7,7 +7,9 @@
   {% with msgs = get_flashed_messages(with_categories=true) %}{% for cat, m in msgs %}<div class="flash {{ cat }}">{{ m }}</div>{% endfor %}{% endwith %}
   <form method="post" class="card">
     <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
-    {% if first %}
+    {% if locked %}
+    <p style="margin:0">관리자 비밀번호가 서버에 설정되어 있지 않습니다. 서버 환경변수 <b>ADMIN_PASSWORD</b>를 지정한 뒤 다시 접속해 주세요.</p>
+    {% elif first %}
     <p class="muted" style="margin-top:0">처음 접속하셨습니다. 앞으로 쓸 관리자 비밀번호를 정해 주세요. (8자 이상)</p>
     <label class="f">새 비밀번호<input class="in" type="password" name="password" required minlength="8" autofocus autocomplete="new-password"></label>
     <label class="f">한 번 더 입력<input class="in" type="password" name="password2" required minlength="8" autocomplete="new-password"></label>
