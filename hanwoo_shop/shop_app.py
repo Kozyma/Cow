@@ -24,7 +24,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 
 import shop_art
 from shop_db import (ShopDB, CATEGORIES, CUTS, CUT_CATEGORY, GRADES, STORAGES,
-                     PRODUCT_STATUSES, ORDER_STATUSES, BANNER_THEMES, SORTS,
+                     PRODUCT_STATUSES, ORDER_STATUSES, BANNER_THEMES, SORTS, COURIERS,
                      DEFAULT_SETTINGS)
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -320,7 +320,7 @@ def _inject():
                 preview=s.get("sales_open") != "1", can_buy=can_buy(),
                 CATEGORIES=CATEGORIES, CUTS=CUTS, GRADES=GRADES, STORAGES=STORAGES,
                 PRODUCT_STATUSES=PRODUCT_STATUSES, ORDER_STATUSES=ORDER_STATUSES,
-                BANNER_THEMES=BANNER_THEMES, SORTS=SORTS, CUT_CATEGORY=CUT_CATEGORY,
+                BANNER_THEMES=BANNER_THEMES, SORTS=SORTS, CUT_CATEGORY=CUT_CATEGORY, COURIERS=COURIERS,
                 year=datetime.now().year)
 
 
@@ -814,7 +814,7 @@ def admin_orders():
     q = (request.args.get("q") or "").strip() or None
     return render_template("admin/orders.html", orders=db.orders(status, q), status=status,
                            q=q or "", counts=db.order_status_counts(), dummies=db.dummy_count(),
-                           tab="orders")
+                           last_courier=db.get_setting("_last_courier") or COURIERS[0], tab="orders")
 
 
 @app.route("/admin/orders/dummy", methods=["POST"])
@@ -856,10 +856,19 @@ def admin_order(oid):
 @admin_required
 def admin_order_status(oid):
     st = request.form.get("status")
+    back = safe_next(request.form.get("back")) or url_for("admin_orders")
+    if st == "배송중":      # 출고 처리: 택배사와 송장번호를 함께 받는다
+        co = (request.form.get("tracking_co") or "").strip()[:20]
+        no = re.sub(r"\s", "", request.form.get("tracking_no") or "")[:30]
+        if co != "직접 전달" and not no:
+            flash("송장번호를 입력해 주세요. 택배 없이 직접 전달했다면 택배사에서 '직접 전달'을 골라 주세요.", "error")
+            return redirect(back)
+        db.set_tracking(oid, co, no)
+        db.set_settings({"_last_courier": co})
     if st in ORDER_STATUSES:
         db.set_order_status(oid, st)
         flash(f"주문 상태를 '{st}'(으)로 바꿨습니다.", "ok")
-    return redirect(safe_next(request.form.get("back")) or url_for("admin_orders"))
+    return redirect(back)
 
 
 @app.route("/admin/orders.csv")

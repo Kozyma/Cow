@@ -99,3 +99,10 @@ body{font-family:"Pretendard Variable",Pretendard,"Apple SD Gothic Neo","Noto Sa
 textarea.in{line-height:1.55;resize:vertical}
 @media(max-width:900px){.kpis.three{grid-template-columns:1fr}.g4,.g41{grid-template-columns:1fr}.side .grp{display:none}}
 label.f .in{display:block}
+
+/* 주문 목록: 배송지와 출고 처리 */
+.olist td{vertical-align:top}
+.olist .addr{min-width:320px;line-height:1.5}
+.olist .addr div{margin-top:2px}
+.ship{display:grid;grid-template-columns:1fr;gap:6px;margin:0;width:170px}
+.ship .in{padding:6px 9px;font-size:.88rem}

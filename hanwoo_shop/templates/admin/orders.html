@@ -21,18 +21,35 @@
   {% for s in ORDER_STATUSES %}<a href="{{ url_for('admin_orders', status=s) }}" class="{{ 'on' if status == s }}">{{ s }}<b>{{ counts.get(s, 0) }}</b></a>{% endfor %}
 </div>
 <div class="card tw">
-{% if orders %}<table>
-  <tr><th>주문번호</th><th>받는 분</th><th>상품</th><th class="r">결제 금액</th><th>받는 날</th><th>상태</th><th>다음 단계</th></tr>
-  {% set nxt = {'입금대기': '결제완료', '결제완료': '상품준비', '상품준비': '배송중', '배송중': '배송완료'} %}
-  {% set lbl = {'입금대기': '입금 확인', '결제완료': '준비 시작', '상품준비': '출고 처리', '배송중': '배송 완료'} %}
+{% if orders %}<table class="olist">
+  <tr><th>주문</th><th>받는 분 · 배송지</th><th>상품</th><th class="r">결제 금액</th><th>상태</th><th>처리</th></tr>
+  {% set here = request.full_path.rstrip('?') %}
   {% for o in orders %}<tr>
-    <td class="num"><a href="{{ url_for('admin_order', oid=o.id) }}"><b>{{ o.order_no }}</b></a><div class="muted">{{ o.created_at[5:16] }}</div></td>
-    <td class="nw">{{ o.name }}{% if o.member_id %} <span class="chip">회원</span>{% endif %}{% if o.is_dummy %} <span class="chip warn">더미</span>{% endif %}<div class="muted num">{{ fmt_phone(o.phone) }}{% if o.depositor and o.depositor != o.name %}, 입금자 {{ o.depositor }}{% endif %}</div></td>
+    <td class="num nw"><a href="{{ url_for('admin_order', oid=o.id) }}"><b>{{ o.order_no }}</b></a><div class="muted">{{ o.created_at[5:16] }}</div>
+      <a class="btn line sm" style="margin-top:6px" href="{{ url_for('admin_order', oid=o.id) }}">상세 보기</a></td>
+    <td class="addr"><b>{{ o.name }}</b>{% if o.member_id %} <span class="chip">회원</span>{% endif %}{% if o.is_dummy %} <span class="chip warn">더미</span>{% endif %} <span class="num">{{ fmt_phone(o.phone) }}</span>
+      <div>{% if o.zipcode %}<span class="num muted">({{ o.zipcode }})</span> {% endif %}{{ o.addr1 }} {{ o.addr2 or '' }}</div>
+      {% if o.memo %}<div class="muted">메모: {{ o.memo }}</div>{% endif %}
+      <div class="muted num">받는 날 {{ o.wish_date or '빠른 날' }}{% if o.depositor and o.depositor != o.name %}, 입금자 {{ o.depositor }}{% endif %}</div></td>
     <td>{{ o['items'] }}</td>
     <td class="r num"><b>{{ won(o.total) }}</b></td>
-    <td class="num nw">{{ o.wish_date[5:] if o.wish_date else '빠른 날' }}</td>
-    <td><span class="st {{ o.status }}">{{ o.status }}</span></td>
-    <td>{% if o.status in nxt %}<form class="inline" method="post" action="{{ url_for('admin_order_status', oid=o.id) }}"><input type="hidden" name="_csrf" value="{{ csrf_token() }}"><input type="hidden" name="back" value="{{ request.full_path.rstrip('?') }}"><button class="btn sm" name="status" value="{{ nxt[o.status] }}">{{ lbl[o.status] }}</button></form>{% endif %}</td>
+    <td><span class="st {{ o.status }}">{{ o.status }}</span>
+      {% if o.tracking_no or o.tracking_co %}<div class="muted num nw" style="margin-top:4px">{{ o.tracking_co }} {{ o.tracking_no or '' }}</div>{% endif %}</td>
+    <td>
+      {% if o.status in ('입금대기', '결제완료', '배송중') %}
+      <form class="inline" method="post" action="{{ url_for('admin_order_status', oid=o.id) }}"><input type="hidden" name="_csrf" value="{{ csrf_token() }}"><input type="hidden" name="back" value="{{ here }}">
+        {% if o.status == '입금대기' %}<button class="btn sm" name="status" value="결제완료">입금 확인</button>
+        {% elif o.status == '결제완료' %}<button class="btn sm" name="status" value="상품준비">준비 시작</button>
+        {% else %}<button class="btn sm" name="status" value="배송완료">배송 완료</button>{% endif %}
+      </form>
+      {% elif o.status == '상품준비' %}
+      <form class="ship" method="post" action="{{ url_for('admin_order_status', oid=o.id) }}"><input type="hidden" name="_csrf" value="{{ csrf_token() }}"><input type="hidden" name="back" value="{{ here }}"><input type="hidden" name="status" value="배송중">
+        <select class="in" name="tracking_co" aria-label="{{ o.order_no }} 택배사">{% for c in COURIERS %}<option {{ 'selected' if c == (o.tracking_co or last_courier) }}>{{ c }}</option>{% endfor %}</select>
+        <input class="in num" name="tracking_no" value="{{ o.tracking_no or '' }}" placeholder="송장번호" inputmode="numeric" aria-label="{{ o.order_no }} 송장번호">
+        <button class="btn sm">출고 처리</button>
+      </form>
+      {% endif %}
+    </td>
   </tr>{% endfor %}
 </table>{% else %}<p class="muted">조건에 맞는 주문이 없습니다.</p>{% endif %}
 </div>

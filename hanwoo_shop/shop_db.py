@@ -24,6 +24,7 @@ STORAGES = ["냉장", "냉동"]
 PRODUCT_STATUSES = ["판매중", "품절", "숨김"]
 ORDER_STATUSES = ["입금대기", "결제완료", "상품준비", "배송중", "배송완료", "취소"]
 PAID = "('결제완료','상품준비','배송중','배송완료')"
+COURIERS = ["우체국택배", "CJ대한통운", "한진택배", "롯데택배", "로젠택배", "직접 전달"]
 BANNER_THEMES = ["red", "black", "paper"]
 SORTS = {
     "rec": ("추천순", "p.sort, p.id DESC"),
@@ -475,6 +476,10 @@ class ShopDB:
     def update_order_admin(self, oid, tracking_co, tracking_no, admin_memo):
         self._run("UPDATE orders SET tracking_co=?, tracking_no=?, admin_memo=? WHERE id=?",
                   (tracking_co, tracking_no, admin_memo, oid))
+
+    def set_tracking(self, oid, tracking_co, tracking_no):
+        self._run("UPDATE orders SET tracking_co=?, tracking_no=? WHERE id=?",
+                  (tracking_co or None, tracking_no or None, oid))
 
     def customers(self):
         return self._all(f"""
