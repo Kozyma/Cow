@@ -813,7 +813,25 @@ def admin_orders():
     status = request.args.get("status") if request.args.get("status") in ORDER_STATUSES else None
     q = (request.args.get("q") or "").strip() or None
     return render_template("admin/orders.html", orders=db.orders(status, q), status=status,
-                           q=q or "", counts=db.order_status_counts(), tab="orders")
+                           q=q or "", counts=db.order_status_counts(), dummies=db.dummy_count(),
+                           tab="orders")
+
+
+@app.route("/admin/orders/dummy", methods=["POST"])
+@admin_required
+def admin_orders_dummy():
+    """화면 확인용 더미 주문 넣기·지우기."""
+    if request.form.get("act") == "clear":
+        flash(f"더미 주문 {db.clear_dummy_orders()}건을 지우고 재고를 되돌렸습니다.", "ok")
+    elif db.get_setting("sales_open") == "1":
+        flash("판매 중에는 더미 주문을 넣을 수 없습니다. 실제 주문과 섞이지 않게 미리보기 상태에서만 넣어 주세요.", "error")
+    else:
+        s = db.settings()
+        n = db.seed_dummy_orders(int(s.get("shipping_fee") or 0), int(s.get("free_ship_over") or 0))
+        flash(f"더미 주문 {n}건을 넣었습니다." if n else
+              "판매중이고 재고가 있는 상품이 없어 더미 주문을 만들지 못했습니다. 상품을 먼저 등록해 주세요.",
+              "ok" if n else "error")
+    return redirect(url_for("admin_orders"))
 
 
 @app.route("/admin/orders/<int:oid>", methods=["GET", "POST"])

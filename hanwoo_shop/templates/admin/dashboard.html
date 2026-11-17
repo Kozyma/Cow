@@ -31,7 +31,7 @@
   <div class="card"><h2>최근 주문</h2>
     {% if recent %}<div class="tw"><table>
       <tr><th>주문번호</th><th>받는 분</th><th>상품</th><th class="r">금액</th><th>상태</th></tr>
-      {% for o in recent %}<tr><td class="num"><a href="{{ url_for('admin_order', oid=o.id) }}"><b>{{ o.order_no }}</b></a><div class="muted">{{ o.created_at[5:16] }}</div></td><td class="nw">{{ o.name }}</td><td>{{ o['items'] }}</td><td class="r num">{{ won(o.total) }}</td><td><span class="st {{ o.status }}">{{ o.status }}</span></td></tr>{% endfor %}
+      {% for o in recent %}<tr><td class="num"><a href="{{ url_for('admin_order', oid=o.id) }}"><b>{{ o.order_no }}</b></a><div class="muted">{{ o.created_at[5:16] }}</div></td><td class="nw">{{ o.name }}{% if o.is_dummy %} <span class="chip warn">더미</span>{% endif %}</td><td>{{ o['items'] }}</td><td class="r num">{{ won(o.total) }}</td><td><span class="st {{ o.status }}">{{ o.status }}</span></td></tr>{% endfor %}
     </table></div>{% else %}<p class="muted">아직 주문이 없습니다.</p>{% endif %}
   </div>
   <div class="card"><h2>이번 달 많이 팔린 상품</h2>

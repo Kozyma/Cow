@@ -6,6 +6,16 @@
     <a class="btn line" href="{{ url_for('admin_orders_csv', status=status) }}">엑셀(CSV)로 받기</a>
   </div>
 </div>
+{% if preview or dummies %}
+<form method="post" action="{{ url_for('admin_orders_dummy') }}" class="todo inline between">
+  <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+  <span>{% if dummies %}<b>더미 주문 {{ dummies }}건</b>이 들어 있습니다. 주문 목록에 <span class="chip warn">더미</span>로 표시되며 매출과 재고에도 반영됩니다.{% else %}주문이 들어왔을 때의 화면을 미리 보려면 더미 주문을 넣어 보세요. 최근 2주에 걸친 20건이 만들어집니다.{% endif %}</span>
+  <span class="inline">
+    {% if preview %}<button class="btn line sm" name="act" value="add">더미 주문 20건 넣기</button>{% endif %}
+    {% if dummies %}<button class="btn danger sm" name="act" value="clear" onclick="return confirm('더미 주문을 모두 지울까요? 더미 주문이 가져간 재고도 되돌아갑니다.')">더미 주문 모두 지우기</button>{% endif %}
+  </span>
+</form>
+{% endif %}
 <div class="tabs">
   <a href="{{ url_for('admin_orders') }}" class="{{ 'on' if not status }}">전체</a>
   {% for s in ORDER_STATUSES %}<a href="{{ url_for('admin_orders', status=s) }}" class="{{ 'on' if status == s }}">{{ s }}<b>{{ counts.get(s, 0) }}</b></a>{% endfor %}
@@ -17,7 +27,7 @@
   {% set lbl = {'입금대기': '입금 확인', '결제완료': '준비 시작', '상품준비': '출고 처리', '배송중': '배송 완료'} %}
   {% for o in orders %}<tr>
     <td class="num"><a href="{{ url_for('admin_order', oid=o.id) }}"><b>{{ o.order_no }}</b></a><div class="muted">{{ o.created_at[5:16] }}</div></td>
-    <td class="nw">{{ o.name }}{% if o.member_id %} <span class="chip">회원</span>{% endif %}<div class="muted num">{{ fmt_phone(o.phone) }}{% if o.depositor and o.depositor != o.name %}, 입금자 {{ o.depositor }}{% endif %}</div></td>
+    <td class="nw">{{ o.name }}{% if o.member_id %} <span class="chip">회원</span>{% endif %}{% if o.is_dummy %} <span class="chip warn">더미</span>{% endif %}<div class="muted num">{{ fmt_phone(o.phone) }}{% if o.depositor and o.depositor != o.name %}, 입금자 {{ o.depositor }}{% endif %}</div></td>
     <td>{{ o['items'] }}</td>
     <td class="r num"><b>{{ won(o.total) }}</b></td>
     <td class="num nw">{{ o.wish_date[5:] if o.wish_date else '빠른 날' }}</td>

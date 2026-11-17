@@ -1,6 +1,6 @@
 {% extends "admin/base.html" %}{% block title %}{{ o.order_no }}{% endblock %}
 {% block body %}
-<div class="head"><h1><a href="{{ url_for('admin_orders') }}" class="muted">주문 관리 /</a> <span class="num">{{ o.order_no }}</span> <span class="st {{ o.status }}">{{ o.status }}</span></h1></div>
+<div class="head"><h1><a href="{{ url_for('admin_orders') }}" class="muted">주문 관리 /</a> <span class="num">{{ o.order_no }}</span> <span class="st {{ o.status }}">{{ o.status }}</span>{% if o.is_dummy %} <span class="chip warn">더미 주문</span>{% endif %}</h1></div>
 <div class="two">
   <div>
     <div class="card"><h2>주문 상품</h2><table>

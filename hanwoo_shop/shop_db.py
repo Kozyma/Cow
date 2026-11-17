@@ -210,6 +210,7 @@ class ShopDB:
             add("product", "is_new", "INTEGER NOT NULL DEFAULT 0")
             add("product", "origin", "TEXT NOT NULL DEFAULT '국내산 한우'")
             add("orders", "member_id", "INTEGER")
+            add("orders", "is_dummy", "INTEGER NOT NULL DEFAULT 0")
             c.execute("CREATE INDEX IF NOT EXISTS ix_orders_member ON orders(member_id)")
             if new_cat:
                 for cut, cat in CUT_CATEGORY.items():
@@ -443,7 +444,7 @@ class ShopDB:
             args += [f"%{q}%"] * 3
         if cond:
             sql += " WHERE " + " AND ".join(cond)
-        sql += " ORDER BY o.id DESC LIMIT ?"
+        sql += " ORDER BY o.created_at DESC, o.id DESC LIMIT ?"
         return self._all(sql, args + [limit])
 
     def order_status_counts(self):
@@ -484,6 +485,79 @@ class ShopDB:
                      WHERE o2.phone=o.phone ORDER BY id DESC LIMIT 1) AS addr
             FROM orders o WHERE status!='취소'
             GROUP BY phone ORDER BY paid DESC, last_at DESC""")
+
+    # ── 더미 주문 (화면 확인용) ─────────────────────────
+    def dummy_count(self):
+        return self._one("SELECT COUNT(*) FROM orders WHERE is_dummy=1")[0]
+
+    def seed_dummy_orders(self, shipping_fee, free_over):
+        """최근 2주에 걸친 더미 주문 20건을 만든다. 실제 주문과 같은 구조라 백오피스의
+        모든 화면에서 그대로 보이고, is_dummy 표시가 있어 한 번에 지울 수 있다."""
+        rnd = random.Random()
+        names = ["홍길동", "김철수", "이영희", "박민수", "최지은", "정하늘", "강바다", "윤가람", "임나래", "한솔"]
+        areas = ["서울 예시구", "경기 예시시", "부산 예시구", "대전 예시구", "충남 예시군", "전북 예시시"]
+        # (며칠 전, 상태) — 오래된 주문일수록 처리 단계가 뒤쪽
+        plan = [(0, "입금대기"), (0, "입금대기"), (0, "결제완료"), (0, "결제완료"), (1, "입금대기"),
+                (1, "결제완료"), (1, "상품준비"), (2, "상품준비"), (2, "배송중"), (3, "배송중"),
+                (3, "배송중"), (4, "배송완료"), (5, "배송완료"), (6, "취소"), (7, "배송완료"),
+                (8, "배송완료"), (9, "배송완료"), (10, "배송완료"), (12, "배송완료"), (13, "배송완료")]
+        made = 0
+        with self.conn() as c:
+            prods = c.execute("SELECT * FROM product WHERE status='판매중' AND stock>0").fetchall()
+            stock = {p["id"]: p["stock"] for p in prods}
+            base = c.execute("SELECT COUNT(*) FROM orders WHERE is_dummy=1").fetchone()[0]
+            for n, (days, status) in enumerate(plan):
+                pool = [p for p in prods if stock[p["id"]] > 0]
+                if not pool:
+                    break
+                when = datetime.now() - timedelta(days=days)
+                when = (when - timedelta(minutes=rnd.randint(5, 240)) if days == 0
+                        else when.replace(hour=rnd.randint(9, 21), minute=rnd.randint(0, 59), second=rnd.randint(0, 59)))
+                lines, total = [], 0
+                for p in rnd.sample(pool, min(len(pool), rnd.choice([1, 1, 2, 2, 3]))):
+                    qty = min(rnd.choice([1, 1, 1, 2]), stock[p["id"]])
+                    if status != "취소":
+                        stock[p["id"]] -= qty
+                        c.execute("UPDATE product SET stock=stock-? WHERE id=?", (qty, p["id"]))
+                    lines.append((p["id"], p["name"], f"{p['cut']} / {p['grade']} / {p['weight_g']}g / {p['storage']}",
+                                  p["price"], qty))
+                    total += p["price"] * qty
+                fee = 0 if (free_over and total >= free_over) else shipping_fee
+                for _ in range(30):
+                    order_no = "HW" + when.strftime("%y%m%d") + f"{rnd.randint(0, 99999):05d}"
+                    if not c.execute("SELECT 1 FROM orders WHERE order_no=?", (order_no,)).fetchone():
+                        break
+                seq = base + n + 1
+                name = names[(seq - 1) % len(names)]
+                paid = status not in ("입금대기", "취소")
+                shipped = status in ("배송중", "배송완료")
+                fmt = lambda d: d.strftime("%Y-%m-%d %H:%M:%S")
+                cur = c.execute(
+                    "INSERT INTO orders(order_no,created_at,name,phone,zipcode,addr1,addr2,memo,wish_date,"
+                    "depositor,items_total,shipping_fee,total,status,tracking_co,tracking_no,admin_memo,"
+                    "paid_at,shipped_at,is_dummy) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)",
+                    (order_no, fmt(when), name, f"0100000{seq % 10000:04d}", "00000",
+                     f"{rnd.choice(areas)} 더미로 {seq}", f"{rnd.randint(101, 120)}동 {rnd.randint(1, 15)}0{rnd.randint(1, 4)}호",
+                     "[더미 주문] 화면 확인용입니다", "", name, total, fee, total + fee, status,
+                     "우체국택배" if shipped else None, f"DUMMY-{seq:04d}" if shipped else None,
+                     "더미 주문", fmt(when + timedelta(hours=rnd.randint(1, 5))) if paid else None,
+                     fmt(when + timedelta(days=1)) if shipped else None))
+                c.executemany("INSERT INTO order_item(order_id,product_id,name,spec,price,qty) "
+                              "VALUES(?,?,?,?,?,?)", [(cur.lastrowid,) + l for l in lines])
+                made += 1
+        return made
+
+    def clear_dummy_orders(self):
+        """더미 주문을 모두 지우고, 더미 주문이 가져간 재고를 되돌린다."""
+        with self.conn() as c:
+            rows = c.execute("""SELECT i.product_id, i.qty FROM order_item i JOIN orders o ON o.id=i.order_id
+                                WHERE o.is_dummy=1 AND o.status!='취소'""").fetchall()
+            for r in rows:
+                c.execute("UPDATE product SET stock=stock+? WHERE id=?", (r["qty"], r["product_id"]))
+            c.execute("DELETE FROM review WHERE order_item_id IN (SELECT i.id FROM order_item i "
+                      "JOIN orders o ON o.id=i.order_id WHERE o.is_dummy=1)")
+            n = c.execute("DELETE FROM orders WHERE is_dummy=1").rowcount
+        return n
 
     # ── 후기 ────────────────────────────────────────────
     def add_review(self, product_id, order_item_id, member_id, author, rating, content, image):
